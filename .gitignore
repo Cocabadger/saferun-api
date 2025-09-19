@@ -1,0 +1,39 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.so
+*.egg-info/
+.venv/
+
+# OS/Editor
+.DS_Store
+.vscode/
+.idea/
+
+# Builds/Dist
+build/
+dist/
+*.log
+*.bak
+
+# Data/Secrets/Scratch
+*.sqlite3
+*.db
+/data/
+server.log
+.env
+.env.*
+scripts/secrets/
+artifacts/
+logs/
+
+# Docker
+*.pid
+**/.pytest_cache/
+
+# E2E and local outputs
+scripts/secrets/
+artifacts/
+logs/
