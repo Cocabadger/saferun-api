@@ -1,0 +1,33 @@
+{
+  "provider": "notion",
+  "action_type": "create", 
+  "resource_path": "pages",
+  "parameters": {
+    "parent": {
+      "database_id": "your-database-id-here"
+    },
+    "properties": {
+      "Name": {
+        "title": [
+          {
+            "text": {
+              "content": "New Project Task"
+            }
+          }
+        ]
+      },
+      "Status": {
+        "select": {
+          "name": "In Progress"
+        }
+      },
+      "Priority": {
+        "select": {
+          "name": "High"
+        }
+      }
+    }
+  },
+  "dry_run": true,
+  "force": false
+}

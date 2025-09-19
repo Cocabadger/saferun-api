@@ -1,0 +1,13 @@
+{
+  "provider": "github",
+  "action_type": "create",
+  "resource_path": "repos/owner/repo/issues",
+  "parameters": {
+    "title": "Bug Report: API Error",
+    "body": "There seems to be an issue with the API endpoint...",
+    "labels": ["bug", "api"],
+    "assignees": ["developer1"]
+  },
+  "dry_run": true,
+  "force": false
+}
