@@ -1,4 +1,5 @@
 """API Key registration and authentication."""
+import os
 from fastapi import APIRouter, HTTPException, Header, Depends
 from pydantic import BaseModel, EmailStr
 from typing import Optional
@@ -65,12 +66,23 @@ def verify_api_key(x_api_key: Optional[str] = Header(None, alias="X-API-Key")) -
             status_code=401,
             detail="X-API-Key header required"
         )
-    
+
     key_info = db.validate_api_key(x_api_key)
     if not key_info:
         raise HTTPException(
             status_code=401,
             detail="Invalid or inactive API key"
         )
-    
+
+    try:
+        limit = int(os.getenv("SR_FREE_TIER_LIMIT", "100"))
+    except ValueError:
+        limit = 100
+
+    if limit > -1 and key_info.get("usage_count", 0) > limit:
+        raise HTTPException(
+            status_code=403,
+            detail="Free tier limit exceeded"
+        )
+
     return x_api_key

@@ -20,7 +20,7 @@ async def lifespan(app: FastAPI):
     # Ensure data directory exists for SQLite
     storage_backend = os.getenv("SR_STORAGE_BACKEND", "sqlite").lower()
     if storage_backend == "sqlite":
-        sqlite_path = os.getenv("SR_SQLITE_PATH", "data/saferun.db")
+        sqlite_path = os.getenv("SR_SQLITE_PATH", "/data/saferun.db")
         sqlite_dir = os.path.dirname(sqlite_path)
         if sqlite_dir and not os.path.exists(sqlite_dir):
             os.makedirs(sqlite_dir, exist_ok=True)

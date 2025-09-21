@@ -53,7 +53,10 @@ curl -X POST http://localhost:8500/v1/dry-run/github.repo.archive \
 1. Push to GitHub
 2. Connect repo to Railway
 3. Add environment variables in Railway dashboard
-4. Deploy!
+   - `SR_STORAGE_BACKEND=sqlite`
+   - `SR_SQLITE_PATH=/data/saferun.db`
+4. Add a Railway Volume mounted at `/data` (Service → Settings → Volumes)
+5. Deploy!
 
 ### Render
 
@@ -67,7 +70,8 @@ curl -X POST http://localhost:8500/v1/dry-run/github.repo.archive \
 - `PORT`: Server port (default: 8500)
 - `SR_LOG_LEVEL`: Log level (info/debug)
 - `SR_STORAGE_BACKEND`: Storage type (sqlite)
-- `SR_SQLITE_PATH`: Database path (data/saferun.db)
+- `SR_SQLITE_PATH`: Database path (default `/data/saferun.db` when using a Railway Volume; set to `data/saferun.db` for local development)
+- `SR_FREE_TIER_LIMIT`: Number of free API calls before returning 403 (default 100, set to `-1` to disable)
 
 ## Pricing
 
