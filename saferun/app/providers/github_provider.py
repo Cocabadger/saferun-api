@@ -1,10 +1,80 @@
-from typing import Dict, Any, Tuple
+import os
+from typing import Dict, Any, List
+
+import httpx
+
 from .base import Provider
 
-# Note: We avoid importing external GitHub SDKs; use simple HTTP if needed.
-# For tests, methods will be monkeypatched.
+# Note: We avoid importing external GitHub SDKs; use simple HTTP via httpx.
+
 
 class GitHubProvider(Provider):
+    API_BASE = os.getenv("SR_GITHUB_API_BASE", "https://api.github.com")
+    USER_AGENT = os.getenv("SR_GITHUB_USER_AGENT", "SafeRun/0.20.0")
+    TIMEOUT = float(os.getenv("SR_GITHUB_TIMEOUT", "15"))
+
+    @staticmethod
+    def _headers(token: str) -> Dict[str, str]:
+        if not token:
+            raise RuntimeError("GitHub token is required")
+        return {
+            "Authorization": f"Bearer {token}",
+            "Accept": "application/vnd.github+json",
+            "User-Agent": GitHubProvider.USER_AGENT,
+        }
+
+    @staticmethod
+    async def _request(method: str, path: str, token: str, params: Dict[str, Any] | None = None, json_payload: Dict[str, Any] | None = None) -> Dict[str, Any] | None:
+        url = f"{GitHubProvider.API_BASE}{path}"
+        async with httpx.AsyncClient(timeout=GitHubProvider.TIMEOUT) as client:
+            response = await client.request(
+                method,
+                url,
+                headers=GitHubProvider._headers(token),
+                params=params,
+                json=json_payload,
+            )
+
+        if response.status_code == 204:
+            return None
+
+        if response.status_code >= 400:
+            message = response.text
+            rate_remaining = response.headers.get("X-RateLimit-Remaining")
+            if rate_remaining == "0":
+                reset = response.headers.get("X-RateLimit-Reset")
+                message = f"rate limit exceeded (reset={reset})"
+            raise RuntimeError(f"GitHub API {response.status_code}: {message}")
+
+        return response.json()
+
+    @staticmethod
+    def _parse_target(target_id: str) -> Dict[str, Any]:
+        if "@" in target_id:
+            owner_repo, view = target_id.split("@", 1)
+            owner, repo = owner_repo.split("/", 1)
+            return {"kind": "bulk", "view": view, "owner": owner, "repo": repo}
+        if "#" in target_id:
+            owner_repo, branch = target_id.split("#", 1)
+            owner, repo = owner_repo.split("/", 1)
+            return {"kind": "branch", "owner": owner, "repo": repo, "branch": branch}
+        owner, repo = target_id.split("/", 1)
+        return {"kind": "repo", "owner": owner, "repo": repo}
+
+    @staticmethod
+    async def _get_repo(owner: str, repo: str, token: str) -> Dict[str, Any]:
+        data = await GitHubProvider._request("GET", f"/repos/{owner}/{repo}", token)
+        if not isinstance(data, dict):
+            raise RuntimeError("Unexpected response from GitHub repo metadata")
+        return data
+
+    @staticmethod
+    async def _get_branch(owner: str, repo: str, branch: str, token: str) -> Dict[str, Any]:
+        data = await GitHubProvider._request("GET", f"/repos/{owner}/{repo}/branches/{branch}", token)
+        if not isinstance(data, dict):
+            raise RuntimeError("Unexpected response from GitHub branch metadata")
+        return data
+
     def __getattribute__(self, name):
         # Ensure monkeypatched class-level async funcs are not bound with self
         if name in {"get_metadata", "get_children_count", "archive", "unarchive", "delete_branch", "restore_branch", "list_open_prs", "bulk_close_prs", "bulk_reopen_prs"}:
@@ -18,116 +88,184 @@ class GitHubProvider(Provider):
         return super().__getattribute__(name)
     @staticmethod
     async def get_metadata(target_id: str, token: str) -> Dict[str, Any]:
-        """
-        target_id formats:
-          - repo: "org/repo"
-          - branch: "org/repo#branch"
-          - bulk PRs: "org/repo@open_prs"
-        Return a dict capturing minimal metadata used by risk/human preview.
-        """
-        if "@" in target_id:
-            owner_repo, view = target_id.split("@", 1)
-            owner, repo = owner_repo.split("/", 1)
-            if view == "open_prs":
-                # Try to get a preview sample from list_open_prs
-                try:
-                    prs = await GitHubProvider.list_open_prs(target_id, token)
-                except Exception:
-                    prs = []
-                sample = prs[:3]
-                return {
-                    "type": "bulk_pr",
-                    "owner": owner,
-                    "repo": repo,
-                    "view_name": view,
-                    "records_affected": len(prs),
-                    "sample": sample,
-                }
-        if "#" in target_id:
-            owner_repo, branch = target_id.split("#", 1)
-            owner, repo = owner_repo.split("/", 1)
+        """Return metadata for repository/branch/bulk PR targets."""
+        info = GitHubProvider._parse_target(target_id)
+
+        if info["kind"] == "bulk":
+            prs = await GitHubProvider.list_open_prs(target_id, token)
+            sample = [f"#{p['number']} \"{p['title']}\"" for p in prs[:3]]
+            return {
+                "type": "bulk_pr",
+                "owner": info["owner"],
+                "repo": info["repo"],
+                "view_name": info["view"],
+                "records_affected": len(prs),
+                "sample": sample,
+            }
+
+        repo_data = await GitHubProvider._get_repo(info["owner"], info["repo"], token)
+
+        if info["kind"] == "branch":
+            branch_data = await GitHubProvider._get_branch(info["owner"], info["repo"], info["branch"], token)
+            commit = branch_data.get("commit", {}) or {}
             return {
                 "object": "branch",
-                "owner": owner,
-                "repo": repo,
-                "branch": branch,
-                # placeholders; tests will fill via monkeypatch
-                "name": branch,
-                "isDefault": False,
-                "lastCommitDate": None,
+                "owner": info["owner"],
+                "repo": info["repo"],
+                "branch": info["branch"],
+                "name": branch_data.get("name", info["branch"]),
+                "isDefault": repo_data.get("default_branch") == info["branch"],
+                "lastCommitDate": commit.get("commit", {}).get("committer", {}).get("date"),
+                "sha": commit.get("sha"),
             }
-        # repo
-        owner, repo = target_id.split("/", 1)
+
         return {
             "object": "repository",
-            "owner": owner,
-            "repo": repo,
-            "name": repo,
-            "archived": False,
-            "lastPushedAt": None,
-            "stars": 0,
-            "forks": 0,
+            "owner": info["owner"],
+            "repo": info["repo"],
+            "name": repo_data.get("name"),
+            "archived": repo_data.get("archived"),
+            "lastPushedAt": repo_data.get("pushed_at"),
+            "stars": repo_data.get("stargazers_count"),
+            "forks": repo_data.get("forks_count"),
+            "default_branch": repo_data.get("default_branch"),
         }
 
     @staticmethod
     async def get_children_count(target_id: str, token: str) -> int:
-        # For bulk PR view, return number of PRs; default 0 else
-        if "@" in target_id:
-            # Try to use list_open_prs if available
-            try:
-                prs = await GitHubProvider.list_open_prs(target_id, token)
-                return len(prs)
-            except Exception:
-                return 0
-        return 0
+        info = GitHubProvider._parse_target(target_id)
+        if info["kind"] == "bulk":
+            prs = await GitHubProvider.list_open_prs(target_id, token)
+            return len(prs)
+        if info["kind"] == "branch":
+            return 0
+        repo_data = await GitHubProvider._get_repo(info["owner"], info["repo"], token)
+        return int(repo_data.get("open_issues_count") or 0)
 
     @staticmethod
     async def archive(target_id: str, token: str) -> None:
-        # Archive repo; noop in default impl
-        return None
+        info = GitHubProvider._parse_target(target_id)
+        if info["kind"] != "repo":
+            raise RuntimeError("Archive action only supported for repositories")
+        await GitHubProvider._request(
+            "PATCH",
+            f"/repos/{info['owner']}/{info['repo']}",
+            token,
+            json_payload={"archived": True},
+        )
 
     @staticmethod
     async def unarchive(target_id: str, token: str) -> None:
-        # Unarchive repo; noop in default impl
-        return None
+        info = GitHubProvider._parse_target(target_id)
+        if info["kind"] != "repo":
+            raise RuntimeError("Unarchive action only supported for repositories")
+        await GitHubProvider._request(
+            "PATCH",
+            f"/repos/{info['owner']}/{info['repo']}",
+            token,
+            json_payload={"archived": False},
+        )
 
     # GitHub-specific actions
     @staticmethod
     async def delete_branch(target_id: str, token: str) -> str:
         """Delete branch and return last commit SHA to store in revert_token."""
-        # Return a fake SHA by default; tests monkeypatch
-        return "deadbeefdeadbeefdeadbeefdeadbeefdeadbeef"
+        info = GitHubProvider._parse_target(target_id)
+        if info["kind"] != "branch":
+            raise RuntimeError("Branch deletion requires repo#branch format")
+
+        ref = await GitHubProvider._request(
+            "GET",
+            f"/repos/{info['owner']}/{info['repo']}/git/ref/heads/{info['branch']}",
+            token,
+        )
+        sha = ref.get("object", {}).get("sha")
+        if not sha:
+            raise RuntimeError("Unable to resolve branch SHA")
+
+        await GitHubProvider._request(
+            "DELETE",
+            f"/repos/{info['owner']}/{info['repo']}/git/refs/heads/{info['branch']}",
+            token,
+        )
+        return sha
 
     @staticmethod
     async def restore_branch(target_id: str, token: str, sha: str) -> None:
-        return None
+        info = GitHubProvider._parse_target(target_id)
+        if info["kind"] != "branch":
+            raise RuntimeError("Branch restore requires repo#branch format")
+
+        payload = {"ref": f"refs/heads/{info['branch']}", "sha": sha}
+        try:
+            await GitHubProvider._request(
+                "POST",
+                f"/repos/{info['owner']}/{info['repo']}/git/refs",
+                token,
+                json_payload=payload,
+            )
+        except RuntimeError as exc:
+            # If branch already exists, treat as success
+            if "already exists" not in str(exc):
+                raise
 
     # --- Bulk PR operations ---
     @staticmethod
-    async def list_open_prs(target_id: str, token: str) -> list[dict]:
-        """
-        Return list of PRs for bulk operations. Each item:
-        {"number": int, "title": str, "updatedAt": iso8601}
-        Default impl returns a small synthetic list used by tests.
-        """
+    async def list_open_prs(target_id: str, token: str) -> List[Dict[str, Any]]:
+        info = GitHubProvider._parse_target(target_id)
+        if info["kind"] not in {"bulk", "repo"}:
+            raise RuntimeError("Bulk PR operations require org/repo[@view]")
+
+        params = {"state": "open", "per_page": 100}
+        prs = await GitHubProvider._request(
+            "GET",
+            f"/repos/{info['owner']}/{info['repo']}/pulls",
+            token,
+            params=params,
+        )
+        if not isinstance(prs, list):
+            raise RuntimeError("Unexpected response when listing PRs")
         return [
-            {"number": 123, "title": "hotfix: patch CVE", "updatedAt": "2025-01-01T00:00:00Z"},
-            {"number": 124, "title": "release: 1.2.3", "updatedAt": "2025-01-02T00:00:00Z"},
-            {"number": 125, "title": "chore: deps", "updatedAt": "2025-01-03T00:00:00Z"},
+            {
+                "number": pr.get("number"),
+                "title": pr.get("title"),
+                "updatedAt": pr.get("updated_at"),
+            }
+            for pr in prs
         ]
 
     @staticmethod
     async def bulk_close_prs(target_id: str, token: str, pr_numbers: list[int] | None = None) -> dict:
-        """Close given PRs and return a summary with closed numbers and a revert token."""
+        info = GitHubProvider._parse_target(target_id)
+        if info["kind"] not in {"bulk", "repo"}:
+            raise RuntimeError("Bulk close requires org/repo[@view]")
+
         if pr_numbers is None:
-            try:
-                prs = await GitHubProvider.list_open_prs(target_id, token)
-                pr_numbers = [int(p.get("number")) for p in prs]
-            except Exception:
-                pr_numbers = []
+            prs = await GitHubProvider.list_open_prs(target_id, token)
+            pr_numbers = [int(p.get("number")) for p in prs]
+
+        for number in pr_numbers:
+            await GitHubProvider._request(
+                "PATCH",
+                f"/repos/{info['owner']}/{info['repo']}/pulls/{number}",
+                token,
+                json_payload={"state": "closed"},
+            )
+
         return {"ok": True, "closed_pr_numbers": pr_numbers, "revert_token": "rvk_gh_bulk"}
 
     @staticmethod
     async def bulk_reopen_prs(target_repo: str, pr_numbers: list[int], token: str | None = None) -> dict:
-        """Reopen given PRs; return status dict for tests."""
+        info = GitHubProvider._parse_target(target_repo)
+        if info["kind"] not in {"bulk", "repo"}:
+            raise RuntimeError("Bulk reopen requires org/repo[@view]")
+
+        for number in pr_numbers:
+            await GitHubProvider._request(
+                "PATCH",
+                f"/repos/{info['owner']}/{info['repo']}/pulls/{number}",
+                token,
+                json_payload={"state": "open"},
+            )
+
         return {"ok": True, "status": "reverted", "reopened": pr_numbers}

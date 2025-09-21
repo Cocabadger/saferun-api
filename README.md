@@ -72,6 +72,8 @@ curl -X POST http://localhost:8500/v1/dry-run/github.repo.archive \
 - `SR_STORAGE_BACKEND`: Storage type (sqlite)
 - `SR_SQLITE_PATH`: Database path (default `/data/saferun.db` when using a Railway Volume; set to `data/saferun.db` for local development)
 - `SR_FREE_TIER_LIMIT`: Number of free API calls before returning 403 (default 100, set to `-1` to disable)
+- `SR_GITHUB_API_BASE`: Override GitHub API base URL (optional, defaults to `https://api.github.com`)
+- `SR_GITHUB_USER_AGENT`: Custom user agent string for GitHub requests (optional)
 
 ## Pricing
 
