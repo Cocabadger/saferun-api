@@ -48,6 +48,22 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
+@app.get("/")
+async def root():
+    return {
+        "name": "SafeRun API",
+        "version": SR_VERSION,
+        "description": "AI Safety Middleware - Prevent destructive actions",
+        "docs": "https://github.com/Cocabadger/saferun-api",
+        "endpoints": {
+            "health": "/readyz",
+            "register": "POST /v1/auth/register",
+            "dry_run": "POST /v1/dry-run/{provider}.{action}",
+        },
+    }
+
+
 @app.get("/v1/health/notion")
 def health_notion():
     return {"status": "ok", "service": "saferun", "version": SR_VERSION}
