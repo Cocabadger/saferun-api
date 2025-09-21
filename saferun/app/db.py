@@ -350,12 +350,19 @@ def validate_api_key(api_key: str) -> dict | None:
         "SELECT * FROM api_keys WHERE api_key = ? AND is_active = 1",
         (api_key,)
     )
-    if row:
-        exec(
-            "UPDATE api_keys SET usage_count = usage_count + 1 WHERE api_key = ?",
-            (api_key,)
-        )
-    return row
+    if not row:
+        return None
+
+    exec(
+        "UPDATE api_keys SET usage_count = usage_count + 1 WHERE api_key = ?",
+        (api_key,)
+    )
+
+    updated = fetchone(
+        "SELECT * FROM api_keys WHERE api_key = ? AND is_active = 1",
+        (api_key,)
+    )
+    return updated
 
 def get_api_key_by_email(email: str) -> dict | None:
     """Get API key info by email."""

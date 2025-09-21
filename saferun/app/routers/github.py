@@ -1,4 +1,4 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 from ..services.dryrun import build_dryrun
 from ..models.contracts import (
     DryRunArchiveResponse,
@@ -7,8 +7,9 @@ from ..models.contracts import (
     GitHubBranchDeleteDryRunRequest,
     GitHubBulkClosePRsDryRunRequest,
 )
+from .auth import verify_api_key
 
-router = APIRouter(tags=["Archive"]) 
+router = APIRouter(tags=["Archive"], dependencies=[Depends(verify_api_key)]) 
 
 @router.post("/v1/dry-run/github.repo.archive", response_model=DryRunArchiveResponse)
 async def dry_run_github_repo(req: GitHubRepoArchiveDryRunRequest) -> DryRunArchiveResponse:

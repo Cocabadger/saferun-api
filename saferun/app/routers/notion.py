@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel
 import asyncio
 from ..notify import notifier
@@ -19,7 +19,9 @@ async def patch_page_archive(page_id: str, token: str, archived: bool, notion_ve
 import uuid
 from datetime import datetime, timezone
 
-router = APIRouter(prefix="/v1", tags=["Archive"]) 
+from .auth import verify_api_key
+
+router = APIRouter(prefix="/v1", tags=["Archive"], dependencies=[Depends(verify_api_key)]) 
 
 
 @router.post("/dry-run/notion.page.archive", response_model=DryRunNotionArchiveResponse)

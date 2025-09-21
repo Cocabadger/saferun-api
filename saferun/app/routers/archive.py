@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends
 import json
 from pydantic import BaseModel
 import asyncio
@@ -14,8 +14,9 @@ from typing import Dict
 import uuid
 from datetime import datetime, timezone
 from saferun import __version__ as SR_VERSION
+from .auth import verify_api_key
 
-router = APIRouter(prefix="/v1", tags=["Archive"]) 
+router = APIRouter(prefix="/v1", tags=["Archive"], dependencies=[Depends(verify_api_key)]) 
 
 def _get_provider(name: str) -> Provider | None:
     try:
@@ -390,4 +391,3 @@ async def revert_change(body: RevertRequest):
     )
 
     return RevertResponse(revert_token=body.revert_token, status="reverted", telemetry=telemetry_dict)
-
