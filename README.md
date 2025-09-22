@@ -77,9 +77,8 @@ curl -X POST http://localhost:8500/v1/dry-run/github.repo.archive \
 
 ## Pricing
 
-- First 100 API calls: FREE
-- After: $0.01 per safety check
+- First 1000 API calls: FREE
 
 ## Support
 
-Email: support@saferun.dev
+(https://github.com/Cocabadger/saferun-api/issues)
