@@ -111,9 +111,8 @@ See [WEBHOOK_GUIDE.md](../WEBHOOK_GUIDE.md) for integration examples.
 
 ## Pricing
 
-- First 100 API calls: FREE
-- After: $0.01 per safety check
+- First 1000 API calls: FREE
 
 ## Support
 
-Email: support@saferun.dev
+(https://github.com/Cocabadger/saferun-api/issues)
