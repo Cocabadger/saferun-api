@@ -35,6 +35,14 @@ class Notifier:
         async def do(): return await self.client.post(SLACK_URL, json=body)
         await self._retry(do)
 
+    async def send_custom_webhook(self, webhook_url: str, payload: Dict[str, Any]) -> None:
+        """Send webhook to custom URL provided by user"""
+        if not webhook_url: return
+        body = json.dumps(payload).encode("utf-8")
+        headers = {"Content-Type": "application/json"}
+        async def do(): return await self.client.post(webhook_url, content=body, headers=headers)
+        await self._retry(do)
+
     async def send_webhook(self, payload: Dict[str, Any]) -> None:
         if not WH_URL: return
         body = json.dumps(payload).encode("utf-8")
@@ -66,6 +74,8 @@ class Notifier:
             "event": event,
             "change_id": change.get("change_id"),
             "page_id": change.get("page_id"),
+            "target_id": change.get("target_id"),
+            "provider": change.get("provider"),
             "title": change.get("title"),
             "status": change.get("status"),
             "risk_score": change.get("risk_score", 0.0),
@@ -75,6 +85,10 @@ class Notifier:
             "ts": change.get("ts") or change.get("created_at"),
             "meta": (extras or {}).get("meta", {}),
         }
+        
+        # Add user-specific webhook if provided
+        webhook_url = change.get("webhook_url")
+        
         text_map = {
             "dry_run": ":rotating_light: [SafeRun] High-risk DRY-RUN → approval needed",
             "applied": ":white_check_mark: [SafeRun] Applied",
@@ -82,12 +96,18 @@ class Notifier:
             "expired": ":hourglass_flowing_sand: [SafeRun] Expired",
         }
         text = text_map.get(event, f"[SafeRun] {event}")
-        # fan-out concurrently
-        await asyncio.gather(
+        
+        # Fan-out concurrently
+        tasks = [
             self.send_slack(payload, text),
             self.send_webhook(payload),
-            self.send_email(payload, subject=text.replace(":", "")) ,
-            return_exceptions=True
-        )
+            self.send_email(payload, subject=text.replace(":", ""))
+        ]
+        
+        # Add custom webhook if URL provided
+        if webhook_url:
+            tasks.append(self.send_custom_webhook(webhook_url, payload))
+        
+        await asyncio.gather(*tasks, return_exceptions=True)
 
 notifier = Notifier()

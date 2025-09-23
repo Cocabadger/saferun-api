@@ -41,10 +41,34 @@ curl -X POST http://localhost:8500/v1/dry-run/github.repo.archive \
   }'
 ```
 
+### 3. Enable Webhook Notifications (NEW!)
+```bash
+# Add webhook_url to get real-time notifications
+curl -X POST http://localhost:8500/v1/dry-run/github.repo.archive \
+  -H "X-API-Key: your_api_key" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "token": "users_github_token",
+    "target_id": "owner/repo",
+    "webhook_url": "https://your-webhook-handler.com/saferun"
+  }'
+```
+
+Webhooks are sent for:
+- **dry_run** - High-risk actions requiring approval
+- **applied** - Actions executed
+- **reverted** - Actions rolled back
+
+See [WEBHOOK_GUIDE.md](../WEBHOOK_GUIDE.md) for integration examples.
+
 ## Supported Providers
 
-- **GitHub**: Repository archive/unarchive, branch delete/restore, bulk PR operations
-- **Notion**: Page archive/unarchive with conflict detection
+- **GitHub**: Repository archive/unarchive, branch delete/restore, bulk PR operations ✅ Webhooks
+- **Notion**: Page archive/unarchive with conflict detection ✅ Webhooks
+- **Airtable**: Record and bulk operations ✅ Webhooks
+- **Google Drive**: File/folder operations (coming soon)
+- **Slack**: Channel archive (coming soon)
+- **Google Sheets**: Sheet operations (coming soon)
 
 ## Deployment
 
@@ -67,13 +91,23 @@ curl -X POST http://localhost:8500/v1/dry-run/github.repo.archive \
 
 ## Environment Variables
 
+### Core Settings
 - `PORT`: Server port (default: 8500)
 - `SR_LOG_LEVEL`: Log level (info/debug)
 - `SR_STORAGE_BACKEND`: Storage type (sqlite)
 - `SR_SQLITE_PATH`: Database path (default `/data/saferun.db` when using a Railway Volume; set to `data/saferun.db` for local development)
 - `SR_FREE_TIER_LIMIT`: Number of free API calls before returning 403 (default 100, set to `-1` to disable)
+
+### Provider Settings
 - `SR_GITHUB_API_BASE`: Override GitHub API base URL (optional, defaults to `https://api.github.com`)
 - `SR_GITHUB_USER_AGENT`: Custom user agent string for GitHub requests (optional)
+
+### Webhook Settings (Optional)
+- `NOTIFY_TIMEOUT_MS`: Webhook timeout in milliseconds (default: 2000)
+- `NOTIFY_RETRY`: Number of webhook retries (default: 1)
+- `SLACK_WEBHOOK_URL`: Your Slack webhook for SafeRun system notifications (optional)
+- `GENERIC_WEBHOOK_URL`: Generic webhook URL for all events (optional)
+- `GENERIC_WEBHOOK_SECRET`: Secret for webhook signature validation (optional)
 
 ## Pricing
 

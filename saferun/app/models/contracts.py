@@ -10,31 +10,37 @@ class AirtableRecordArchiveDryRunRequest(BaseModel):
     token: str
     target_id: str  # "baseId/tableId/recordId"
     policy: Optional[Dict] = None
+    webhook_url: Optional[str] = None
 
 class AirtableBulkArchiveDryRunRequest(BaseModel):
     token: str
     target_id: str  # "baseId/tableId @viewName"
     policy: Optional[Dict] = None
+    webhook_url: Optional[str] = None
 
 
 class DryRunNotionArchiveRequest(BaseModel):
     notion_token: str
     page_id: str
     policy: Optional[Dict] = None
+    webhook_url: Optional[str] = None
 class GitHubRepoArchiveDryRunRequest(BaseModel):
     token: str
     target_id: str  # "org/repo"
     policy: Optional[Dict] = None
+    webhook_url: Optional[str] = None
 
 class GitHubBranchDeleteDryRunRequest(BaseModel):
     token: str
     target_id: str  # "org/repo#branch"
     policy: Optional[Dict] = None
+    webhook_url: Optional[str] = None
 
 class GitHubBulkClosePRsDryRunRequest(BaseModel):
     token: str
     target_id: str  # "org/repo@open_prs"
     policy: Optional[Dict] = None
+    webhook_url: Optional[str] = None
 
 
 
@@ -45,6 +51,7 @@ class DryRunArchiveRequest(BaseModel):
     target_id: str
     provider: ProviderLiteral
     policy: Optional[Dict] = None
+    webhook_url: Optional[str] = None
 
 class DiffUnit(BaseModel):
     op: Literal["archive", "delete_branch", "bulk_preview"]

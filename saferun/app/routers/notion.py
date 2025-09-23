@@ -30,7 +30,13 @@ async def dry_run_notion_archive(payload: DryRunNotionArchiveRequest):
         raise HTTPException(status_code=400, detail="notion_token and page_id are required")
     try:
         from ..models.contracts import DryRunArchiveRequest
-        generic = DryRunArchiveRequest(token=payload.notion_token, target_id=payload.page_id, provider="notion", policy=payload.policy)
+        generic = DryRunArchiveRequest(
+            token=payload.notion_token, 
+            target_id=payload.page_id, 
+            provider="notion", 
+            policy=payload.policy,
+            webhook_url=payload.webhook_url
+        )
         resp = await build_dryrun(generic)
         return resp
     except Exception as e:

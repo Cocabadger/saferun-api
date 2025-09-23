@@ -168,6 +168,7 @@ async def build_dryrun(req: DryRunArchiveRequest, notion_version: str | None = N
                 "status": "pending",
                 "requires_approval": need_approval,
                 "created_at": created_at_str,
+                "webhook_url": req.webhook_url,  # Store webhook URL
             }
             storage.save_change(change_id, change_data, ttl_seconds)
 

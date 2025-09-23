@@ -50,7 +50,7 @@ async def readiness_probe() -> Dict[str, Any]:
     try:
         storage = storage_manager.get_storage()
         
-        # Если есть полноценный KV-интерфейс — проверим раундтрип
+        # If a full KV interface is available, check the roundtrip
         if all(hasattr(storage, m) for m in ("store", "get", "delete")):
             test_key = f"health_check_{int(time.time())}"
             test_value = "ok"
@@ -61,7 +61,7 @@ async def readiness_probe() -> Dict[str, Any]:
                 raise RuntimeError("storage roundtrip mismatch")
             backend_status.update({"status": "ok", "mode": "kv-roundtrip"})
         else:
-            # Fallback: безопасная read-only проверка
+            # Fallback: safe read-only check
             if hasattr(storage, "list_changes"):
                 _ = await storage.list_changes(limit=1)
                 backend_status.update({"status": "ok", "mode": "readonly-check"})
