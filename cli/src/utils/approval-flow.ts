@@ -50,19 +50,23 @@ export class ApprovalFlow {
     this.showPreview(result);
     const approvalUrl = result.approvalUrl ?? 'https://app.saferun.dev';
 
-    const options = this.buildOptions(result, approvalUrl);
-    this.printOptions(options);
-
     // Check if stdin is interactive (TTY)
     const isInteractive = process.stdin.isTTY;
 
     if (!isInteractive) {
-      console.log(chalk.yellow('\n⚠️  Non-interactive environment detected.'));
-      console.log(chalk.cyan('Automatically waiting for web approval...'));
-      console.log(chalk.gray(`Open the approval URL above to approve or reject.\n`));
+      // Non-interactive mode (git hooks) - show clean approval UI
+      console.log(chalk.bold('\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━'));
+      console.log(chalk.bold.yellow('📋 Approval Required'));
+      console.log(chalk.bold('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n'));
+      console.log(chalk.cyan('🌐 Open this URL to approve or reject:'));
+      console.log(chalk.bold.cyan(`   ${approvalUrl}\n`));
       this.close();
       return this.waitForApproval(result);
     }
+
+    // Interactive mode - show options menu
+    const options = this.buildOptions(result, approvalUrl);
+    this.printOptions(options);
 
     try {
       while (true) {
@@ -91,7 +95,9 @@ export class ApprovalFlow {
     console.log(chalk.bold('═══════════════════════════════════'));
 
     console.log(`\n${chalk.gray('Operation:')} ${result.humanPreview || 'Unknown operation'}`);
-    console.log(`${chalk.gray('Risk Score:')} ${riskColor(`${result.riskScore}/10`)}`);
+    // Risk score is already 0-10 scale from API
+    const displayScore = result.riskScore.toFixed(1);
+    console.log(`${chalk.gray('Risk Score:')} ${riskColor(`${displayScore}/10`)}`);
 
     if (result.reasons.length > 0) {
       console.log(`\n${chalk.gray('Reasons:')}`);
@@ -196,9 +202,7 @@ export class ApprovalFlow {
 
   private prompt(question: string): Promise<string> {
     return new Promise((resolve) => {
-      console.log(chalk.gray(`[DEBUG] Calling rl.question...`));
       this.rl.question(question, (answer) => {
-        console.log(chalk.gray(`[DEBUG] rl.question callback - answer: "${answer}"`));
         resolve(answer);
       });
     });

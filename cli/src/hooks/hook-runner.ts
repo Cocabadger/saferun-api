@@ -68,7 +68,8 @@ export class HookRunner {
 
       if (signals.length > 0 && detectionScore >= 0.3) {
         const agentTypes = [...new Set(signals.map((s) => s.agentType).filter(Boolean))];
-        console.log(chalk.cyan(`🤖 AI Agent detected: ${agentTypes.join(', ')} (score: ${detectionScore.toFixed(2)})`));
+        const confidenceLevel = detectionScore >= 0.7 ? 'high' : detectionScore >= 0.5 ? 'medium' : 'low';
+        console.log(chalk.cyan(`🤖 AI Agent detected: ${agentTypes.join(', ')} (confidence: ${confidenceLevel})`));
 
         if (process.env.SAFERUN_DEBUG) {
           console.log(chalk.gray('Detection signals:'));
@@ -521,9 +522,7 @@ export class HookRunner {
         modeSettings: context.modeSettings,
       });
       const outcome = await flow.requestApproval(dryRun);
-      console.log(chalk.gray(`[DEBUG pre-commit] Approval outcome: ${outcome}`));
       if (outcome !== ApprovalOutcome.Approved && outcome !== ApprovalOutcome.Bypassed) {
-        console.log(chalk.gray(`[DEBUG pre-commit] Blocking commit - outcome was not approved/bypassed`));
         // Try to notify API, but exit regardless of success
         try {
           await context.client.confirmGitOperation({
@@ -533,7 +532,6 @@ export class HookRunner {
           });
         } catch (apiError) {
           // Ignore API errors when cancelling - we still block the commit
-          console.log(chalk.gray(`[DEBUG] API error during cancel (ignored): ${apiError instanceof Error ? apiError.message : String(apiError)}`));
         }
         context.metrics.track('operation_blocked', {
           hook: 'pre-commit',
@@ -552,7 +550,6 @@ export class HookRunner {
         console.error(chalk.red(`SafeRun blocked commit on protected branch '${branch}'.`));
         process.exit(1);
       }
-      console.log(chalk.gray(`[DEBUG pre-commit] Allowing commit - outcome was ${outcome}`));
 
       await context.client.confirmGitOperation({
         changeId: dryRun.changeId,

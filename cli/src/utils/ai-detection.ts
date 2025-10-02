@@ -9,7 +9,7 @@ export interface AIAgentInfo {
     // IDE Assistants
     | 'cursor' | 'copilot' | 'windsurf' | 'codeium' | 'tabnine' | 'continue'
     // Conversational AI
-    | 'claude' | 'chatgpt' | 'gemini' | 'anthropic-api' | 'openai-api'
+    | 'claude' | 'chatgpt' | 'gemini' | 'codex' | 'anthropic-api' | 'openai-api'
     // Automation Platforms
     | 'n8n' | 'zapier' | 'make' | 'notion-ai'
     // CI/CD & Actions
@@ -32,11 +32,20 @@ const AI_ENV_VARS: Record<string, string> = {
   TABNINE_ACTIVE: 'tabnine',
   CONTINUE_DEV: 'continue',
 
-  // Conversational AI APIs
+  // Conversational AI - CLI/Desktop
+  CLAUDECODE: 'claude',
+  CLAUDE_CODE: 'claude',
+  CLAUDE_DESKTOP: 'claude',
+  CLAUDE_CLI: 'claude',
+
+  // Conversational AI - APIs
   ANTHROPIC_API_KEY: 'anthropic-api',
   OPENAI_API_KEY: 'openai-api',
   CLAUDE_API_KEY: 'claude',
   CHATGPT_API_KEY: 'chatgpt',
+  GEMINI_API_KEY: 'gemini',
+  GOOGLE_AI_API_KEY: 'gemini',
+  CODEX_API_KEY: 'openai-api',
 
   // Automation Platforms
   N8N_USER_ID: 'n8n',
