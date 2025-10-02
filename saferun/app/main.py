@@ -11,22 +11,29 @@ from .routers.metrics import router as metrics_router
 from .routers.git_operations import router as git_router
 from .routers.auth import router as auth_router
 from .routers.approvals import router as approvals_router
-from . import db
 from saferun import __version__ as SR_VERSION
 from . import storage as storage_manager
+
+# Import the correct database module based on DATABASE_URL
+DATABASE_URL = os.getenv("DATABASE_URL")
+if DATABASE_URL and DATABASE_URL.startswith("postgres"):
+    from . import db_postgres as db
+else:
+    from . import db
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # on startup
-    
+
     # Ensure data directory exists for SQLite
-    storage_backend = os.getenv("SR_STORAGE_BACKEND", "sqlite").lower()
-    if storage_backend == "sqlite":
-        sqlite_path = os.getenv("SR_SQLITE_PATH", "/data/saferun.db")
-        sqlite_dir = os.path.dirname(sqlite_path)
-        if sqlite_dir and not os.path.exists(sqlite_dir):
-            os.makedirs(sqlite_dir, exist_ok=True)
-    
+    if not DATABASE_URL or not DATABASE_URL.startswith("postgres"):
+        storage_backend = os.getenv("SR_STORAGE_BACKEND", "sqlite").lower()
+        if storage_backend == "sqlite":
+            sqlite_path = os.getenv("SR_SQLITE_PATH", "/data/saferun.db")
+            sqlite_dir = os.path.dirname(sqlite_path)
+            if sqlite_dir and not os.path.exists(sqlite_dir):
+                os.makedirs(sqlite_dir, exist_ok=True)
+
     db.init_db()
     storage = storage_manager.get_storage()
     storage.run_gc()
