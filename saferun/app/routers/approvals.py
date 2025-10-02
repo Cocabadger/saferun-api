@@ -59,12 +59,19 @@ async def get_approval_details(change_id: str) -> ApprovalDetailResponse:
     else:
         summary_data = summary_raw
 
+    # Convert datetime objects to ISO strings
+    from datetime import datetime
+    def to_iso(val):
+        if isinstance(val, datetime):
+            return val.isoformat()
+        return str(val) if val else ""
+
     return ApprovalDetailResponse(
         change_id=change_id,
         status=status,
         requires_approval=requires_approval,
         approved=approved,
-        expires_at=rec.get("expires_at", ""),
+        expires_at=to_iso(rec.get("expires_at")),
         human_preview=rec.get("human_preview") or summary_data.get("human_preview"),
         operation_type=summary_data.get("operation_type"),
         command=summary_data.get("command"),
@@ -72,7 +79,7 @@ async def get_approval_details(change_id: str) -> ApprovalDetailResponse:
         risk_score=float(rec.get("risk_score") or 0.0),
         reasons=summary_data.get("reasons") or [],
         metadata=summary_data.get("metadata") or {},
-        created_at=rec.get("created_at"),
+        created_at=to_iso(rec.get("created_at")),
     )
 
 
