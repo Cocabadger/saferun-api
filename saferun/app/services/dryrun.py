@@ -176,7 +176,7 @@ async def build_dryrun(req: DryRunArchiveRequest, notion_version: str | None = N
             approve_url = None
             if need_approval:
                 base = os.environ.get("APP_BASE_URL", "http://localhost:8500")
-                approve_url = f"{base}/api/approvals/{change_id}"
+                approve_url = f"{base}/approvals/{change_id}"
 
                 # publish notification (use saferun namespace import)
                 import asyncio

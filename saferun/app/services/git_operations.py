@@ -87,7 +87,7 @@ async def build_git_operation_dryrun(req: GitOperationDryRunRequest) -> DryRunAr
     approve_url = None
     if requires_approval:
         base_url = os.getenv("APP_BASE_URL", "http://localhost:8500")  # type: ignore[name-defined]
-        approve_url = f"{base_url}/api/approvals/{change_id}"
+        approve_url = f"{base_url}/approvals/{change_id}"
         change_record = storage.get_change(change_id)
         if change_record:
             asyncio.create_task(
