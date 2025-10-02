@@ -424,22 +424,108 @@ bypass:
       - GITHUB_ACTIONS
       - GITLAB_CI
 
+# Approval timeout behavior
+approval_timeout:
+  action: reject       # reject | allow | ask
+  duration: 7200       # 2 hours in seconds
+  reminders: 3         # Number of reminder notifications
+  reminder_interval: 1800  # 30 minutes in seconds
+
 # Operation rules
 rules:
   force_push:
     action: require_approval
     risk_score: 9.0
-  
+    timeout_action: reject    # What to do if no approval after timeout
+    timeout_duration: 7200    # 2 hours
+
   branch_delete:
     action: require_approval
     risk_score: 7.5
+    timeout_action: reject
+    timeout_duration: 7200
     exclude_patterns:
       - "feature/*"
       - "dev/*"
 
+  clean:
+    action: warn
+    risk_score: 4.0
+    timeout_action: allow     # Less critical - allow after timeout
+    timeout_duration: 3600    # 1 hour
+
 # Telemetry
 telemetry:
   enabled: true
+```
+
+---
+
+## Approval Timeout Behavior
+
+SafeRun supports flexible timeout handling when approval is not received within the configured duration.
+
+### Timeout Actions
+
+**`reject` (Default for critical operations)**
+- Operation is automatically **cancelled** if no approval received
+- Safest option for protected branches and destructive operations
+- Recommended for: `force_push`, `branch_delete`, `reset_hard`
+
+**`allow` (For less critical operations)**
+- Operation **proceeds automatically** after timeout
+- Useful for dev branches and non-destructive operations
+- Recommended for: `clean`, operations on `feature/*` branches
+
+**`ask` (Interactive mode)**
+- CLI prompts user to decide after timeout
+- Options: Proceed anyway / Cancel / Wait longer
+- Recommended for: `hotfix/*` branches, uncertain scenarios
+
+### Timeline Example
+
+```
+T=0:     Dangerous operation detected
+         → Approval request sent
+         → Notification to Slack/Email
+
+T=30min: First reminder sent
+         → "Still waiting for approval..."
+
+T=60min: Second reminder sent
+         → "You have 1 hour left..."
+
+T=90min: Final reminder sent
+         → "Last chance! 30 minutes remaining"
+
+T=120min: Timeout reached
+         → Action depends on timeout_action:
+            • reject → Operation cancelled ❌
+            • allow → Operation proceeds ✅
+            • ask → User prompted to decide ❓
+```
+
+### Configuring Timeouts
+
+**Global settings:**
+```yaml
+approval_timeout:
+  action: reject       # Default behavior
+  duration: 7200       # 2 hours
+  reminders: 3
+  reminder_interval: 1800  # 30 minutes
+```
+
+**Per-operation overrides:**
+```yaml
+rules:
+  force_push:
+    timeout_action: reject     # Critical - always reject
+    timeout_duration: 7200
+
+  clean:
+    timeout_action: allow      # Less critical - allow after 1 hour
+    timeout_duration: 3600
 ```
 
 ---

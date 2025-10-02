@@ -50,6 +50,8 @@ export interface GithubConfig {
 export interface OperationRuleConfig {
   action?: 'allow' | 'warn' | 'require_approval' | 'block';
   risk_score?: number;
+  timeout_action?: 'reject' | 'allow' | 'ask';
+  timeout_duration?: number;
   bypass_roles?: string[];
   exclude_patterns?: string[];
   max_commits_back?: number;
@@ -66,6 +68,13 @@ export interface BypassConfig {
   temporary_tokens?: { enabled?: boolean; duration?: number };
   role_based?: { enabled?: boolean; admin_teams?: string[] };
   emergency?: { enabled?: boolean; keyword?: string; notify_slack?: boolean };
+}
+
+export interface ApprovalTimeoutConfig {
+  action: 'reject' | 'allow' | 'ask';
+  duration: number;
+  reminders: number;
+  reminder_interval: number;
 }
 
 export interface TelemetryConfig {
@@ -85,6 +94,7 @@ export interface SafeRunConfig {
   modes: Record<string, ModeSettings>;
   api: ApiConfig;
   github: GithubConfig;
+  approval_timeout?: ApprovalTimeoutConfig;
   rules: Record<string, OperationRuleConfig>;
   bypass?: BypassConfig;
   notifications?: Record<string, unknown>;
@@ -145,25 +155,39 @@ const DEFAULT_CONFIG: SafeRunConfig = {
       { pattern: 'experiment/*', risk_level: 'low', skip_checks: true },
     ],
   },
+  approval_timeout: {
+    action: 'reject',
+    duration: 7200,
+    reminders: 3,
+    reminder_interval: 1800,
+  },
   rules: {
     force_push: {
       action: (process.env.FORCE_PUSH_ACTION as OperationRuleConfig['action']) ?? 'require_approval',
       risk_score: 8,
+      timeout_action: 'reject',
+      timeout_duration: 7200,
       bypass_roles: ['admin', 'lead'],
     },
     branch_delete: {
       action: 'require_approval',
       risk_score: 6,
+      timeout_action: 'reject',
+      timeout_duration: 7200,
       exclude_patterns: ['tmp/*', 'test/*'],
     },
     reset_hard: {
       action: 'warn',
       risk_score: 7,
+      timeout_action: 'reject',
+      timeout_duration: 7200,
       max_commits_back: 5,
     },
     clean: {
       action: 'warn',
       risk_score: 4,
+      timeout_action: 'allow',
+      timeout_duration: 3600,
     },
   },
   bypass: {
