@@ -48,7 +48,16 @@ async def get_approval_details(change_id: str) -> ApprovalDetailResponse:
     status = rec.get("status", "pending")
     approved = not requires_approval and status in {"pending", "approved", "applied"}
 
-    summary_data = rec.get("summary_json") or rec.get("summary") or {}
+    # Parse JSON strings if needed
+    import json
+    summary_raw = rec.get("summary_json") or rec.get("summary") or {}
+    if isinstance(summary_raw, str):
+        try:
+            summary_data = json.loads(summary_raw)
+        except:
+            summary_data = {}
+    else:
+        summary_data = summary_raw
 
     return ApprovalDetailResponse(
         change_id=change_id,
