@@ -201,7 +201,20 @@ def confirm_git_operation(change_id: str, status: str, metadata: Dict | None = N
     requires_approval = bool(updated.get("requires_approval"))
     approved = not requires_approval and status in {"pending", "approved", "applied"}
 
-    summary_data = updated.get("summary_json") or {}
+    # Parse JSON strings if needed (Postgres returns TEXT fields as strings)
+    import json
+    summary_raw = updated.get("summary_json") or updated.get("summary") or {}
+
+    summary_data = {}
+    if isinstance(summary_raw, str):
+        try:
+            parsed = json.loads(summary_raw)
+            if isinstance(parsed, dict):
+                summary_data = parsed
+        except:
+            pass
+    elif isinstance(summary_raw, dict):
+        summary_data = summary_raw
 
     return GitOperationStatusResponse(
         change_id=change_id,
