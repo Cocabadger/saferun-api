@@ -4,8 +4,8 @@ import json
 import redis
 from typing import Dict, Any, Optional
 
-from . import db
 from .metrics import record_change_status
+from . import db_adapter as db
 
 class Storage(ABC):
     @abstractmethod

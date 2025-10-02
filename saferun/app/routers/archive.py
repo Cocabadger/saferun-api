@@ -6,7 +6,7 @@ from ..notify import notifier
 from ..models.contracts import DryRunArchiveRequest, DryRunArchiveResponse, ProviderLiteral
 from ..services.dryrun import build_dryrun
 from ..metrics import time_apply, time_revert, time_dryrun, record_change_status
-from .. import db
+from .. import db_adapter as db
 from .. import storage as storage_manager
 from ..providers import factory as provider_factory
 from ..providers.base import Provider

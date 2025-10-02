@@ -13,13 +13,9 @@ from .routers.auth import router as auth_router
 from .routers.approvals import router as approvals_router
 from saferun import __version__ as SR_VERSION
 from . import storage as storage_manager
+from . import db_adapter as db
 
-# Import the correct database module based on DATABASE_URL
 DATABASE_URL = os.getenv("DATABASE_URL")
-if DATABASE_URL and DATABASE_URL.startswith("postgres"):
-    from . import db_postgres as db
-else:
-    from . import db
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):

@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 from typing import Dict
 
 from .. import storage as storage_manager
-from .. import db
+from .. import db_adapter as db
 from ..notify import notifier
 from .dryrun import expiry, new_change_id
 from ..models.contracts import (

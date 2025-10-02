@@ -3,7 +3,7 @@ import os
 from fastapi import APIRouter, HTTPException, Header, Depends
 from pydantic import BaseModel, EmailStr
 from typing import Optional
-from .. import db
+from .. import db_adapter as db
 from saferun import __version__ as SR_VERSION
 
 router = APIRouter(prefix="/v1/auth", tags=["Authentication"])

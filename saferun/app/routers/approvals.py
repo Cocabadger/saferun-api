@@ -3,7 +3,7 @@ from typing import Dict, Optional
 from pydantic import BaseModel
 
 from .. import storage as storage_manager
-from .. import db
+from .. import db_adapter as db
 from ..models.contracts import GitOperationStatusResponse
 
 router = APIRouter(tags=["Approvals"], prefix="/api")

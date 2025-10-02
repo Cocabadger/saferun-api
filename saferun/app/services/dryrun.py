@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 from ..models.contracts import DryRunArchiveRequest, DryRunArchiveResponse, TargetRef, Summary, DiffUnit
 from ..metrics import time_dryrun
 from .. import storage as storage_manager
-from .. import db
+from .. import db_adapter as db
 from ..providers import factory as provider_factory
 from ..providers.base import Provider
 from typing import Dict

@@ -4,7 +4,7 @@ import asyncio
 from ..notify import notifier
 from ..models.contracts import DryRunNotionArchiveRequest, DryRunNotionArchiveResponse
 from ..services.dryrun import build_dryrun
-from .. import db
+from .. import db_adapter as db
 from .. import storage as storage_manager
 # Expose runtime wrappers for notion helpers so tests can monkeypatch either
 # the service functions or these wrappers directly.
