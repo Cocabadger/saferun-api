@@ -179,18 +179,71 @@ export class ApprovalFlow {
   }
 
   private async waitForApproval(result: DryRunResult): Promise<ApprovalOutcome> {
-    const spinner = ora('Waiting for approval... (Ctrl+C to cancel)').start();
+    const approvalUrl = result.approvalUrl ?? 'https://app.saferun.dev';
+
+    // Show QR code for mobile scanning
     try {
-      const approval = await this.client.waitForApproval(result.changeId, {
-        pollInterval: this.pollInterval,
-        timeout: this.timeout,
-        autoApply: false,
-      });
-      spinner.succeed('SafeRun approval granted');
-      this.metrics?.track('approval_granted', { change_id: result.changeId }).catch(() => undefined);
-      return approval.approved ? ApprovalOutcome.Approved : ApprovalOutcome.Cancelled;
+      const qrcode = require('qrcode-terminal');
+      console.log(chalk.gray('\n📱 Scan with mobile:'));
+      qrcode.generate(approvalUrl, { small: true });
+    } catch {
+      // QR code optional, continue if fails
+    }
+
+    const startTime = Date.now();
+    const maxAttempts = Math.ceil(this.timeout / this.pollInterval);
+    let attempt = 0;
+
+    const spinner = ora({
+      text: this.getWaitingText(0, maxAttempts, 0, this.timeout),
+      spinner: 'dots',
+    }).start();
+
+    try {
+      while (Date.now() - startTime < this.timeout) {
+        attempt++;
+        const elapsed = Math.floor((Date.now() - startTime) / 1000);
+        const remaining = Math.max(0, Math.floor((this.timeout - (Date.now() - startTime)) / 1000));
+
+        // Update spinner text with details
+        spinner.text = this.getWaitingText(attempt, maxAttempts, elapsed, remaining);
+
+        // Check approval status
+        try {
+          const status = await this.client.getApprovalStatus(result.changeId);
+
+          if (status.approved) {
+            spinner.succeed(chalk.green('✓ SafeRun approval granted'));
+            this.metrics?.track('approval_granted', { change_id: result.changeId }).catch(() => undefined);
+            return ApprovalOutcome.Approved;
+          }
+
+          if (status.rejected) {
+            spinner.fail(chalk.red('✗ SafeRun approval rejected'));
+            return ApprovalOutcome.Cancelled;
+          }
+
+          if (status.expired) {
+            spinner.fail(chalk.red('✗ Approval expired'));
+            return ApprovalOutcome.Cancelled;
+          }
+        } catch (error) {
+          // Continue polling on transient errors
+          if (error instanceof Error && !error.message.includes('404')) {
+            throw error;
+          }
+        }
+
+        // Wait before next poll
+        await new Promise(resolve => setTimeout(resolve, this.pollInterval));
+      }
+
+      // Timeout reached
+      spinner.fail(chalk.red('✗ Approval timed out'));
+      console.error(chalk.red(`Approval timed out after ${Math.round(this.timeout / 1000)} seconds.`));
+      return ApprovalOutcome.Cancelled;
     } catch (error) {
-      spinner.fail('Approval wait aborted');
+      spinner.fail(chalk.red('✗ Approval wait aborted'));
       if (error instanceof SafeRunApprovalTimeout) {
         console.error(chalk.red(`Approval timed out after ${Math.round(this.timeout / 1000)} seconds.`));
       } else if (error instanceof Error) {
@@ -198,6 +251,17 @@ export class ApprovalFlow {
       }
       return ApprovalOutcome.Cancelled;
     }
+  }
+
+  private getWaitingText(attempt: number, maxAttempts: number, elapsed: number, remaining: number): string {
+    const parts = [
+      chalk.cyan('⏳ Waiting for approval...'),
+      chalk.gray(`(${attempt}/${maxAttempts})`),
+      chalk.yellow(`⏱  ${elapsed}s elapsed`),
+      chalk.blue(`⏲  ${remaining}s remaining`),
+      chalk.gray('(Ctrl+C to cancel)'),
+    ];
+    return parts.join(' ');
   }
 
   private prompt(question: string): Promise<string> {
