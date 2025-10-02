@@ -1,0 +1,38 @@
+#!/bin/sh
+# SafeRun pre-push hook
+
+REMOTE_NAME="$1"
+REMOTE_URL="$2"
+shift 2 >/dev/null 2>&1 || true
+
+# Allow bypass for CI or explicit disable flag
+if [ "$SAFERUN_DISABLE" = "1" ] || [ "$CI" = "true" ] || [ "$CI" = "1" ]; then
+  exit 0
+fi
+
+read_input() {
+  if [ -t 0 ]; then
+    return 1
+  fi
+  while read LOCAL_REF LOCAL_SHA REMOTE_REF REMOTE_SHA
+  do
+    SAFERUN_REMOTE_NAME="$REMOTE_NAME" \
+    SAFERUN_REMOTE_URL="$REMOTE_URL" \
+    saferun-hook pre-push "$LOCAL_REF" "$LOCAL_SHA" "$REMOTE_REF" "$REMOTE_SHA" "$REMOTE_NAME" "$REMOTE_URL"
+    STATUS=$?
+    if [ $STATUS -ne 0 ]; then
+      exit $STATUS
+    fi
+  done
+  return 0
+}
+
+if ! read_input; then
+  # No refs provided; still invoke hook once for safety
+  SAFERUN_REMOTE_NAME="$REMOTE_NAME" \
+  SAFERUN_REMOTE_URL="$REMOTE_URL" \
+  saferun-hook pre-push "" "" "" "" "$REMOTE_NAME" "$REMOTE_URL"
+  exit $?
+fi
+
+exit 0

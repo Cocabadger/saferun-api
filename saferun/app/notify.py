@@ -31,7 +31,68 @@ class Notifier:
 
     async def send_slack(self, payload: Dict[str, Any], text: str) -> None:
         if not SLACK_URL: return
-        body = {"text": text, "attachments": [{"text": json.dumps(payload)[:9500]}]}
+
+        # Build Slack Block Kit message with interactive buttons
+        change_id = payload.get("change_id")
+        approve_url = payload.get("approve_url")
+        risk_score = payload.get("risk_score", 0.0)
+        title = payload.get("title", "Unknown operation")
+
+        blocks = [
+            {
+                "type": "header",
+                "text": {
+                    "type": "plain_text",
+                    "text": "🛡️ SafeRun Approval Required"
+                }
+            },
+            {
+                "type": "section",
+                "fields": [
+                    {"type": "mrkdwn", "text": f"*Operation:*\n{title}"},
+                    {"type": "mrkdwn", "text": f"*Risk Score:*\n{risk_score:.1f}/10"}
+                ]
+            }
+        ]
+
+        # Add approve URL if available
+        if approve_url:
+            blocks.append({
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": f"*Approval URL:*\n<{approve_url}|View Details>"
+                }
+            })
+
+        # Add interactive buttons if we have change_id and API base URL
+        if change_id:
+            api_base = os.getenv("APP_BASE_URL", "http://localhost:8500")
+            blocks.append({
+                "type": "actions",
+                "elements": [
+                    {
+                        "type": "button",
+                        "text": {"type": "plain_text", "text": "✅ Approve"},
+                        "style": "primary",
+                        "url": f"{api_base}/api/approvals/{change_id}",
+                        "action_id": "approve_operation"
+                    },
+                    {
+                        "type": "button",
+                        "text": {"type": "plain_text", "text": "❌ Reject"},
+                        "style": "danger",
+                        "url": f"{api_base}/api/approvals/{change_id}",
+                        "action_id": "reject_operation"
+                    }
+                ]
+            })
+
+        body = {
+            "text": text,  # Fallback text for notifications
+            "blocks": blocks
+        }
+
         async def do(): return await self.client.post(SLACK_URL, json=body)
         await self._retry(do)
 

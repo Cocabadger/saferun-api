@@ -4,7 +4,7 @@ from datetime import datetime, timedelta, timezone
 import uuid
 from saferun import __version__ as SR_VERSION
 
-ProviderLiteral = Literal["notion", "gdrive", "slack", "gsheets", "airtable", "github"]
+ProviderLiteral = Literal["notion", "gdrive", "slack", "gsheets", "airtable", "github", "git"]
 
 class AirtableRecordArchiveDryRunRequest(BaseModel):
     token: str
@@ -43,6 +43,46 @@ class GitHubBulkClosePRsDryRunRequest(BaseModel):
     webhook_url: Optional[str] = None
 
 
+class GitOperationDryRunRequest(BaseModel):
+    operation_type: Literal[
+        "force_push",
+        "branch_delete",
+        "hard_reset",
+        "clean",
+        "rebase",
+        "cherry_pick",
+        "custom",
+    ]
+    target: str
+    command: str
+    metadata: Dict = {}
+    risk_score: float = Field(ge=0.0, le=1.0)
+    human_preview: str
+    requires_approval: Optional[bool] = None
+    reasons: List[str] = []
+    policy: Optional[Dict] = None
+    webhook_url: Optional[str] = None
+    ttl_minutes: int = Field(default=30, ge=5, le=240)
+
+
+class GitOperationStatusResponse(BaseModel):
+    change_id: str
+    status: str
+    requires_approval: bool
+    approved: bool
+    expires_at: datetime
+    human_preview: Optional[str] = None
+    operation_type: Optional[str] = None
+    risk_score: Optional[float] = None
+    reasons: List[str] = []
+
+
+class GitOperationConfirmRequest(BaseModel):
+    change_id: str
+    status: Literal["applied", "cancelled", "failed"] = "applied"
+    metadata: Dict = {}
+
+
 
 
 
@@ -54,13 +94,25 @@ class DryRunArchiveRequest(BaseModel):
     webhook_url: Optional[str] = None
 
 class DiffUnit(BaseModel):
-    op: Literal["archive", "delete_branch", "bulk_preview"]
+    op: Literal["archive", "delete_branch", "bulk_preview", "git_operation"]
     impact: Dict
 
 class TargetRef(BaseModel):
     provider: ProviderLiteral
     target_id: str
-    type: Literal["page", "db_item", "file", "folder", "record", "bulk_view", "repo", "branch", "bulk_pr", "channel"]
+    type: Literal[
+        "page",
+        "db_item",
+        "file",
+        "folder",
+        "record",
+        "bulk_view",
+        "repo",
+        "branch",
+        "bulk_pr",
+        "channel",
+        "operation",
+    ]
 
 class Summary(BaseModel):
     title: Optional[str]

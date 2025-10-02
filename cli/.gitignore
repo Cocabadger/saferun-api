@@ -1,0 +1,10 @@
+node_modules
+.dist
+.tmp
+.cache
+dist
+.safetest
+yarn.lock
+package-lock.json
+pnpm-lock.yaml
+.saferun

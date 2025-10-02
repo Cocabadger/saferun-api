@@ -1,0 +1,42 @@
+# Source files (TypeScript)
+src/
+tests/
+*.test.ts
+*.spec.ts
+
+# Build configs
+tsconfig.json
+tsconfig.*.json
+.eslintrc.js
+.eslintrc.json
+
+# Development files
+.gitignore
+.git
+.vscode
+.idea
+*.log
+*.tgz
+
+# Test artifacts
+coverage/
+.nyc_output/
+.safetest/
+
+# Temp files
+.tmp/
+.cache/
+.DS_Store
+
+# Lock files
+yarn.lock
+package-lock.json
+pnpm-lock.yaml
+
+# Documentation (keep only essential README)
+docs/
+examples/local/
+
+# CI/CD
+.github/
+.gitlab-ci.yml

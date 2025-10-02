@@ -1,0 +1,70 @@
+{
+  "name": "@saferun/cli",
+  "version": "0.1.0",
+  "description": "AI Safety Middleware - Protect your Git workflows from dangerous AI agent operations",
+  "author": "SafeRun Team",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Cocabadger/saferun-api.git"
+  },
+  "homepage": "https://saferun-landing.vercel.app",
+  "bugs": {
+    "url": "https://github.com/Cocabadger/saferun-api/issues"
+  },
+  "keywords": [
+    "ai-safety",
+    "git-hooks",
+    "cli",
+    "ai-agents",
+    "security",
+    "git-protection",
+    "middleware",
+    "saferun",
+    "cursor",
+    "claude-code"
+  ],
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "bin": {
+    "saferun": "./bin/saferun",
+    "saferun-hook": "./bin/saferun-hook"
+  },
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "rimraf dist && tsc -p tsconfig.json",
+    "dev": "ts-node src/index.ts",
+    "lint": "eslint \"src/**/*.ts\"",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "@saferun/sdk": "file:../sdk/javascript",
+    "chalk": "^4.1.2",
+    "cli-table3": "^0.6.3",
+    "commander": "^12.1.0",
+    "dotenv": "^16.4.5",
+    "inquirer": "^9.2.17",
+    "js-yaml": "^4.1.0",
+    "open": "^10.2.0",
+    "ora": "^8.0.1",
+    "uuid": "^9.0.1"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.17",
+    "@types/js-yaml": "^4.0.9",
+    "@types/cli-table": "^0.3.4",
+    "@types/uuid": "^9.0.7",
+    "magic-string": "^0.30.5",
+    "@typescript-eslint/eslint-plugin": "^6.21.0",
+    "@typescript-eslint/parser": "^6.21.0",
+    "eslint": "^8.56.0",
+    "rimraf": "^5.0.5",
+    "ts-node": "^10.9.2",
+    "tslib": "^2.6.2",
+    "typescript": "^5.3.3",
+    "vitest": "^1.6.1"
+  }
+}

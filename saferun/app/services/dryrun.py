@@ -172,15 +172,11 @@ async def build_dryrun(req: DryRunArchiveRequest, notion_version: str | None = N
             }
             storage.save_change(change_id, change_data, ttl_seconds)
 
-            # 6) Approval token and optional notification
+            # 6) Approval URL and optional notification
             approve_url = None
             if need_approval:
-                import uuid
                 base = os.environ.get("APP_BASE_URL", "http://localhost:8500")
-                token = str(uuid.uuid4())
-                token_data = {"kind": "approve", "ref": change_id, "expires_at": expires_at_str}
-                storage.save_token(token, token_data, ttl_seconds)
-                approve_url = f"{base}/v1/approve?t={token}"
+                approve_url = f"{base}/api/approvals/{change_id}"
 
                 # publish notification (use saferun namespace import)
                 import asyncio

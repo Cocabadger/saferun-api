@@ -1,0 +1,30 @@
+{
+  "name": "@saferun/sdk",
+  "version": "0.1.0",
+  "description": "JavaScript SDK for SafeRun API",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "rimraf dist && tsc -p tsconfig.json",
+    "lint": "eslint \"src/**/*.ts\"",
+    "test": "vitest run"
+  },
+  "files": [
+    "dist/**/*",
+    "README.md"
+  ],
+  "dependencies": {
+    "axios": "^1.7.2"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.17",
+    "@typescript-eslint/eslint-plugin": "^6.21.0",
+    "@typescript-eslint/parser": "^6.21.0",
+    "eslint": "^8.56.0",
+    "rimraf": "^5.0.5",
+    "tslib": "^2.6.2",
+    "typescript": "^5.3.3",
+    "vitest": "^1.6.1"
+  }
+}
