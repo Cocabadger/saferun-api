@@ -67,16 +67,13 @@ export class ApprovalFlow {
     try {
       while (true) {
         const choice = (await this.prompt('\nSelect option: ')).trim();
-        console.log(chalk.gray(`[DEBUG] User choice: "${choice}"`));
         const option = options.find((entry) => entry.key === choice);
         if (!option) {
           console.log(chalk.red('Invalid selection. Please choose one of the available options.'));
           continue;
         }
 
-        console.log(chalk.gray(`[DEBUG] Selected option: ${option.key} - ${option.label}`));
         const outcome = await option.action();
-        console.log(chalk.gray(`[DEBUG] Outcome: ${outcome}`));
         if (outcome === ApprovalOutcome.Bypassed) {
           this.metrics?.track('bypass_used', { change_id: result.changeId }).catch(() => undefined);
         }

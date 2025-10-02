@@ -152,15 +152,19 @@ def get_git_operation_status(change_id: str) -> GitOperationStatusResponse:
     # Parse JSON strings if needed (Postgres returns TEXT fields as strings)
     import json
     summary_raw = rec.get("summary_json") or rec.get("summary") or {}
+
+    summary_data = {}
     if isinstance(summary_raw, str):
         try:
-            summary_data = json.loads(summary_raw)
+            parsed = json.loads(summary_raw)
+            if isinstance(parsed, dict):
+                summary_data = parsed
         except:
-            summary_data = {}
-    else:
+            pass
+    elif isinstance(summary_raw, dict):
         summary_data = summary_raw
 
-    reasons = summary_data.get("reasons") or []
+    reasons = summary_data.get("reasons", []) if isinstance(summary_data, dict) else []
 
     return GitOperationStatusResponse(
         change_id=change_id,
