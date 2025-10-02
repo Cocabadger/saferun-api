@@ -50,14 +50,19 @@ async def get_approval_details(change_id: str) -> ApprovalDetailResponse:
 
     # Parse JSON strings if needed
     import json
-    summary_raw = rec.get("summary_json") or rec.get("summary") or {}
+    summary_raw = rec.get("summary_json") or rec.get("summary") or "{}"
     if isinstance(summary_raw, str):
         try:
             summary_data = json.loads(summary_raw)
-        except:
+        except Exception as e:
+            print(f"Failed to parse summary_json: {e}, raw: {summary_raw}")
             summary_data = {}
     else:
         summary_data = summary_raw
+
+    # Ensure summary_data is always a dict
+    if not isinstance(summary_data, dict):
+        summary_data = {}
 
     # Convert datetime objects to ISO strings
     from datetime import datetime
