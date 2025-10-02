@@ -8,6 +8,10 @@ from typing import Optional, Dict, List, Any
 
 DATABASE_URL = os.getenv("DATABASE_URL")
 
+def reload_db_path(path: str = None):
+    """No-op for Postgres - DATABASE_URL is managed via env vars."""
+    return DATABASE_URL
+
 def get_connection():
     """Get PostgreSQL connection."""
     return psycopg2.connect(DATABASE_URL)
