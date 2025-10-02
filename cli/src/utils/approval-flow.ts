@@ -95,8 +95,8 @@ export class ApprovalFlow {
     console.log(chalk.bold('═══════════════════════════════════'));
 
     console.log(`\n${chalk.gray('Operation:')} ${result.humanPreview || 'Unknown operation'}`);
-    // Risk score is already 0-10 scale from API
-    const displayScore = result.riskScore.toFixed(1);
+    // Risk score comes as 0-1 from API, convert to 0-10 for display
+    const displayScore = (result.riskScore * 10).toFixed(1);
     console.log(`${chalk.gray('Risk Score:')} ${riskColor(`${displayScore}/10`)}`);
 
     if (result.reasons.length > 0) {
