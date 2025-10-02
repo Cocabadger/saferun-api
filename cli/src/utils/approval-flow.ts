@@ -53,16 +53,30 @@ export class ApprovalFlow {
     const options = this.buildOptions(result, approvalUrl);
     this.printOptions(options);
 
+    // Check if stdin is interactive (TTY)
+    const isInteractive = process.stdin.isTTY;
+
+    if (!isInteractive) {
+      console.log(chalk.yellow('\n⚠️  Non-interactive environment detected.'));
+      console.log(chalk.cyan('Automatically waiting for web approval...'));
+      console.log(chalk.gray(`Open the approval URL above to approve or reject.\n`));
+      this.close();
+      return this.waitForApproval(result);
+    }
+
     try {
       while (true) {
         const choice = (await this.prompt('\nSelect option: ')).trim();
+        console.log(chalk.gray(`[DEBUG] User choice: "${choice}"`));
         const option = options.find((entry) => entry.key === choice);
         if (!option) {
           console.log(chalk.red('Invalid selection. Please choose one of the available options.'));
           continue;
         }
 
+        console.log(chalk.gray(`[DEBUG] Selected option: ${option.key} - ${option.label}`));
         const outcome = await option.action();
+        console.log(chalk.gray(`[DEBUG] Outcome: ${outcome}`));
         if (outcome === ApprovalOutcome.Bypassed) {
           this.metrics?.track('bypass_used', { change_id: result.changeId }).catch(() => undefined);
         }
@@ -185,7 +199,11 @@ export class ApprovalFlow {
 
   private prompt(question: string): Promise<string> {
     return new Promise((resolve) => {
-      this.rl.question(question, (answer) => resolve(answer));
+      console.log(chalk.gray(`[DEBUG] Calling rl.question...`));
+      this.rl.question(question, (answer) => {
+        console.log(chalk.gray(`[DEBUG] rl.question callback - answer: "${answer}"`));
+        resolve(answer);
+      });
     });
   }
 

@@ -521,12 +521,20 @@ export class HookRunner {
         modeSettings: context.modeSettings,
       });
       const outcome = await flow.requestApproval(dryRun);
+      console.log(chalk.gray(`[DEBUG pre-commit] Approval outcome: ${outcome}`));
       if (outcome !== ApprovalOutcome.Approved && outcome !== ApprovalOutcome.Bypassed) {
-        await context.client.confirmGitOperation({
-          changeId: dryRun.changeId,
-          status: 'cancelled',
-          metadata: { repo: repoSlug, branch },
-        });
+        console.log(chalk.gray(`[DEBUG pre-commit] Blocking commit - outcome was not approved/bypassed`));
+        // Try to notify API, but exit regardless of success
+        try {
+          await context.client.confirmGitOperation({
+            changeId: dryRun.changeId,
+            status: 'cancelled',
+            metadata: { repo: repoSlug, branch },
+          });
+        } catch (apiError) {
+          // Ignore API errors when cancelling - we still block the commit
+          console.log(chalk.gray(`[DEBUG] API error during cancel (ignored): ${apiError instanceof Error ? apiError.message : String(apiError)}`));
+        }
         context.metrics.track('operation_blocked', {
           hook: 'pre-commit',
           operation_type: 'commit_protected',
@@ -544,6 +552,7 @@ export class HookRunner {
         console.error(chalk.red(`SafeRun blocked commit on protected branch '${branch}'.`));
         process.exit(1);
       }
+      console.log(chalk.gray(`[DEBUG pre-commit] Allowing commit - outcome was ${outcome}`));
 
       await context.client.confirmGitOperation({
         changeId: dryRun.changeId,

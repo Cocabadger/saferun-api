@@ -149,7 +149,17 @@ def get_git_operation_status(change_id: str) -> GitOperationStatusResponse:
     status = rec.get("status", "pending")
     approved = not requires_approval and status in {"pending", "approved", "applied"}
 
-    summary_data = rec.get("summary_json") or {}
+    # Parse JSON strings if needed (Postgres returns TEXT fields as strings)
+    import json
+    summary_raw = rec.get("summary_json") or rec.get("summary") or {}
+    if isinstance(summary_raw, str):
+        try:
+            summary_data = json.loads(summary_raw)
+        except:
+            summary_data = {}
+    else:
+        summary_data = summary_raw
+
     reasons = summary_data.get("reasons") or []
 
     return GitOperationStatusResponse(
