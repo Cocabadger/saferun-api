@@ -67,7 +67,7 @@ export async function interceptClean(context: InterceptorContext): Promise<numbe
         repo: repoSlug,
         args: context.args,
       },
-      riskScore,
+      riskScore: riskScore / 10,
       humanPreview,
       requiresApproval: enforcement.requiresApproval || enforcement.shouldBlock,
       reasons,

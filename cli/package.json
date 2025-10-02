@@ -1,6 +1,6 @@
 {
   "name": "@saferun/cli",
-  "version": "0.1.0",
+  "version": "0.1.5",
   "description": "AI Safety Middleware - Protect your Git workflows from dangerous AI agent operations",
   "author": "SafeRun Team",
   "license": "MIT",
@@ -33,6 +33,13 @@
   },
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
+  "files": [
+    "dist",
+    "bin",
+    "hooks",
+    "examples",
+    "README.md"
+  ],
   "scripts": {
     "build": "rimraf dist && tsc -p tsconfig.json",
     "dev": "ts-node src/index.ts",
@@ -41,7 +48,7 @@
     "test:watch": "vitest"
   },
   "dependencies": {
-    "@saferun/sdk": "file:../sdk/javascript",
+    "@saferun/sdk": "^0.1.0",
     "chalk": "^4.1.2",
     "cli-table3": "^0.6.3",
     "commander": "^12.1.0",

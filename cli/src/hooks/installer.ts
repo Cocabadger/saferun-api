@@ -94,7 +94,9 @@ async function installHook(repoRoot: string, gitDir: string, hookName: string): 
   const hooksDir = path.join(gitDir, 'hooks');
   await fs.promises.mkdir(hooksDir, { recursive: true });
 
-  const templatePath = path.join(__dirname, 'templates', hookName);
+  // In production, templates are in project root: hooks/
+  // __dirname points to dist/hooks/, so we go up 2 levels
+  const templatePath = path.join(__dirname, '..', '..', 'hooks', hookName);
   if (!fs.existsSync(templatePath)) {
     throw new Error(`Hook template not found: ${hookName}`);
   }

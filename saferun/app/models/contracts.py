@@ -48,9 +48,11 @@ class GitOperationDryRunRequest(BaseModel):
         "force_push",
         "branch_delete",
         "hard_reset",
+        "reset_hard",
         "clean",
         "rebase",
         "cherry_pick",
+        "commit_protected",
         "custom",
     ]
     target: str

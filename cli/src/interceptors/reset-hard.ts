@@ -105,7 +105,7 @@ export async function interceptReset(context: InterceptorContext): Promise<numbe
         target: targetRef,
         commitsDiscarded: commitsBack,
       },
-      riskScore,
+      riskScore: riskScore / 10,
       humanPreview,
       requiresApproval: enforcement.requiresApproval || enforcement.shouldBlock,
       reasons,

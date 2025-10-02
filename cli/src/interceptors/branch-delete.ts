@@ -148,7 +148,7 @@ export async function interceptBranchDelete(context: InterceptorContext): Promis
           force,
           unmergedCommits: ahead,
         },
-        riskScore,
+        riskScore: riskScore / 10,
         humanPreview,
         requiresApproval,
         reasons,

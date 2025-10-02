@@ -1,0 +1,9 @@
+#!/bin/sh
+# SafeRun post-checkout hook
+
+if [ "$SAFERUN_DISABLE" = "1" ] || [ "$CI" = "true" ] || [ "$CI" = "1" ]; then
+  exit 0
+fi
+
+npx --no saferun-hook post-checkout "$@"
+exit $?

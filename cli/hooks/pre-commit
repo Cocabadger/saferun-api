@@ -1,0 +1,9 @@
+#!/bin/sh
+# SafeRun pre-commit hook placeholder
+
+if [ "$SAFERUN_DISABLE" = "1" ] || [ "$CI" = "true" ] || [ "$CI" = "1" ]; then
+  exit 0
+fi
+
+npx --no saferun-hook pre-commit "$@"
+exit $?
