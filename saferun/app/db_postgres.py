@@ -118,10 +118,17 @@ def parse_dt(s: str) -> datetime:
     if not s:
         return datetime.min.replace(tzinfo=timezone.utc)
     if isinstance(s, datetime):
+        # Ensure timezone aware
+        if s.tzinfo is None:
+            return s.replace(tzinfo=timezone.utc)
         return s
     if s.endswith("Z"):
         s = s.replace("Z", "+00:00")
-    return datetime.fromisoformat(s)
+    dt = datetime.fromisoformat(s)
+    # Ensure timezone aware
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt
 
 def now_utc() -> datetime:
     """Get current UTC datetime."""
