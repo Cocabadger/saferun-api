@@ -48,6 +48,12 @@ async def get_notification_settings(api_key: str = Depends(verify_api_key)):
     settings["email_enabled"] = bool(settings.get("email_enabled"))
     settings["webhook_enabled"] = bool(settings.get("webhook_enabled"))
 
+    # Convert datetime objects to ISO strings
+    if settings.get("created_at"):
+        settings["created_at"] = db.iso_z(settings["created_at"])
+    if settings.get("updated_at"):
+        settings["updated_at"] = db.iso_z(settings["updated_at"])
+
     return NotificationSettingsResponse(**settings)
 
 @router.put("/notifications")
