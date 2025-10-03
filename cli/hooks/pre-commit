@@ -10,13 +10,13 @@ fi
 # Expand PATH to handle edge cases (osascript, minimal shells, etc.)
 export PATH="/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin:$HOME/.nvm/versions/node/current/bin:$HOME/.npm-global/bin:$PATH"
 
-# Check if npx is available
-if ! command -v npx >/dev/null 2>&1; then
-  echo "⚠️  SafeRun: npx not found. Install Node.js or ensure it's in PATH."
+# Check if saferun-hook is available
+if ! command -v saferun-hook >/dev/null 2>&1; then
+  echo "⚠️  SafeRun: saferun-hook not found. Install @saferun/cli globally or ensure it's in PATH."
   echo "Bypassing SafeRun protection for this operation..."
   exit 0  # graceful degradation
 fi
 
-# Run SafeRun hook
-npx --no saferun-hook pre-commit "$@"
+# Run SafeRun hook (direct call to preserve exit code)
+saferun-hook pre-commit "$@"
 exit $?

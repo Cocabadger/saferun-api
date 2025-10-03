@@ -14,9 +14,9 @@ fi
 # Expand PATH to handle edge cases (osascript, minimal shells, etc.)
 export PATH="/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin:$HOME/.nvm/versions/node/current/bin:$HOME/.npm-global/bin:$PATH"
 
-# Check if npx is available
-if ! command -v npx >/dev/null 2>&1; then
-  echo "⚠️  SafeRun: npx not found. Install Node.js or ensure it's in PATH."
+# Check if saferun-hook is available
+if ! command -v saferun-hook >/dev/null 2>&1; then
+  echo "⚠️  SafeRun: saferun-hook not found. Install @saferun/cli globally or ensure it's in PATH."
   echo "Bypassing SafeRun protection for this operation..."
   exit 0  # graceful degradation
 fi
@@ -29,7 +29,7 @@ read_input() {
   do
     SAFERUN_REMOTE_NAME="$REMOTE_NAME" \
     SAFERUN_REMOTE_URL="$REMOTE_URL" \
-    npx --no saferun-hook pre-push "$LOCAL_REF" "$LOCAL_SHA" "$REMOTE_REF" "$REMOTE_SHA" "$REMOTE_NAME" "$REMOTE_URL"
+    saferun-hook pre-push "$LOCAL_REF" "$LOCAL_SHA" "$REMOTE_REF" "$REMOTE_SHA" "$REMOTE_NAME" "$REMOTE_URL"
     STATUS=$?
     if [ $STATUS -ne 0 ]; then
       exit $STATUS
@@ -42,7 +42,7 @@ if ! read_input; then
   # No refs provided; still invoke hook once for safety
   SAFERUN_REMOTE_NAME="$REMOTE_NAME" \
   SAFERUN_REMOTE_URL="$REMOTE_URL" \
-  npx --no saferun-hook pre-push "" "" "" "" "$REMOTE_NAME" "$REMOTE_URL"
+  saferun-hook pre-push "" "" "" "" "$REMOTE_NAME" "$REMOTE_URL"
   exit $?
 fi
 
