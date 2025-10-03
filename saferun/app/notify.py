@@ -1,6 +1,8 @@
-import os, json, hmac, hashlib, asyncio
+import os, json, hmac, hashlib, asyncio, logging
 from typing import Dict, Any, Optional
 import httpx
+
+logger = logging.getLogger(__name__)
 
 TIMEOUT = float(os.getenv("NOTIFY_TIMEOUT_MS", "2000")) / 1000.0
 RETRY = int(os.getenv("NOTIFY_RETRY", "1"))
@@ -28,11 +30,11 @@ class Notifier:
                 return result
             except Exception as e:
                 last = e
-                print(f"[NOTIFY ERROR] Attempt {attempt + 1}/{RETRY + 1} failed: {e}")
+                logger.error(f"[NOTIFY ERROR] Attempt {attempt + 1}/{RETRY + 1} failed: {e}")
                 await asyncio.sleep(0.3 * (2 ** attempt))
         # Log final failure
         if last:
-            print(f"[NOTIFY FAILED] All retries exhausted: {last}")
+            logger.error(f"[NOTIFY FAILED] All retries exhausted: {last}")
         return None
 
     async def send_slack(self, payload: Dict[str, Any], text: str, api_key: str = None) -> None:
@@ -136,9 +138,9 @@ class Notifier:
             result = resp.json()
             if not result.get("ok"):
                 error_msg = result.get("error", "unknown_error")
-                print(f"[SLACK ERROR] API returned: {error_msg}, full response: {result}")
+                logger.error(f"[SLACK ERROR] API returned: {error_msg}, full response: {result}")
                 raise Exception(f"Slack API error: {error_msg}")
-            print(f"[SLACK SUCCESS] Message sent to {channel}")
+            logger.info(f"[SLACK SUCCESS] Message sent to {channel}")
             return resp
         await self._retry(do)
 
