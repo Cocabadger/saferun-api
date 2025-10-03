@@ -1,5 +1,6 @@
 #!/bin/sh
 # SafeRun pre-push hook
+# Protects against dangerous AI agent operations
 
 REMOTE_NAME="$1"
 REMOTE_URL="$2"
@@ -8,6 +9,16 @@ shift 2 >/dev/null 2>&1 || true
 # Allow bypass for CI or explicit disable flag
 if [ "$SAFERUN_DISABLE" = "1" ] || [ "$CI" = "true" ] || [ "$CI" = "1" ]; then
   exit 0
+fi
+
+# Expand PATH to handle edge cases (osascript, minimal shells, etc.)
+export PATH="/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin:$HOME/.nvm/versions/node/current/bin:$HOME/.npm-global/bin:$PATH"
+
+# Check if npx is available
+if ! command -v npx >/dev/null 2>&1; then
+  echo "⚠️  SafeRun: npx not found. Install Node.js or ensure it's in PATH."
+  echo "Bypassing SafeRun protection for this operation..."
+  exit 0  # graceful degradation
 fi
 
 read_input() {

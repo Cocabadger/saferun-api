@@ -118,7 +118,22 @@ export function detectAIAgent(): AIAgentInfo {
     }
   }
 
-  // 3. Check git config for automation markers
+  // 3. Check for GitHub Copilot / VSCode environment
+  const vscodeInjection = process.env.VSCODE_INJECTION;
+  const vscodeGit = process.env.VSCODE_GIT_ASKPASS_NODE;
+  const vscodeGitCommand = process.env.VSCODE_GIT_COMMAND;
+
+  if (vscodeInjection || vscodeGit || vscodeGitCommand) {
+    // Running in VSCode environment - likely GitHub Copilot
+    return {
+      isAIAgent: true,
+      agentType: 'copilot',
+      confidence: 'medium',
+      detectionMethod: 'pattern',
+    };
+  }
+
+  // 4. Check git config for automation markers
   const gitUser = process.env.GIT_AUTHOR_NAME || process.env.GIT_COMMITTER_NAME;
   if (gitUser) {
     const user = gitUser.toLowerCase();
@@ -130,7 +145,7 @@ export function detectAIAgent(): AIAgentInfo {
     }
   }
 
-  // 4. Heuristic detection - check for non-interactive session
+  // 5. Heuristic detection - check for non-interactive session
   if (!process.stdin.isTTY && !process.env.CI) {
     // Non-TTY session that's not CI might be automation
     return { isAIAgent: true, agentType: 'api-client', confidence: 'low', detectionMethod: 'heuristic' };
