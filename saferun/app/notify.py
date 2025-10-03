@@ -127,11 +127,19 @@ class Notifier:
         headers = {"Authorization": f"Bearer {bot_token}"}
 
         async def do():
-            return await self.client.post(
+            resp = await self.client.post(
                 "https://slack.com/api/chat.postMessage",
                 json=body,
                 headers=headers
             )
+            # Check Slack API response
+            result = resp.json()
+            if not result.get("ok"):
+                error_msg = result.get("error", "unknown_error")
+                print(f"[SLACK ERROR] API returned: {error_msg}, full response: {result}")
+                raise Exception(f"Slack API error: {error_msg}")
+            print(f"[SLACK SUCCESS] Message sent to {channel}")
+            return resp
         await self._retry(do)
 
     async def _send_slack_webhook(self, payload: Dict[str, Any], text: str, webhook_url: str) -> None:
