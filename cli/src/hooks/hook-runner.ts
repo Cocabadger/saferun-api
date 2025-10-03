@@ -343,6 +343,7 @@ export class HookRunner {
         metrics: context.metrics,
         config: context.config,
         modeSettings: context.modeSettings,
+        timeoutMs: context.config.approval_timeout?.duration ? context.config.approval_timeout.duration * 1000 : undefined,
       });
       const outcome = await approvalFlow.requestApproval(dryRun);
 
@@ -542,6 +543,7 @@ export class HookRunner {
         metrics: context.metrics,
         config: context.config,
         modeSettings: context.modeSettings,
+        timeoutMs: context.config.approval_timeout?.duration ? context.config.approval_timeout.duration * 1000 : undefined,
       });
       const outcome = await flow.requestApproval(dryRun);
       if (outcome !== ApprovalOutcome.Approved && outcome !== ApprovalOutcome.Bypassed) {
