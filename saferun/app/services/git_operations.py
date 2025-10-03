@@ -31,7 +31,7 @@ def _clamp(value: float, minimum: float = 0.0, maximum: float = 1.0) -> float:
     return max(minimum, min(value, maximum))
 
 
-async def build_git_operation_dryrun(req: GitOperationDryRunRequest) -> DryRunArchiveResponse:
+async def build_git_operation_dryrun(req: GitOperationDryRunRequest, api_key: str | None = None) -> DryRunArchiveResponse:
     storage = storage_manager.get_storage()
 
     risk_score = _clamp(req.risk_score)
@@ -101,6 +101,7 @@ async def build_git_operation_dryrun(req: GitOperationDryRunRequest) -> DryRunAr
                             "operation_type": req.operation_type,
                         },
                     },
+                    api_key=api_key,
                 )
             )
 

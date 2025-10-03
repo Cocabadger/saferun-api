@@ -61,6 +61,76 @@ Webhooks are sent for:
 
 See [WEBHOOK_GUIDE.md](../WEBHOOK_GUIDE.md) for integration examples.
 
+### 4. Configure User Notifications (Slack/Email/Webhooks)
+
+Each user can configure their own notification channels via API. Notifications will be sent to user-specific channels when high-risk actions require approval.
+
+#### Get current notification settings
+```bash
+curl -X GET https://saferun.up.railway.app/v1/settings/notifications \
+  -H "X-API-Key: your_api_key"
+```
+
+#### Configure Slack notifications
+
+**See [SLACK_SETUP.md](SLACK_SETUP.md) for complete step-by-step guide!**
+
+Quick setup:
+```bash
+curl -X PUT https://saferun.up.railway.app/v1/settings/notifications \
+  -H "X-API-Key: your_api_key" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "slack_bot_token": "xoxb-YOUR-BOT-TOKEN",
+    "slack_channel": "#saferun-alerts",
+    "slack_enabled": true,
+    "email_enabled": false
+  }'
+```
+
+#### Test Slack notifications
+```bash
+curl -X POST https://saferun.up.railway.app/v1/settings/notifications/test/slack \
+  -H "X-API-Key: your_api_key"
+```
+
+#### Configure Email notifications
+```bash
+curl -X PUT https://saferun.up.railway.app/v1/settings/notifications \
+  -H "X-API-Key: your_api_key" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "email": "alerts@company.com",
+    "email_enabled": true,
+    "slack_enabled": false
+  }'
+```
+
+#### Configure Custom Webhooks
+```bash
+curl -X PUT https://saferun.up.railway.app/v1/settings/notifications \
+  -H "X-API-Key: your_api_key" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "webhook_url": "https://your-webhook.com/saferun",
+    "webhook_secret": "your_secret_for_hmac_validation",
+    "webhook_enabled": true
+  }'
+```
+
+#### Reset notification settings to defaults
+```bash
+curl -X DELETE https://saferun.up.railway.app/v1/settings/notifications \
+  -H "X-API-Key: your_api_key"
+```
+
+**Features:**
+- ✅ Per-user notification settings stored in database
+- ✅ Interactive Slack buttons for approve/reject (when using Bot Token)
+- ✅ Email notifications (requires SMTP server configured)
+- ✅ Custom webhooks with HMAC signature validation
+- ✅ Fallback to global admin settings if user settings not configured
+
 ## Supported Providers
 
 - **GitHub**: Repository archive/unarchive, branch delete/restore, bulk PR operations ✅ Webhooks
@@ -102,12 +172,21 @@ See [WEBHOOK_GUIDE.md](../WEBHOOK_GUIDE.md) for integration examples.
 - `SR_GITHUB_API_BASE`: Override GitHub API base URL (optional, defaults to `https://api.github.com`)
 - `SR_GITHUB_USER_AGENT`: Custom user agent string for GitHub requests (optional)
 
-### Webhook Settings (Optional)
+### Global Notification Settings (Optional - for admin/fallback)
 - `NOTIFY_TIMEOUT_MS`: Webhook timeout in milliseconds (default: 2000)
 - `NOTIFY_RETRY`: Number of webhook retries (default: 1)
-- `SLACK_WEBHOOK_URL`: Your Slack webhook for SafeRun system notifications (optional)
+- `SLACK_BOT_TOKEN`: Slack Bot Token for admin notifications (optional)
+- `SLACK_CHANNEL`: Default Slack channel (default: #saferun-alerts)
+- `SLACK_WEBHOOK_URL`: Slack Webhook URL (alternative to Bot Token, optional)
 - `GENERIC_WEBHOOK_URL`: Generic webhook URL for all events (optional)
 - `GENERIC_WEBHOOK_SECRET`: Secret for webhook signature validation (optional)
+- `SMTP_HOST`: Email server host (optional)
+- `SMTP_PORT`: Email server port (optional)
+- `SMTP_USER`: Email username (optional)
+- `SMTP_PASS`: Email password (optional)
+- `SMTP_FROM`: Sender email address (optional)
+
+**Note:** Users can configure their own notification settings via API (see below), which override these global settings.
 
 ## Pricing
 

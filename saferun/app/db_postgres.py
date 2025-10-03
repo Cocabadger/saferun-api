@@ -83,6 +83,26 @@ def init_db():
     );
     """)
 
+    # Create user notification settings table
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS user_notification_settings(
+        api_key TEXT PRIMARY KEY,
+        slack_webhook_url TEXT,
+        slack_bot_token TEXT,
+        slack_channel TEXT DEFAULT '#saferun-alerts',
+        slack_enabled INTEGER DEFAULT 0,
+        email TEXT,
+        email_enabled INTEGER DEFAULT 1,
+        webhook_url TEXT,
+        webhook_secret TEXT,
+        webhook_enabled INTEGER DEFAULT 0,
+        notification_channels TEXT DEFAULT '["email"]',
+        created_at TIMESTAMP DEFAULT NOW(),
+        updated_at TIMESTAMP DEFAULT NOW(),
+        FOREIGN KEY (api_key) REFERENCES api_keys(api_key) ON DELETE CASCADE
+    );
+    """)
+
     conn.commit()
     conn.close()
 
@@ -301,3 +321,56 @@ def get_api_key_by_email(email: str) -> Optional[Dict[str, Any]]:
         "SELECT * FROM api_keys WHERE email = %s AND is_active = 1 ORDER BY created_at DESC LIMIT 1",
         (email,)
     )
+
+# Notification Settings Management
+def get_notification_settings(api_key: str) -> Optional[Dict[str, Any]]:
+    """Get notification settings for an API key."""
+    return fetchone(
+        "SELECT * FROM user_notification_settings WHERE api_key = %s",
+        (api_key,)
+    )
+
+def upsert_notification_settings(api_key: str, settings: Dict[str, Any]):
+    """Insert or update notification settings."""
+    conn = get_connection()
+    cur = conn.cursor()
+
+    cur.execute("""
+    INSERT INTO user_notification_settings(
+        api_key, slack_webhook_url, slack_bot_token, slack_channel, slack_enabled,
+        email, email_enabled, webhook_url, webhook_secret, webhook_enabled,
+        notification_channels, updated_at
+    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+    ON CONFLICT(api_key) DO UPDATE SET
+        slack_webhook_url=EXCLUDED.slack_webhook_url,
+        slack_bot_token=EXCLUDED.slack_bot_token,
+        slack_channel=EXCLUDED.slack_channel,
+        slack_enabled=EXCLUDED.slack_enabled,
+        email=EXCLUDED.email,
+        email_enabled=EXCLUDED.email_enabled,
+        webhook_url=EXCLUDED.webhook_url,
+        webhook_secret=EXCLUDED.webhook_secret,
+        webhook_enabled=EXCLUDED.webhook_enabled,
+        notification_channels=EXCLUDED.notification_channels,
+        updated_at=EXCLUDED.updated_at
+    """, (
+        api_key,
+        settings.get("slack_webhook_url"),
+        settings.get("slack_bot_token"),
+        settings.get("slack_channel", "#saferun-alerts"),
+        int(bool(settings.get("slack_enabled", False))),
+        settings.get("email"),
+        int(bool(settings.get("email_enabled", True))),
+        settings.get("webhook_url"),
+        settings.get("webhook_secret"),
+        int(bool(settings.get("webhook_enabled", False))),
+        json.dumps(settings.get("notification_channels", ["email"])),
+        now_utc()
+    ))
+
+    conn.commit()
+    conn.close()
+
+def delete_notification_settings(api_key: str):
+    """Delete notification settings for an API key."""
+    exec("DELETE FROM user_notification_settings WHERE api_key = %s", (api_key,))

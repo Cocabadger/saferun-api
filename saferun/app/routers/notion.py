@@ -25,19 +25,19 @@ router = APIRouter(prefix="/v1", tags=["Archive"], dependencies=[Depends(verify_
 
 
 @router.post("/dry-run/notion.page.archive", response_model=DryRunNotionArchiveResponse)
-async def dry_run_notion_archive(payload: DryRunNotionArchiveRequest):
+async def dry_run_notion_archive(payload: DryRunNotionArchiveRequest, api_key: str = Depends(verify_api_key)):
     if not payload.notion_token or not payload.page_id:
         raise HTTPException(status_code=400, detail="notion_token and page_id are required")
     try:
         from ..models.contracts import DryRunArchiveRequest
         generic = DryRunArchiveRequest(
-            token=payload.notion_token, 
-            target_id=payload.page_id, 
-            provider="notion", 
+            token=payload.notion_token,
+            target_id=payload.page_id,
+            provider="notion",
             policy=payload.policy,
             webhook_url=payload.webhook_url
         )
-        resp = await build_dryrun(generic)
+        resp = await build_dryrun(generic, api_key=api_key)
         return resp
     except Exception as e:
         msg = str(e)

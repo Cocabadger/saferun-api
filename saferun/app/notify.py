@@ -31,14 +31,31 @@ class Notifier:
         # swallow error (non-blocking), could log
         return None
 
-    async def send_slack(self, payload: Dict[str, Any], text: str) -> None:
-        # Try Bot Token first (preferred), fallback to Webhook
-        if SLACK_BOT_TOKEN:
-            await self._send_slack_bot(payload, text)
-        elif SLACK_URL:
-            await self._send_slack_webhook(payload, text)
+    async def send_slack(self, payload: Dict[str, Any], text: str, api_key: str = None) -> None:
+        # Get user-specific settings if api_key provided
+        user_settings = None
+        if api_key:
+            from . import db_adapter as db
+            user_settings = db.get_notification_settings(api_key)
 
-    async def _send_slack_bot(self, payload: Dict[str, Any], text: str) -> None:
+        # Use user settings if available and enabled, otherwise fall back to global env vars
+        if user_settings and user_settings.get("slack_enabled"):
+            bot_token = user_settings.get("slack_bot_token")
+            webhook_url = user_settings.get("slack_webhook_url")
+            channel = user_settings.get("slack_channel", "#saferun-alerts")
+
+            if bot_token:
+                await self._send_slack_bot(payload, text, bot_token, channel)
+            elif webhook_url:
+                await self._send_slack_webhook(payload, text, webhook_url)
+        elif SLACK_BOT_TOKEN or SLACK_URL:
+            # Fallback to global env vars
+            if SLACK_BOT_TOKEN:
+                await self._send_slack_bot(payload, text, SLACK_BOT_TOKEN, SLACK_CHANNEL)
+            elif SLACK_URL:
+                await self._send_slack_webhook(payload, text, SLACK_URL)
+
+    async def _send_slack_bot(self, payload: Dict[str, Any], text: str, bot_token: str, channel: str) -> None:
         """Send via Slack Bot API with interactive buttons"""
         change_id = payload.get("change_id")
         approve_url = payload.get("approve_url")
@@ -98,12 +115,12 @@ class Notifier:
             })
 
         body = {
-            "channel": SLACK_CHANNEL,
+            "channel": channel,
             "text": text,  # Fallback
             "blocks": blocks
         }
 
-        headers = {"Authorization": f"Bearer {SLACK_BOT_TOKEN}"}
+        headers = {"Authorization": f"Bearer {bot_token}"}
 
         async def do():
             return await self.client.post(
@@ -113,7 +130,7 @@ class Notifier:
             )
         await self._retry(do)
 
-    async def _send_slack_webhook(self, payload: Dict[str, Any], text: str) -> None:
+    async def _send_slack_webhook(self, payload: Dict[str, Any], text: str, webhook_url: str) -> None:
         """Fallback: Send via Incoming Webhook (simple, no interactivity)"""
         change_id = payload.get("change_id")
         approve_url = payload.get("approve_url")
@@ -173,7 +190,7 @@ class Notifier:
             "blocks": blocks
         }
 
-        async def do(): return await self.client.post(SLACK_URL, json=body)
+        async def do(): return await self.client.post(webhook_url, json=body)
         await self._retry(do)
 
     async def send_custom_webhook(self, webhook_url: str, payload: Dict[str, Any]) -> None:
@@ -184,33 +201,65 @@ class Notifier:
         async def do(): return await self.client.post(webhook_url, content=body, headers=headers)
         await self._retry(do)
 
-    async def send_webhook(self, payload: Dict[str, Any]) -> None:
-        if not WH_URL: return
+    async def send_webhook(self, payload: Dict[str, Any], api_key: str = None) -> None:
+        # Get user-specific webhook settings if api_key provided
+        user_webhook_url = None
+        user_webhook_secret = None
+        if api_key:
+            from . import db_adapter as db
+            user_settings = db.get_notification_settings(api_key)
+            if user_settings and user_settings.get("webhook_enabled"):
+                user_webhook_url = user_settings.get("webhook_url")
+                user_webhook_secret = user_settings.get("webhook_secret")
+
+        # Use user webhook if available, otherwise fall back to global webhook
+        webhook_url = user_webhook_url or WH_URL
+        webhook_secret = user_webhook_secret or WH_SECRET
+
+        if not webhook_url:
+            return
+
         body = json.dumps(payload).encode("utf-8")
         headers = {}
-        if WH_SECRET:
-            sig = hmac.new(WH_SECRET.encode(), body, hashlib.sha256).hexdigest()
+        if webhook_secret:
+            sig = hmac.new(webhook_secret.encode(), body, hashlib.sha256).hexdigest()
             headers["X-Signature"] = sig
-        async def do(): return await self.client.post(WH_URL, content=body, headers=headers)
+        async def do(): return await self.client.post(webhook_url, content=body, headers=headers)
         await self._retry(do)
 
-    async def send_email(self, payload: Dict[str, Any], subject: str) -> None:
-        # optional: implement later via aiosmtplib; keep no-op if SMTP not configured
-        if not (SMTP_HOST and SMTP_FROM and SMTP_TO): return
+    async def send_email(self, payload: Dict[str, Any], subject: str, api_key: str = None) -> None:
+        # Get user-specific email settings if api_key provided
+        user_email = None
+        if api_key:
+            from . import db_adapter as db
+            user_settings = db.get_notification_settings(api_key)
+            if user_settings and user_settings.get("email_enabled"):
+                user_email = user_settings.get("email")
+
+        # Use user email if available, otherwise fall back to global SMTP settings
+        if user_email and SMTP_HOST and SMTP_FROM:
+            # Send to user's email
+            to_email = user_email
+        elif SMTP_HOST and SMTP_FROM and SMTP_TO:
+            # Fallback to global config
+            to_email = SMTP_TO
+        else:
+            return
+
         try:
             import aiosmtplib
         except Exception:
             return
-        msg = f"Subject: {subject}\nFrom: {SMTP_FROM}\nTo: {SMTP_TO}\n\n{json.dumps(payload, indent=2)[:9000]}"
+        msg = f"Subject: {subject}\nFrom: {SMTP_FROM}\nTo: {to_email}\n\n{json.dumps(payload, indent=2)[:9000]}"
         async def do():
             return await aiosmtplib.send(
                 msg, hostname=SMTP_HOST, port=SMTP_PORT or 587,
                 username=SMTP_USER, password=SMTP_PASS, start_tls=True,
-                sender=SMTP_FROM, recipients=[SMTP_TO]
+                sender=SMTP_FROM, recipients=[to_email]
             )
         await self._retry(do)
 
-    async def publish(self, event: str, change: Dict[str, Any], extras: Optional[Dict[str, Any]] = None) -> None:
+    async def publish(self, event: str, change: Dict[str, Any], extras: Optional[Dict[str, Any]] = None, api_key: str = None) -> None:
         payload = {
             "event": event,
             "change_id": change.get("change_id"),
@@ -226,10 +275,10 @@ class Notifier:
             "ts": change.get("ts") or change.get("created_at"),
             "meta": (extras or {}).get("meta", {}),
         }
-        
+
         # Add user-specific webhook if provided
         webhook_url = change.get("webhook_url")
-        
+
         text_map = {
             "dry_run": ":rotating_light: [SafeRun] High-risk DRY-RUN → approval needed",
             "applied": ":white_check_mark: [SafeRun] Applied",
@@ -237,18 +286,18 @@ class Notifier:
             "expired": ":hourglass_flowing_sand: [SafeRun] Expired",
         }
         text = text_map.get(event, f"[SafeRun] {event}")
-        
-        # Fan-out concurrently
+
+        # Fan-out concurrently with api_key for user-specific settings
         tasks = [
-            self.send_slack(payload, text),
-            self.send_webhook(payload),
-            self.send_email(payload, subject=text.replace(":", ""))
+            self.send_slack(payload, text, api_key),
+            self.send_webhook(payload, api_key),
+            self.send_email(payload, subject=text.replace(":", ""), api_key=api_key)
         ]
-        
+
         # Add custom webhook if URL provided
         if webhook_url:
             tasks.append(self.send_custom_webhook(webhook_url, payload))
-        
+
         await asyncio.gather(*tasks, return_exceptions=True)
 
 notifier = Notifier()

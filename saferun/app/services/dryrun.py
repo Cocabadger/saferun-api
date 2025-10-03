@@ -15,7 +15,7 @@ from .risk import compute_risk, human_preview as hp_render
 
 # Providers are resolved via factory so tests can monkeypatch easily.
 
-async def build_dryrun(req: DryRunArchiveRequest, notion_version: str | None = None) -> DryRunArchiveResponse:
+async def build_dryrun(req: DryRunArchiveRequest, notion_version: str | None = None, api_key: str | None = None) -> DryRunArchiveResponse:
     storage = storage_manager.get_storage()
     provider_instance = provider_factory.get_provider(req.provider)
     # For GitHub, prefer the concrete class instance so tests that monkeypatch
@@ -184,7 +184,7 @@ async def build_dryrun(req: DryRunArchiveRequest, notion_version: str | None = N
                 change_record = storage.get_change(change_id)
                 if change_record:
                     asyncio.create_task(
-                        notifier.publish("dry_run", change_record, extras={"approve_url": approve_url, "meta": {"latency_ms": 0, "provider_version": "unknown"}})
+                        notifier.publish("dry_run", change_record, extras={"approve_url": approve_url, "meta": {"latency_ms": 0, "provider_version": "unknown"}}, api_key=api_key)
                     )
 
             telemetry_dict = {"latency_ms": 0, "provider_version": "unknown"}

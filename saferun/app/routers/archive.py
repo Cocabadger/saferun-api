@@ -32,7 +32,7 @@ class DryRunArchiveRequestIn(BaseModel):
 
 
 @router.post("/dry-run/{provider_name}.archive", response_model=DryRunArchiveResponse)
-async def dry_run_archive(provider_name: str, payload: DryRunArchiveRequestIn):
+async def dry_run_archive(provider_name: str, payload: DryRunArchiveRequestIn, api_key: str = Depends(verify_api_key)):
     # provider_name may include a type suffix like "github.repo"; extract the provider id
     provider_id = provider_name.split(".", 1)[0]
     if not _get_provider(provider_id):
@@ -55,7 +55,7 @@ async def dry_run_archive(provider_name: str, payload: DryRunArchiveRequestIn):
 
     # Timing and request counting for dry-run are handled inside build_dryrun
     try:
-        resp = await build_dryrun(strict_req)
+        resp = await build_dryrun(strict_req, api_key=api_key)
         return resp
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"Provider API error: {e}")
@@ -94,7 +94,7 @@ class RevertResponse(BaseModel):
 
 
 @router.post("/apply", response_model=ApplyResponse)
-async def apply_change(body: ApplyRequest):
+async def apply_change(body: ApplyRequest, api_key: str = Depends(verify_api_key)):
     storage = storage_manager.get_storage()
     rec = storage.get_change(body.change_id)
     if not rec:
@@ -242,7 +242,7 @@ async def apply_change(body: ApplyRequest):
 
     telemetry_dict = {"latency_ms": int(ms), "provider_version": "unknown"}
     asyncio.create_task(
-        notifier.publish("applied", rec, extras={"revert_token": revert_token, "meta": telemetry_dict})
+        notifier.publish("applied", rec, extras={"revert_token": revert_token, "meta": telemetry_dict}, api_key=api_key)
     )
 
     return ApplyResponse(change_id=body.change_id, status="applied",
@@ -314,7 +314,7 @@ async def approve_post(t: str):
 
 
 @router.post("/revert", response_model=RevertResponse)
-async def revert_change(body: RevertRequest):
+async def revert_change(body: RevertRequest, api_key: str = Depends(verify_api_key)):
     storage = storage_manager.get_storage()
     rec = storage.get_change_by_revert_token(body.revert_token)
     if not rec:
@@ -387,7 +387,7 @@ async def revert_change(body: RevertRequest):
 
     telemetry_dict = {"latency_ms": int(ms), "provider_version": "unknown"}
     asyncio.create_task(
-        notifier.publish("reverted", rec, extras={"meta": telemetry_dict})
+        notifier.publish("reverted", rec, extras={"meta": telemetry_dict}, api_key=api_key)
     )
 
     return RevertResponse(revert_token=body.revert_token, status="reverted", telemetry=telemetry_dict)
