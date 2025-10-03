@@ -401,24 +401,46 @@ export class HookRunner {
       await context.cache.set(cacheKey, 'dangerous', 300_000);
       process.exit(1);
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      console.error(chalk.red(`SafeRun API error: ${message}`));
-      console.error(chalk.yellow('Proceeding without SafeRun protection.'));
-      await context.metrics.track('operation_allowed', {
-        hook: 'pre-push',
-        operation_type: operationType,
-        branch,
-        repo: repoSlug,
-        reason: 'api_error',
-      });
-      await logOperation(context.gitInfo.repoRoot, {
-        event: 'error',
-        operation: operationType,
-        repo: repoSlug,
-        branch,
-        reason: message,
-      });
-      await context.cache.set(cacheKey, 'unknown', 120_000);
+      const err = error instanceof Error ? error : new Error(String(error));
+      const { shouldBlock, message } = this.handleAPIError(err, context.config);
+
+      console.error(chalk.red(`SafeRun API error: ${err.message}`));
+      console.error(shouldBlock ? chalk.red(message) : chalk.yellow(message));
+
+      if (shouldBlock) {
+        await context.metrics.track('operation_blocked', {
+          hook: 'pre-push',
+          operation_type: operationType,
+          branch,
+          repo: repoSlug,
+          reason: 'api_error_blocked',
+        });
+        await logOperation(context.gitInfo.repoRoot, {
+          event: 'blocked',
+          operation: operationType,
+          repo: repoSlug,
+          branch,
+          reason: 'API error - fail_mode blocked operation',
+        });
+        await context.cache.set(cacheKey, 'dangerous', 300_000);
+        process.exit(1);
+      } else {
+        await context.metrics.track('operation_allowed', {
+          hook: 'pre-push',
+          operation_type: operationType,
+          branch,
+          repo: repoSlug,
+          reason: 'api_error_graceful',
+        });
+        await logOperation(context.gitInfo.repoRoot, {
+          event: 'error',
+          operation: operationType,
+          repo: repoSlug,
+          branch,
+          reason: err.message,
+        });
+        await context.cache.set(cacheKey, 'unknown', 120_000);
+      }
     }
   }
 
@@ -630,6 +652,53 @@ export class HookRunner {
     }
 
     return false;
+  }
+
+  private handleAPIError(error: Error, config: SafeRunConfig): { shouldBlock: boolean; message: string } {
+    const errorMessage = error.message || String(error);
+    const errorHandling = config.api.error_handling;
+    const failMode = config.api.fail_mode || 'graceful';
+
+    // Determine error type
+    let errorType: keyof typeof errorHandling;
+    if (errorMessage.includes('403') || errorMessage.includes('Forbidden') || errorMessage.includes('limit exceeded')) {
+      errorType = '403_forbidden';
+    } else if (errorMessage.includes('500') || errorMessage.includes('Internal Server Error')) {
+      errorType = '500_server_error';
+    } else if (errorMessage.includes('timeout') || errorMessage.includes('ETIMEDOUT')) {
+      errorType = 'timeout';
+    } else {
+      errorType = 'network_error';
+    }
+
+    // Handle based on fail_mode
+    if (failMode === 'strict') {
+      return {
+        shouldBlock: true,
+        message: `🚫 API error (${failMode} mode) - operation blocked for safety: ${errorMessage}`,
+      };
+    }
+
+    if (failMode === 'permissive') {
+      return {
+        shouldBlock: false,
+        message: `⚠️  API error (${failMode} mode) - proceeding with warning: ${errorMessage}`,
+      };
+    }
+
+    // Graceful mode: check specific error handling
+    const handler = errorHandling?.[errorType];
+    if (!handler) {
+      return {
+        shouldBlock: false,
+        message: `⚠️  API error - proceeding with warning: ${errorMessage}`,
+      };
+    }
+
+    return {
+      shouldBlock: handler.action === 'block',
+      message: handler.message || errorMessage,
+    };
   }
 
   private async isAncestor(base: string, tip: string, cwd: string): Promise<boolean> {

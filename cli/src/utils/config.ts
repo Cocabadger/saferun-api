@@ -25,12 +25,29 @@ export interface OfflineModeConfig {
   cache_duration?: number;
 }
 
+export type FailMode = 'strict' | 'graceful' | 'permissive';
+export type ErrorAction = 'block' | 'warn' | 'allow';
+
+export interface ErrorHandlingConfig {
+  action: ErrorAction;
+  message: string;
+}
+
+export interface ErrorHandlingSettings {
+  '403_forbidden': ErrorHandlingConfig;
+  '500_server_error': ErrorHandlingConfig;
+  'network_error': ErrorHandlingConfig;
+  'timeout': ErrorHandlingConfig;
+}
+
 export interface ApiConfig {
   url: string;
   key?: string;
   timeout?: number;
   retry_count?: number;
   offline_mode?: OfflineModeConfig;
+  fail_mode?: FailMode;
+  error_handling?: ErrorHandlingSettings;
 }
 
 export interface BranchRuleConfig {
@@ -144,6 +161,25 @@ const DEFAULT_CONFIG: SafeRunConfig = {
       enabled: true,
       default_action: 'allow',
       cache_duration: 3600,
+    },
+    fail_mode: 'graceful',
+    error_handling: {
+      '403_forbidden': {
+        action: 'block',
+        message: '🚫 API limit exceeded - operations blocked for safety. Upgrade your plan or wait for reset.',
+      },
+      '500_server_error': {
+        action: 'warn',
+        message: '⚠️  API temporarily unavailable - proceeding with warning',
+      },
+      'network_error': {
+        action: 'warn',
+        message: '⚠️  Network error - proceeding with warning',
+      },
+      'timeout': {
+        action: 'warn',
+        message: '⚠️  API timeout - proceeding with warning',
+      },
     },
   },
   github: {
