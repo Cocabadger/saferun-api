@@ -162,7 +162,7 @@ export class SafeRunClient {
       const status = this.parseChangeStatus(data);
       return {
         approved: status.approved,
-        rejected: status.status === "cancelled" || status.status === "failed",
+        rejected: status.status === "cancelled" || status.status === "failed" || status.status === "rejected",
         expired: status.status === "expired",
         pending: !status.approved && status.status === "pending",
         status: status.status,

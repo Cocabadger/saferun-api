@@ -195,7 +195,7 @@ export class ApprovalFlow {
     let attempt = 0;
 
     const spinner = ora({
-      text: this.getWaitingText(0, maxAttempts, 0, this.timeout),
+      text: this.getWaitingText(0, maxAttempts, 0, Math.floor(this.timeout / 1000)),
       spinner: 'dots',
     }).start();
 
