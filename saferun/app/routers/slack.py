@@ -1,7 +1,8 @@
 from fastapi import APIRouter, Request, HTTPException
 from fastapi.responses import JSONResponse
 import json, hmac, hashlib, os
-from ..db import get_db, set_db, GIT_CHANGE_PREFIX
+from .. import storage as storage_manager
+from .. import db_adapter as db
 
 router = APIRouter(prefix="/slack", tags=["slack"])
 
@@ -89,30 +90,24 @@ async def handle_slack_interaction(request: Request):
 
 async def approve_change(change_id: str, user: str) -> bool:
     """Approve a pending change"""
-    db = await get_db()
-    key = f"{GIT_CHANGE_PREFIX}{change_id}"
-    change = db.get(key)
+    storage = storage_manager.get_storage()
+    change = storage.get_change(change_id)
 
     if not change:
         return False
 
-    change["status"] = "approved"
-    change["approved_by"] = user
-    change["approved_via"] = "slack"
-    await set_db(key, change)
+    storage.set_change_status(change_id, "approved")
+    db.insert_audit(change_id, "approved", {"approved_by": user, "approved_via": "slack"})
     return True
 
 async def reject_change(change_id: str, user: str) -> bool:
     """Reject a pending change"""
-    db = await get_db()
-    key = f"{GIT_CHANGE_PREFIX}{change_id}"
-    change = db.get(key)
+    storage = storage_manager.get_storage()
+    change = storage.get_change(change_id)
 
     if not change:
         return False
 
-    change["status"] = "rejected"
-    change["rejected_by"] = user
-    change["rejected_via"] = "slack"
-    await set_db(key, change)
+    storage.set_change_status(change_id, "rejected")
+    db.insert_audit(change_id, "rejected", {"rejected_by": user, "rejected_via": "slack"})
     return True
