@@ -24,11 +24,15 @@ class Notifier:
         last = None
         for attempt in range(RETRY + 1):
             try:
-                return await coro()
+                result = await coro()
+                return result
             except Exception as e:
                 last = e
+                print(f"[NOTIFY ERROR] Attempt {attempt + 1}/{RETRY + 1} failed: {e}")
                 await asyncio.sleep(0.3 * (2 ** attempt))
-        # swallow error (non-blocking), could log
+        # Log final failure
+        if last:
+            print(f"[NOTIFY FAILED] All retries exhausted: {last}")
         return None
 
     async def send_slack(self, payload: Dict[str, Any], text: str, api_key: str = None) -> None:
