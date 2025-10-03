@@ -593,23 +593,45 @@ export class HookRunner {
         outcome: 'approved',
       });
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      console.error(chalk.red(`SafeRun pre-commit error: ${message}`));
-      context.metrics.track('operation_allowed', {
-        hook: 'pre-commit',
-        operation_type: 'commit_protected',
-        repo: repoSlug,
-        branch,
-        reason: 'api_error',
-      }).catch(() => undefined);
-      await logOperation(context.gitInfo.repoRoot, {
-        event: 'commit',
-        operation: 'commit_protected',
-        repo: repoSlug,
-        branch,
-        outcome: 'api_error',
-        error: message,
-      });
+      const err = error instanceof Error ? error : new Error(String(error));
+      const { shouldBlock, message } = this.handleAPIError(err, context.config);
+
+      console.error(chalk.red(`SafeRun pre-commit error: ${err.message}`));
+      console.error(shouldBlock ? chalk.red(message) : chalk.yellow(message));
+
+      if (shouldBlock) {
+        await context.metrics.track('operation_blocked', {
+          hook: 'pre-commit',
+          operation_type: 'commit_protected',
+          repo: repoSlug,
+          branch,
+          reason: 'api_error_blocked',
+        }).catch(() => undefined);
+        await logOperation(context.gitInfo.repoRoot, {
+          event: 'blocked',
+          operation: 'commit_protected',
+          repo: repoSlug,
+          branch,
+          reason: 'API error - fail_mode blocked operation',
+        });
+        process.exit(1);
+      } else {
+        await context.metrics.track('operation_allowed', {
+          hook: 'pre-commit',
+          operation_type: 'commit_protected',
+          repo: repoSlug,
+          branch,
+          reason: 'api_error_graceful',
+        }).catch(() => undefined);
+        await logOperation(context.gitInfo.repoRoot, {
+          event: 'commit',
+          operation: 'commit_protected',
+          repo: repoSlug,
+          branch,
+          outcome: 'api_error',
+          error: err.message,
+        });
+      }
     }
   }
 
