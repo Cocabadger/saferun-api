@@ -125,35 +125,8 @@ async def test_slack_notification(api_key: str = Depends(verify_api_key)):
     }
 
     try:
-        # Temporarily override Slack settings for this test
-        import os
-        original_token = os.environ.get("SLACK_BOT_TOKEN")
-        original_webhook = os.environ.get("SLACK_WEBHOOK_URL")
-        original_channel = os.environ.get("SLACK_CHANNEL")
-
-        if settings.get("slack_bot_token"):
-            os.environ["SLACK_BOT_TOKEN"] = settings["slack_bot_token"]
-            os.environ["SLACK_CHANNEL"] = settings.get("slack_channel", "#saferun-alerts")
-        elif settings.get("slack_webhook_url"):
-            os.environ["SLACK_WEBHOOK_URL"] = settings["slack_webhook_url"]
-
-        await notifier.send_slack(test_payload, "🧪 SafeRun Test Notification")
-
-        # Restore original env vars
-        if original_token:
-            os.environ["SLACK_BOT_TOKEN"] = original_token
-        elif "SLACK_BOT_TOKEN" in os.environ:
-            del os.environ["SLACK_BOT_TOKEN"]
-
-        if original_webhook:
-            os.environ["SLACK_WEBHOOK_URL"] = original_webhook
-        elif "SLACK_WEBHOOK_URL" in os.environ:
-            del os.environ["SLACK_WEBHOOK_URL"]
-
-        if original_channel:
-            os.environ["SLACK_CHANNEL"] = original_channel
-        elif "SLACK_CHANNEL" in os.environ:
-            del os.environ["SLACK_CHANNEL"]
+        # Use user's settings from database (new architecture)
+        await notifier.send_slack(test_payload, "🧪 SafeRun Test Notification", api_key=api_key)
 
         return {
             "success": True,
