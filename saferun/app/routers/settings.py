@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from typing import Optional, List
-from ..auth import require_api_key
+from .auth import verify_api_key
 from .. import db_adapter as db
 
 router = APIRouter(prefix="/v1/settings", tags=["settings"])
@@ -24,7 +24,7 @@ class NotificationSettingsResponse(NotificationSettings):
     updated_at: Optional[str] = None
 
 @router.get("/notifications", response_model=NotificationSettingsResponse)
-async def get_notification_settings(api_key: str = Depends(require_api_key)):
+async def get_notification_settings(api_key: str = Depends(verify_api_key)):
     """Get notification settings for the authenticated user."""
     settings = db.get_notification_settings(api_key)
 
@@ -53,7 +53,7 @@ async def get_notification_settings(api_key: str = Depends(require_api_key)):
 @router.put("/notifications")
 async def update_notification_settings(
     settings: NotificationSettings,
-    api_key: str = Depends(require_api_key)
+    api_key: str = Depends(verify_api_key)
 ):
     """Update notification settings for the authenticated user."""
 
@@ -97,7 +97,7 @@ async def update_notification_settings(
     }
 
 @router.post("/notifications/test/slack")
-async def test_slack_notification(api_key: str = Depends(require_api_key)):
+async def test_slack_notification(api_key: str = Depends(verify_api_key)):
     """Send a test notification to Slack to verify configuration."""
     settings = db.get_notification_settings(api_key)
 
@@ -160,7 +160,7 @@ async def test_slack_notification(api_key: str = Depends(require_api_key)):
         )
 
 @router.delete("/notifications")
-async def delete_notification_settings(api_key: str = Depends(require_api_key)):
+async def delete_notification_settings(api_key: str = Depends(verify_api_key)):
     """Reset notification settings to defaults."""
     db.delete_notification_settings(api_key)
     return {
