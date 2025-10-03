@@ -11,6 +11,7 @@ from .routers.metrics import router as metrics_router
 from .routers.git_operations import router as git_router
 from .routers.auth import router as auth_router
 from .routers.approvals import router as approvals_router
+from .routers.slack import router as slack_router
 from saferun import __version__ as SR_VERSION
 from . import storage as storage_manager
 from . import db_adapter as db
@@ -128,6 +129,7 @@ app.include_router(health_router)
 app.include_router(metrics_router)
 app.include_router(auth_router)  # Auth doesn't require API key
 app.include_router(approvals_router)  # Approvals for web dashboard
+app.include_router(slack_router)  # Slack interactivity
 app.include_router(github_router)
 app.include_router(notion_router)
 app.include_router(archive_router)

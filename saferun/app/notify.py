@@ -5,6 +5,8 @@ import httpx
 TIMEOUT = float(os.getenv("NOTIFY_TIMEOUT_MS", "2000")) / 1000.0
 RETRY = int(os.getenv("NOTIFY_RETRY", "1"))
 SLACK_URL = os.getenv("SLACK_WEBHOOK_URL")
+SLACK_BOT_TOKEN = os.getenv("SLACK_BOT_TOKEN")
+SLACK_CHANNEL = os.getenv("SLACK_CHANNEL", "#saferun-alerts")
 WH_URL = os.getenv("GENERIC_WEBHOOK_URL")
 WH_SECRET = os.getenv("GENERIC_WEBHOOK_SECRET")
 SMTP_HOST = os.getenv("SMTP_HOST")
@@ -30,9 +32,89 @@ class Notifier:
         return None
 
     async def send_slack(self, payload: Dict[str, Any], text: str) -> None:
-        if not SLACK_URL: return
+        # Try Bot Token first (preferred), fallback to Webhook
+        if SLACK_BOT_TOKEN:
+            await self._send_slack_bot(payload, text)
+        elif SLACK_URL:
+            await self._send_slack_webhook(payload, text)
 
-        # Build Slack Block Kit message with interactive buttons
+    async def _send_slack_bot(self, payload: Dict[str, Any], text: str) -> None:
+        """Send via Slack Bot API with interactive buttons"""
+        change_id = payload.get("change_id")
+        approve_url = payload.get("approve_url")
+        risk_score = payload.get("risk_score", 0.0)
+        title = payload.get("title", "Unknown operation")
+        provider = payload.get("provider", "unknown")
+
+        blocks = [
+            {
+                "type": "header",
+                "text": {
+                    "type": "plain_text",
+                    "text": "🛡️ SafeRun Approval Required"
+                }
+            },
+            {
+                "type": "section",
+                "fields": [
+                    {"type": "mrkdwn", "text": f"*Operation:*\n{title}"},
+                    {"type": "mrkdwn", "text": f"*Risk Score:*\n{risk_score:.1f}/10"},
+                    {"type": "mrkdwn", "text": f"*Provider:*\n{provider}"},
+                    {"type": "mrkdwn", "text": f"*Change ID:*\n`{change_id}`"}
+                ]
+            }
+        ]
+
+        # Add approve URL for web view
+        if approve_url:
+            blocks.append({
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": f"<{approve_url}|🌐 View in Dashboard>"
+                }
+            })
+
+        # Add REAL interactive buttons (value contains change_id for callback)
+        if change_id:
+            blocks.append({
+                "type": "actions",
+                "elements": [
+                    {
+                        "type": "button",
+                        "text": {"type": "plain_text", "text": "✅ Approve"},
+                        "style": "primary",
+                        "action_id": "approve_change",
+                        "value": change_id
+                    },
+                    {
+                        "type": "button",
+                        "text": {"type": "plain_text", "text": "❌ Reject"},
+                        "style": "danger",
+                        "action_id": "reject_change",
+                        "value": change_id
+                    }
+                ]
+            })
+
+        body = {
+            "channel": SLACK_CHANNEL,
+            "text": text,  # Fallback
+            "blocks": blocks
+        }
+
+        headers = {"Authorization": f"Bearer {SLACK_BOT_TOKEN}"}
+
+        async def do():
+            return await self.client.post(
+                "https://slack.com/api/chat.postMessage",
+                json=body,
+                headers=headers
+            )
+        await self._retry(do)
+
+    async def _send_slack_webhook(self, payload: Dict[str, Any], text: str) -> None:
+        """Fallback: Send via Incoming Webhook (simple, no interactivity)"""
         change_id = payload.get("change_id")
         approve_url = payload.get("approve_url")
         risk_score = payload.get("risk_score", 0.0)
@@ -65,7 +147,7 @@ class Notifier:
                 }
             })
 
-        # Add interactive buttons if we have change_id and API base URL
+        # Webhook only supports URL buttons (not interactive)
         if change_id:
             api_base = os.getenv("APP_BASE_URL", "http://localhost:8500")
             blocks.append({
@@ -75,21 +157,19 @@ class Notifier:
                         "type": "button",
                         "text": {"type": "plain_text", "text": "✅ Approve"},
                         "style": "primary",
-                        "url": f"{api_base}/api/approvals/{change_id}",
-                        "action_id": "approve_operation"
+                        "url": f"{api_base}/approvals/{change_id}",
                     },
                     {
                         "type": "button",
                         "text": {"type": "plain_text", "text": "❌ Reject"},
                         "style": "danger",
-                        "url": f"{api_base}/api/approvals/{change_id}",
-                        "action_id": "reject_operation"
+                        "url": f"{api_base}/approvals/{change_id}",
                     }
                 ]
             })
 
         body = {
-            "text": text,  # Fallback text for notifications
+            "text": text,
             "blocks": blocks
         }
 
