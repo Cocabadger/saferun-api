@@ -58,14 +58,6 @@ async def handle_slack_interaction(request: Request):
 
     payload = json.loads(payload_json)
 
-    # Write debug info to file
-    import datetime
-    debug_file = "/tmp/slack_debug.json"
-    with open(debug_file, "a") as f:
-        f.write(f"\n=== {datetime.datetime.now().isoformat()} ===\n")
-        f.write(json.dumps(payload, indent=2))
-        f.write("\n")
-
     # Extract action info
     action_type = payload.get("type")
     if action_type != "block_actions":
@@ -80,6 +72,7 @@ async def handle_slack_interaction(request: Request):
     change_id = action.get("value")
     user = payload.get("user", {})
     user_name = user.get("name", "unknown")
+    response_url = payload.get("response_url")
 
     # Process action
     if action_id == "approve_change":
@@ -91,28 +84,26 @@ async def handle_slack_interaction(request: Request):
     else:
         return JSONResponse({"ok": True})
 
-    # Update Slack message to show it was handled
-    response_data = {
-        "replace_original": True,
-        "text": f"{message} (by @{user_name})",
-        "blocks": [
-            {
-                "type": "section",
-                "text": {
-                    "type": "mrkdwn",
-                    "text": f"*{message}*\nActioned by: @{user_name}\nChange ID: `{change_id}`"
+    # Update message using response_url
+    if response_url:
+        import httpx
+        update_payload = {
+            "replace_original": True,
+            "text": f"{message} (by @{user_name})",
+            "blocks": [
+                {
+                    "type": "section",
+                    "text": {
+                        "type": "mrkdwn",
+                        "text": f"*{message}*\nActioned by: @{user_name}\nChange ID: `{change_id}`"
+                    }
                 }
-            }
-        ]
-    }
+            ]
+        }
+        async with httpx.AsyncClient() as client:
+            await client.post(response_url, json=update_payload)
 
-    # Write response to debug file
-    with open(debug_file, "a") as f:
-        f.write("=== RESPONSE ===\n")
-        f.write(json.dumps(response_data, indent=2))
-        f.write("\n")
-
-    return JSONResponse(response_data)
+    return JSONResponse({"ok": True})
 
 async def approve_change(change_id: str, user: str) -> bool:
     """Approve a pending change"""
