@@ -58,6 +58,14 @@ async def handle_slack_interaction(request: Request):
 
     payload = json.loads(payload_json)
 
+    # Write debug info to file
+    import datetime
+    debug_file = "/tmp/slack_debug.json"
+    with open(debug_file, "a") as f:
+        f.write(f"\n=== {datetime.datetime.now().isoformat()} ===\n")
+        f.write(json.dumps(payload, indent=2))
+        f.write("\n")
+
     # Extract action info
     action_type = payload.get("type")
     if action_type != "block_actions":
@@ -84,8 +92,7 @@ async def handle_slack_interaction(request: Request):
         return JSONResponse({"ok": True})
 
     # Update Slack message to show it was handled
-    return JSONResponse({
-        "response_type": "in_channel",
+    response_data = {
         "replace_original": True,
         "text": f"{message} (by @{user_name})",
         "blocks": [
@@ -97,7 +104,15 @@ async def handle_slack_interaction(request: Request):
                 }
             }
         ]
-    })
+    }
+
+    # Write response to debug file
+    with open(debug_file, "a") as f:
+        f.write("=== RESPONSE ===\n")
+        f.write(json.dumps(response_data, indent=2))
+        f.write("\n")
+
+    return JSONResponse(response_data)
 
 async def approve_change(change_id: str, user: str) -> bool:
     """Approve a pending change"""
