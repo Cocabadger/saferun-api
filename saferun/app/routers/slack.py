@@ -24,11 +24,22 @@ def verify_slack_signature(request_body: bytes, timestamp: str, signature: str) 
 
 @router.post("/interactions")
 async def handle_slack_interaction(request: Request):
-    """Handle Slack interactive button clicks"""
+    """Handle Slack interactive button clicks and URL verification"""
 
     # Get raw body and headers
     body = await request.body()
     headers = request.headers
+
+    # Try to parse as JSON first (for URL verification challenge)
+    try:
+        payload = json.loads(body.decode("utf-8"))
+
+        # Handle Slack URL verification challenge
+        if payload.get("type") == "url_verification":
+            return JSONResponse({"challenge": payload.get("challenge")})
+    except json.JSONDecodeError:
+        # Not JSON, continue to parse as form-encoded
+        pass
 
     # Verify Slack signature
     timestamp = headers.get("X-Slack-Request-Timestamp", "")
@@ -37,7 +48,7 @@ async def handle_slack_interaction(request: Request):
     if not verify_slack_signature(body, timestamp, signature):
         raise HTTPException(status_code=401, detail="Invalid signature")
 
-    # Parse form-encoded payload
+    # Parse form-encoded payload (for button interactions)
     from urllib.parse import parse_qs
     params = parse_qs(body.decode("utf-8"))
     payload_json = params.get("payload", [""])[0]
