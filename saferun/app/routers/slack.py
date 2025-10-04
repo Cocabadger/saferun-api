@@ -107,6 +107,17 @@ async def handle_slack_interaction(request: Request):
 
 async def approve_change(change_id: str, user: str) -> bool:
     """Approve a pending change"""
+    # Try git operations first
+    from ..services.git_operations import get_git_operation_status, confirm_git_operation
+    try:
+        git_op = get_git_operation_status(change_id)
+        if git_op:
+            confirm_git_operation(change_id, "approved", {"approved_by": user, "approved_via": "slack"})
+            return True
+    except ValueError:
+        pass  # Not a git operation, try regular change
+
+    # Fallback to regular changes
     storage = storage_manager.get_storage()
     change = storage.get_change(change_id)
 
@@ -119,6 +130,17 @@ async def approve_change(change_id: str, user: str) -> bool:
 
 async def reject_change(change_id: str, user: str) -> bool:
     """Reject a pending change"""
+    # Try git operations first
+    from ..services.git_operations import get_git_operation_status, confirm_git_operation
+    try:
+        git_op = get_git_operation_status(change_id)
+        if git_op:
+            confirm_git_operation(change_id, "rejected", {"rejected_by": user, "rejected_via": "slack"})
+            return True
+    except ValueError:
+        pass  # Not a git operation, try regular change
+
+    # Fallback to regular changes
     storage = storage_manager.get_storage()
     change = storage.get_change(change_id)
 
