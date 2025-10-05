@@ -15,13 +15,6 @@ export class HookCommand {
     const config = await loadConfig(gitInfo.repoRoot, { allowCreate: true });
     const modeSettings = config.modes?.[config.mode];
 
-    if (process.env.SAFERUN_DISABLE === '1' && (modeSettings?.allow_bypass ?? true)) {
-      return runGitCommand(this.mapHandlerToGitCommand(handler, forwarded), {
-        cwd: gitInfo.repoRoot,
-        disableAliases: [this.aliasName(handler)],
-      });
-    }
-
     const metrics = new MetricsCollector(gitInfo.repoRoot, config);
     try {
       const client = createSafeRunClient({ config }) as any;

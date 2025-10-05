@@ -656,10 +656,6 @@ export class HookRunner {
       return false;
     }
 
-    if (process.env.SAFERUN_DISABLE === '1') {
-      return true;
-    }
-
     const bypassConfig = config.bypass ?? {};
     const ciEnabled = bypassConfig.ci !== false && bypassConfig.ci_environments?.enabled !== false;
     const ciFlags = bypassConfig.ci_environments?.detect_from_env ?? ['CI', 'GITHUB_ACTIONS', 'GITLAB_CI', 'JENKINS_URL', 'CIRCLECI'];
