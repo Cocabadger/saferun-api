@@ -11,12 +11,10 @@ class NotificationSettings(BaseModel):
     slack_bot_token: Optional[str] = None
     slack_channel: str = "#saferun-alerts"
     slack_enabled: bool = False
-    email: Optional[str] = None
-    email_enabled: bool = True
     webhook_url: Optional[str] = None
     webhook_secret: Optional[str] = None
     webhook_enabled: bool = False
-    notification_channels: List[str] = Field(default_factory=lambda: ["email"])
+    notification_channels: List[str] = Field(default_factory=lambda: ["slack"])
 
 class NotificationSettingsResponse(NotificationSettings):
     api_key: str
@@ -33,9 +31,8 @@ async def get_notification_settings(api_key: str = Depends(verify_api_key)):
         return NotificationSettingsResponse(
             api_key=api_key,
             slack_enabled=False,
-            email_enabled=True,
             webhook_enabled=False,
-            notification_channels=["email"]
+            notification_channels=["slack"]
         )
 
     # Parse notification_channels JSON string
@@ -45,7 +42,6 @@ async def get_notification_settings(api_key: str = Depends(verify_api_key)):
 
     # Convert integer booleans to actual booleans
     settings["slack_enabled"] = bool(settings.get("slack_enabled"))
-    settings["email_enabled"] = bool(settings.get("email_enabled"))
     settings["webhook_enabled"] = bool(settings.get("webhook_enabled"))
 
     # Convert datetime objects to ISO strings
@@ -67,8 +63,6 @@ async def update_notification_settings(
     enabled_channels = []
     if settings.slack_enabled:
         enabled_channels.append("slack")
-    if settings.email_enabled:
-        enabled_channels.append("email")
     if settings.webhook_enabled:
         enabled_channels.append("webhook")
 

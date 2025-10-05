@@ -241,38 +241,6 @@ class Notifier:
         async def do(): return await self.client.post(webhook_url, content=body, headers=headers)
         await self._retry(do)
 
-    async def send_email(self, payload: Dict[str, Any], subject: str, api_key: str = None) -> None:
-        # Get user-specific email settings if api_key provided
-        user_email = None
-        if api_key:
-            from . import db_adapter as db
-            user_settings = db.get_notification_settings(api_key)
-            if user_settings and user_settings.get("email_enabled"):
-                user_email = user_settings.get("email")
-
-        # Use user email if available, otherwise fall back to global SMTP settings
-        if user_email and SMTP_HOST and SMTP_FROM:
-            # Send to user's email
-            to_email = user_email
-        elif SMTP_HOST and SMTP_FROM and SMTP_TO:
-            # Fallback to global config
-            to_email = SMTP_TO
-        else:
-            return
-
-        try:
-            import aiosmtplib
-        except Exception:
-            return
-        msg = f"Subject: {subject}\nFrom: {SMTP_FROM}\nTo: {to_email}\n\n{json.dumps(payload, indent=2)[:9000]}"
-        async def do():
-            return await aiosmtplib.send(
-                msg, hostname=SMTP_HOST, port=SMTP_PORT or 587,
-                username=SMTP_USER, password=SMTP_PASS, start_tls=True,
-                sender=SMTP_FROM, recipients=[to_email]
-            )
-        await self._retry(do)
-
     async def publish(self, event: str, change: Dict[str, Any], extras: Optional[Dict[str, Any]] = None, api_key: str = None) -> None:
         payload = {
             "event": event,
@@ -304,8 +272,7 @@ class Notifier:
         # Fan-out concurrently with api_key for user-specific settings
         tasks = [
             self.send_slack(payload, text, api_key),
-            self.send_webhook(payload, api_key),
-            self.send_email(payload, subject=text.replace(":", ""), api_key=api_key)
+            self.send_webhook(payload, api_key)
         ]
 
         # Add custom webhook if URL provided
