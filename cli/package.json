@@ -6,7 +6,7 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/Cocabadger/saferun-api.git"
+    "url": "git+https://github.com/Cocabadger/saferun-api.git"
   },
   "homepage": "https://saferun-landing.vercel.app",
   "bugs": {
@@ -28,8 +28,8 @@
     "node": ">=18.0.0"
   },
   "bin": {
-    "saferun": "./bin/saferun",
-    "saferun-hook": "./bin/saferun-hook"
+    "saferun": "bin/saferun",
+    "saferun-hook": "bin/saferun-hook"
   },
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
