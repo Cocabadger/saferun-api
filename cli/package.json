@@ -1,6 +1,6 @@
 {
   "name": "@saferun/cli",
-  "version": "0.5.1",
+  "version": "0.5.2",
   "description": "AI Safety Middleware - Protect your Git workflows from dangerous AI agent operations",
   "author": "SafeRun Team",
   "license": "MIT",
@@ -50,11 +50,16 @@
   "dependencies": {
     "@saferun/sdk": "^0.2.0",
     "axios": "^1.7.2",
+    "chalk": "^4.1.2",
     "cli-table3": "^0.6.5",
     "commander": "^14.0.1",
+    "dotenv": "^16.4.5",
     "inquirer": "^12.9.6",
+    "js-yaml": "^4.1.0",
     "open": "^10.2.0",
-    "ora": "^9.0.0"
+    "ora": "^9.0.0",
+    "qrcode-terminal": "^0.12.0",
+    "uuid": "^9.0.1"
   },
   "devDependencies": {
     "@types/cli-table": "^0.3.4",
