@@ -129,7 +129,6 @@ curl -X DELETE https://saferun.up.railway.app/v1/settings/notifications \
 - **Pull request management**: Bulk close/reopen PRs
 - **CLI integration**: Git hooks for force push protection
 - **Webhook notifications**: Real-time alerts for all operations
-- **Rate limiting**: Configurable per-API-key limits (default: 1000 req/hour)
 
 ### 🔜 Coming Soon
 
@@ -178,11 +177,7 @@ See [SLACK_SETUP.md](SLACK_SETUP.md) for Slack configuration.
 - `SR_STORAGE_BACKEND`: Storage type (sqlite or postgres)
 - `SR_SQLITE_PATH`: Database path (default `/data/saferun.db` when using a Railway Volume; set to `data/saferun.db` for local development)
 - `DATABASE_URL`: PostgreSQL connection URL (for production deployments)
-- `SR_FREE_TIER_LIMIT`: Rate limit - requests per hour per API key (default: 1000)
-
-> **🔒 Security**: Rate limiting CANNOT be disabled or bypassed. When limit is exceeded, requests are BLOCKED with HTTP 429. Users must either:
-> - ⏰ Wait for the hourly window to reset
-> - 💰 Upgrade to paid tier (unlimited requests via contact support@saferun.dev)
+- `SR_FREE_TIER_LIMIT`: Free tier limit - total API calls before returning 403 (default: 100, set to `-1` to disable)
 
 ### Provider Settings
 - `SR_GITHUB_API_BASE`: Override GitHub API base URL (optional, defaults to `https://api.github.com`)
