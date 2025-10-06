@@ -240,7 +240,13 @@ async def build_dryrun(req: DryRunArchiveRequest, notion_version: str | None = N
             if not need_approval and revert_window_hours is not None:
                 # Execute the action immediately
                 try:
-                    await provider_instance.archive(req.target_id, req.token)
+                    # For GitHub branch deletions, use delete_branch() instead of archive()
+                    if req.provider == "github" and item_type == "branch":
+                        revert_sha = await provider_instance.delete_branch(req.target_id, req.token)
+                        change_data["revert_token"] = revert_sha  # Store SHA for revert
+                    else:
+                        await provider_instance.archive(req.target_id, req.token)
+                    
                     # Update status to executed
                     change_data["status"] = "executed"
                     change_data["executed_at"] = db.iso_z(datetime.now(timezone.utc))
