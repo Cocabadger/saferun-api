@@ -258,8 +258,11 @@ async def build_dryrun(req: DryRunArchiveRequest, notion_version: str | None = N
                     # Send notification with Revert button
                     import asyncio
                     from ..notify import notifier
-                    base = os.environ.get("APP_BASE_URL", "http://localhost:8500")
-                    revert_url = f"{base}/v1/changes/{change_id}/revert"
+                    # Use API_BASE_URL for API endpoints
+                    api_base = os.environ.get("API_BASE_URL") or os.environ.get("RAILWAY_PUBLIC_DOMAIN", "http://localhost:8500")
+                    if api_base and not api_base.startswith("http"):
+                        api_base = f"https://{api_base}"
+                    revert_url = f"{api_base}/v1/changes/{change_id}/revert"
                     change_record = storage.get_change(change_id)
                     if change_record:
                         asyncio.create_task(
@@ -375,8 +378,11 @@ async def build_dryrun(req: DryRunArchiveRequest, notion_version: str | None = N
             revert_response_url = None
             revert_window_response = None
             if revert_window_hours is not None:
-                base = os.environ.get("APP_BASE_URL", "http://localhost:8500")
-                revert_response_url = f"{base}/v1/changes/{change_id}/revert"
+                # Use API_BASE_URL for API endpoints (defaults to Railway public domain or localhost)
+                api_base = os.environ.get("API_BASE_URL") or os.environ.get("RAILWAY_PUBLIC_DOMAIN", "http://localhost:8500")
+                if api_base and not api_base.startswith("http"):
+                    api_base = f"https://{api_base}"
+                revert_response_url = f"{api_base}/v1/changes/{change_id}/revert"
                 revert_window_response = revert_window_hours
 
             return DryRunArchiveResponse(
