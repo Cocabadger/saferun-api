@@ -137,6 +137,7 @@ export class HookRunner {
     const deletion = localSha === ZERO_SHA || !localSha;
     const newBranch = remoteSha === ZERO_SHA || !remoteSha;
 
+    // Determine if this is deletion or force push
     let commitsAhead = 0;
     let isForcePush = false;
 
@@ -146,186 +147,102 @@ export class HookRunner {
     }
 
     const operationType = deletion ? 'branch_delete' : 'force_push';
-    const rule = this.getRule(context.config, operationType);
+    
+    // Simple cache key based on operation and branch
+    const cacheKey = context.cache.getOperationHash('pre-push', [operationType, repoSlug, branch], {});
 
-    const reasons: string[] = [];
-    if (deletion) reasons.push('delete_remote_branch');
-    if (isForcePush) reasons.push('force_push');
-    if (protectedBranch) reasons.push('protected_branch');
-    if (commitsAhead > 0) reasons.push(`commits_overwritten:${commitsAhead}`);
-    if (context.aiInfo.isAIAgent) {
-      reasons.push(`ai_agent:${getAIAgentType(context.aiInfo)}`);
+    // Get GitHub token for API call
+    const githubToken = process.env.GITHUB_TOKEN || process.env.GH_TOKEN;
+    if (!githubToken) {
+      console.error(chalk.red('GitHub token not found. Set GITHUB_TOKEN or GH_TOKEN environment variable.'));
+      process.exit(1);
     }
-
-    const humanPreview = deletion
-      ? `Delete remote branch ${branch} on ${remoteName}`
-      : commitsAhead > 0
-          ? `Force push to ${branch} will overwrite approximately ${commitsAhead} commits on ${remoteName}`
-          : `Force push to ${branch} on ${remoteName}`;
-
-    let riskScore = deletion ? 7.5 : 6;
-    riskScore += Math.min(commitsAhead * 0.5, 2);
-    if (protectedBranch) {
-      riskScore = Math.max(riskScore, 8.5);
-    }
-    if (isForcePush) {
-      riskScore = Math.max(riskScore, 9);
-    }
-    // AI agents get higher risk score
-    if (shouldApplyStrictPolicyForAI(context.aiInfo)) {
-      riskScore = Math.min(riskScore + 1.5, 10);
-      reasons.push('ai_strict_policy');
-    }
-    if (rule?.risk_score != null) {
-      riskScore = rule.risk_score;
-    }
-    riskScore = this.clampRisk(riskScore);
-
-    const metadata = {
-      repo: repoSlug,
-      branch,
-      remote: remoteName,
-      remoteUrl,
-      localRef,
-      localSha,
-      remoteRef,
-      remoteSha,
-      protectedBranch,
-      commitsAhead,
-      isForcePush,
-      deletion,
-      // AI metadata
-      isAIAgent: context.aiInfo.isAIAgent,
-      aiAgentType: context.aiInfo.isAIAgent ? getAIAgentType(context.aiInfo) : undefined,
-      aiConfidence: context.aiInfo.confidence,
-    };
-
-    const cacheKey = context.cache.getOperationHash('pre-push', context.args, metadata);
-    const cacheEntry = await context.cache.get(cacheKey);
-    if (cacheEntry?.result === 'safe') {
-      await context.metrics.track('operation_allowed', {
-        hook: 'pre-push',
-        operation_type: operationType,
-        branch,
-        repo: repoSlug,
-        reason: 'cache_hit',
-      });
-      await logOperation(context.gitInfo.repoRoot, {
-        event: 'allow',
-        operation: operationType,
-        repo: repoSlug,
-        branch,
-        reason: 'cache_hit',
-      });
-      return;
-    }
-
-    const excludedByRule = rule?.exclude_patterns?.some((pattern) => matchesBranchPattern(branch, pattern));
-    if (excludedByRule) {
-      await context.metrics.track('operation_allowed', {
-        hook: 'pre-push',
-        operation_type: operationType,
-        branch,
-        repo: repoSlug,
-        reason: 'rule_excluded',
-      });
-      await logOperation(context.gitInfo.repoRoot, {
-        event: 'allow',
-        operation: operationType,
-        repo: repoSlug,
-        branch,
-        reason: 'rule_excluded',
-      });
-      await context.cache.set(cacheKey, 'safe', 180_000);
-      return;
-    }
-
-    const enforcement = this.resolveEnforcement(context.modeSettings, rule?.action, 'require_approval');
-
-    if (enforcement.action === 'allow' || enforcement.action === 'warn') {
-      if (enforcement.action === 'warn' || context.modeSettings?.show_warnings) {
-        console.warn(chalk.yellow(`SafeRun warning: ${humanPreview}`));
-      }
-      await context.metrics.track('operation_allowed', {
-        hook: 'pre-push',
-        operation_type: operationType,
-        branch,
-        repo: repoSlug,
-        reason: enforcement.action === 'warn' ? 'policy_warn' : 'policy_allow',
-      });
-      await logOperation(context.gitInfo.repoRoot, {
-        event: 'allow',
-        operation: operationType,
-        repo: repoSlug,
-        branch,
-        reason: enforcement.action === 'warn' ? 'policy_warn' : 'policy_allow',
-      });
-      await context.cache.set(cacheKey, 'safe', 180_000);
-      return;
-    }
-
-    const requiresApproval = enforcement.requiresApproval || enforcement.shouldBlock;
-    const command = deletion ? `git push ${remoteName} :${branch}` : `git push --force ${remoteName} ${branch}`;
 
     try {
-      const dryRun = await context.client.gitOperation({
-        operationType,
-        target: `${repoSlug}#${branch}`,
-        command,
-        metadata,
-        riskScore: riskScore / 10,
-        humanPreview,
-        requiresApproval,
-        reasons,
+      let dryRun;
+      
+      if (deletion) {
+        // Handle remote branch deletion via API
+        dryRun = await context.client.deleteGithubBranch({
+          repo: repoSlug,
+          branch,
+          githubToken,
+          webhookUrl: context.config.notifications?.webhook_url as string | undefined,
+        });
+      } else if (isForcePush) {
+        // Handle force push via unified API
+        const reason = commitsAhead > 0
+          ? `Force push will overwrite approximately ${commitsAhead} commits on ${remoteName}`
+          : `Force push to ${branch} on ${remoteName}`;
+
+        dryRun = await context.client.forcePushGithub({
+          repo: repoSlug,
+          branch,
+          githubToken,
+          reason,
+          webhookUrl: context.config.notifications?.webhook_url as string | undefined,
+        });
+      } else {
+        // Regular push - allow
+        await context.metrics.track('operation_allowed', {
+          hook: 'pre-push',
+          operation_type: 'push',
+          branch,
+          repo: repoSlug,
+          reason: 'regular_push',
+        });
+        return;
+      }
+
+      // Track the operation
+      await context.metrics.track('pre_push_check', {
+        hook: 'pre-push',
+        operation_type: operationType,
+        branch,
+        repo: repoSlug,
+        needs_approval: dryRun.needsApproval,
+        change_id: dryRun.changeId,
       });
 
-      if (!dryRun.needsApproval && !enforcement.shouldBlock) {
+      // If no approval needed, API will handle it automatically
+      if (!dryRun.needsApproval) {
+        const message = deletion
+          ? `Branch '${branch}' deletion approved (auto-executed by API, revert available for 2h)`
+          : `Force push to '${branch}' approved (always requires approval for irreversible operations)`;
+        
+        console.log(chalk.green(`✓ ${message}`));
+        
         await context.metrics.track('operation_allowed', {
           hook: 'pre-push',
           operation_type: operationType,
           branch,
           repo: repoSlug,
-          reason: 'api_allows',
+          reason: 'api_auto_execute',
         });
+        
         await logOperation(context.gitInfo.repoRoot, {
           event: 'allow',
           operation: operationType,
           repo: repoSlug,
           branch,
-          reason: 'api_allows',
+          reason: 'api_auto_execute',
+          change_id: dryRun.changeId,
         });
+        
         await context.cache.set(cacheKey, 'safe', 300_000);
         return;
       }
 
-      if (!dryRun.needsApproval && enforcement.shouldBlock) {
-        console.error(chalk.red('SafeRun policy blocks this push (approval required but not granted).'));
-        await context.metrics.track('operation_blocked', {
-          hook: 'pre-push',
-          operation_type: operationType,
-          branch,
-          repo: repoSlug,
-          reason: 'policy_block',
-        });
-        await logOperation(context.gitInfo.repoRoot, {
-          event: 'blocked',
-          operation: operationType,
-          repo: repoSlug,
-          branch,
-          reason: 'policy_block',
-        });
-        await context.cache.set(cacheKey, 'dangerous', 300_000);
-        process.exit(1);
-      }
+      // Requires approval - show message
+      const operationName = deletion ? 'branch deletion' : 'force push';
+      console.log('\n' + chalk.yellow(`⚠️  SafeRun: ${operationName} requires approval`));
 
       // Show AI-specific message if detected
       if (context.aiScore && context.aiScore >= 0.5) {
-        console.log('\n' + chalk.cyan('🤖 AI Agent Operation Detected'));
-        console.log(chalk.yellow('⚠️  SafeRun Protection Active\n'));
+        console.log(chalk.cyan('🤖 AI Agent Operation Detected'));
         console.log(chalk.gray('This operation requires human approval because:'));
         console.log(chalk.gray('  • AI agents may lack full context'));
-        console.log(chalk.gray('  • Human review ensures intentional changes'));
-        console.log(chalk.gray('  • Protects against unintended automation\n'));
+        console.log(chalk.gray('  • Human review ensures intentional changes\n'));
 
         if (context.aiSignals && context.aiSignals.length > 0) {
           console.log(chalk.gray('Detection reasons:'));
@@ -334,8 +251,6 @@ export class HookRunner {
           });
           console.log('');
         }
-      } else {
-        console.log('\n' + chalk.yellow('⚠️  SafeRun Protection Active'));
       }
 
       const approvalFlow = new ApprovalFlow({
@@ -345,32 +260,35 @@ export class HookRunner {
         modeSettings: context.modeSettings,
         timeoutMs: context.config.approval_timeout?.duration ? context.config.approval_timeout.duration * 1000 : undefined,
       });
+      
       const outcome = await approvalFlow.requestApproval(dryRun);
 
       if (outcome === ApprovalOutcome.Approved || outcome === ApprovalOutcome.Bypassed) {
-        await context.client.confirmGitOperation({
-          changeId: dryRun.changeId,
-          status: 'applied',
-          metadata: { operationType, repoSlug, branch, bypassed: outcome === ApprovalOutcome.Bypassed },
-        });
+        console.log(chalk.green(`✓ ${operationName} approved - proceeding with operation`));
+        
         await context.metrics.track('operation_allowed', {
           hook: 'pre-push',
           operation_type: operationType,
           branch,
           repo: repoSlug,
           reason: 'approved',
+          bypassed: outcome === ApprovalOutcome.Bypassed,
         });
+        
         await logOperation(context.gitInfo.repoRoot, {
           event: 'approved',
           operation: operationType,
           repo: repoSlug,
           branch,
+          bypassed: outcome === ApprovalOutcome.Bypassed,
         });
+        
         await context.cache.set(cacheKey, 'safe', 300_000);
         return;
       }
 
-      console.error(chalk.red('SafeRun blocked the push operation.'));
+      // Rejected or cancelled
+      console.error(chalk.red(`✗ SafeRun blocked the ${operationName}`));
 
       // Optional feedback prompt (only if AI was detected)
       if (context.aiSignals && context.aiSignals.length > 0 && context.aiScore && context.aiScore >= 0.3) {
@@ -392,6 +310,7 @@ export class HookRunner {
         repo: repoSlug,
         reason: 'user_cancelled',
       });
+      
       await logOperation(context.gitInfo.repoRoot, {
         event: 'blocked',
         operation: operationType,
@@ -399,6 +318,7 @@ export class HookRunner {
         branch,
         reason: 'user_cancelled',
       });
+      
       await context.cache.set(cacheKey, 'dangerous', 300_000);
       process.exit(1);
     } catch (error) {

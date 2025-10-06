@@ -37,7 +37,7 @@ class Notifier:
             logger.error(f"[NOTIFY FAILED] All retries exhausted: {last}")
         return None
 
-    async def send_slack(self, payload: Dict[str, Any], text: str, api_key: str = None) -> None:
+    async def send_slack(self, payload: Dict[str, Any], text: str, api_key: str = None, event_type: str = "dry_run") -> None:
         # Get user-specific settings if api_key provided
         user_settings = None
         if api_key:
@@ -51,30 +51,38 @@ class Notifier:
             channel = user_settings.get("slack_channel", "#saferun-alerts")
 
             if bot_token:
-                await self._send_slack_bot(payload, text, bot_token, channel)
+                await self._send_slack_bot(payload, text, bot_token, channel, event_type)
             elif webhook_url:
                 await self._send_slack_webhook(payload, text, webhook_url)
         elif SLACK_BOT_TOKEN or SLACK_URL:
             # Fallback to global env vars
             if SLACK_BOT_TOKEN:
-                await self._send_slack_bot(payload, text, SLACK_BOT_TOKEN, SLACK_CHANNEL)
+                await self._send_slack_bot(payload, text, SLACK_BOT_TOKEN, SLACK_CHANNEL, event_type)
             elif SLACK_URL:
                 await self._send_slack_webhook(payload, text, SLACK_URL)
 
-    async def _send_slack_bot(self, payload: Dict[str, Any], text: str, bot_token: str, channel: str) -> None:
+    async def _send_slack_bot(self, payload: Dict[str, Any], text: str, bot_token: str, channel: str, event_type: str = "dry_run") -> None:
         """Send via Slack Bot API with interactive buttons"""
         change_id = payload.get("change_id")
         approve_url = payload.get("approve_url")
+        revert_url = payload.get("revert_url")
+        revert_window_hours = payload.get("revert_window_hours")
         risk_score = payload.get("risk_score", 0.0)
         title = payload.get("title", "Unknown operation")
         provider = payload.get("provider", "unknown")
+
+        # Different header based on event type
+        if event_type == "executed_with_revert":
+            header_text = "✅ Action Executed"
+        else:
+            header_text = "🛡️ SafeRun Approval Required"
 
         blocks = [
             {
                 "type": "header",
                 "text": {
                     "type": "plain_text",
-                    "text": "🛡️ SafeRun Approval Required"
+                    "text": header_text
                 }
             },
             {
@@ -88,8 +96,8 @@ class Notifier:
             }
         ]
 
-        # Add approve URL for web view
-        if approve_url:
+        # Add approve URL for web view (only for dry_run events)
+        if approve_url and event_type == "dry_run":
             blocks.append({
                 "type": "section",
                 "text": {
@@ -98,27 +106,50 @@ class Notifier:
                 }
             })
 
-        # Add REAL interactive buttons (value contains change_id for callback)
+        # Add buttons based on event type
         if change_id:
-            blocks.append({
-                "type": "actions",
-                "elements": [
-                    {
-                        "type": "button",
-                        "text": {"type": "plain_text", "text": "✅ Approve"},
-                        "style": "primary",
-                        "action_id": "approve_change",
-                        "value": change_id
-                    },
-                    {
-                        "type": "button",
-                        "text": {"type": "plain_text", "text": "❌ Reject"},
-                        "style": "danger",
-                        "action_id": "reject_change",
-                        "value": change_id
+            if event_type == "executed_with_revert":
+                # Show Revert button only
+                blocks.append({
+                    "type": "section",
+                    "text": {
+                        "type": "mrkdwn",
+                        "text": f"*Repository archived successfully.*\nYou have *{revert_window_hours} hours* to revert this action if needed."
                     }
-                ]
-            })
+                })
+                blocks.append({
+                    "type": "actions",
+                    "elements": [
+                        {
+                            "type": "button",
+                            "text": {"type": "plain_text", "text": "🔄 Revert Archive"},
+                            "style": "danger",
+                            "action_id": "revert_change",
+                            "value": change_id
+                        }
+                    ]
+                })
+            else:
+                # Show Approve/Reject buttons for approval-required events
+                blocks.append({
+                    "type": "actions",
+                    "elements": [
+                        {
+                            "type": "button",
+                            "text": {"type": "plain_text", "text": "✅ Approve"},
+                            "style": "primary",
+                            "action_id": "approve_change",
+                            "value": change_id
+                        },
+                        {
+                            "type": "button",
+                            "text": {"type": "plain_text", "text": "❌ Reject"},
+                            "style": "danger",
+                            "action_id": "reject_change",
+                            "value": change_id
+                        }
+                    ]
+                })
 
         body = {
             "channel": channel,
@@ -253,6 +284,8 @@ class Notifier:
             "risk_score": change.get("risk_score", 0.0),
             "requires_approval": bool(change.get("requires_approval")),
             "approve_url": (extras or {}).get("approve_url"),
+            "revert_url": (extras or {}).get("revert_url"),
+            "revert_window_hours": (extras or {}).get("revert_window_hours"),
             "revert_token": (extras or {}).get("revert_token"),
             "ts": change.get("ts") or change.get("created_at"),
             "meta": (extras or {}).get("meta", {}),
@@ -266,12 +299,13 @@ class Notifier:
             "applied": ":white_check_mark: [SafeRun] Applied",
             "reverted": ":rewind: [SafeRun] Reverted",
             "expired": ":hourglass_flowing_sand: [SafeRun] Expired",
+            "executed_with_revert": ":white_check_mark: [SafeRun] Action Executed (revert available)",
         }
         text = text_map.get(event, f"[SafeRun] {event}")
 
-        # Fan-out concurrently with api_key for user-specific settings
+        # Fan-out concurrently with api_key for user-specific settings and event_type for Slack
         tasks = [
-            self.send_slack(payload, text, api_key),
+            self.send_slack(payload, text, api_key, event),
             self.send_webhook(payload, api_key)
         ]
 

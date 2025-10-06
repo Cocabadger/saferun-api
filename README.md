@@ -94,18 +94,6 @@ curl -X POST https://saferun.up.railway.app/v1/settings/notifications/test/slack
   -H "X-API-Key: your_api_key"
 ```
 
-#### Configure Email notifications
-```bash
-curl -X PUT https://saferun.up.railway.app/v1/settings/notifications \
-  -H "X-API-Key: your_api_key" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "email": "alerts@company.com",
-    "email_enabled": true,
-    "slack_enabled": false
-  }'
-```
-
 #### Configure Custom Webhooks
 ```bash
 curl -X PUT https://saferun.up.railway.app/v1/settings/notifications \
@@ -127,18 +115,41 @@ curl -X DELETE https://saferun.up.railway.app/v1/settings/notifications \
 **Features:**
 - ✅ Per-user notification settings stored in database
 - ✅ Interactive Slack buttons for approve/reject (when using Bot Token)
-- ✅ Email notifications (requires SMTP server configured)
 - ✅ Custom webhooks with HMAC signature validation
 - ✅ Fallback to global admin settings if user settings not configured
 
-## Supported Providers
+## What SafeRun Protects
 
-- **GitHub**: Repository archive/unarchive, branch delete/restore, bulk PR operations ✅ Webhooks
-- **Notion**: Page archive/unarchive with conflict detection ✅ Webhooks
-- **Airtable**: Record and bulk operations ✅ Webhooks
-- **Google Drive**: File/folder operations (coming soon)
-- **Slack**: Channel archive (coming soon)
-- **Google Sheets**: Sheet operations (coming soon)
+### ✅ GitHub (Production Ready)
+
+- **Repository operations**: 
+  - Archive/unarchive with full revert capability
+  - ⚠️ **DELETE repository protection** (IRREVERSIBLE - requires approval)
+- **Branch protection**: Delete/restore branches safely  
+- **Pull request management**: Bulk close/reopen PRs
+- **CLI integration**: Git hooks for force push protection
+- **Webhook notifications**: Real-time alerts for all operations
+- **Rate limiting**: Configurable per-API-key limits (default: 1000 req/hour)
+
+### 🔜 Coming Soon
+
+Additional platforms after MVP testing:
+- Notion (page operations)
+- Slack (channel operations)
+- Airtable, Google Drive, Google Sheets
+
+Request new integrations via [GitHub Issues](https://github.com/Cocabadger/saferun-api/issues)
+
+---
+
+## How You Get Notified
+
+SafeRun sends approval requests via:
+
+- 💬 **Slack** - Interactive approve/reject buttons in your Slack channels
+- 🔗 **Webhooks** - Custom webhook integration with HMAC signature validation
+
+See [SLACK_SETUP.md](SLACK_SETUP.md) for Slack configuration.
 
 ## Deployment
 
@@ -164,9 +175,14 @@ curl -X DELETE https://saferun.up.railway.app/v1/settings/notifications \
 ### Core Settings
 - `PORT`: Server port (default: 8500)
 - `SR_LOG_LEVEL`: Log level (info/debug)
-- `SR_STORAGE_BACKEND`: Storage type (sqlite)
+- `SR_STORAGE_BACKEND`: Storage type (sqlite or postgres)
 - `SR_SQLITE_PATH`: Database path (default `/data/saferun.db` when using a Railway Volume; set to `data/saferun.db` for local development)
-- `SR_FREE_TIER_LIMIT`: Number of free API calls before returning 403 (default 100, set to `-1` to disable)
+- `DATABASE_URL`: PostgreSQL connection URL (for production deployments)
+- `SR_FREE_TIER_LIMIT`: Rate limit - requests per hour per API key (default: 1000)
+
+> **🔒 Security**: Rate limiting CANNOT be disabled or bypassed. When limit is exceeded, requests are BLOCKED with HTTP 429. Users must either:
+> - ⏰ Wait for the hourly window to reset
+> - 💰 Upgrade to paid tier (unlimited requests via contact support@saferun.dev)
 
 ### Provider Settings
 - `SR_GITHUB_API_BASE`: Override GitHub API base URL (optional, defaults to `https://api.github.com`)
@@ -180,13 +196,8 @@ curl -X DELETE https://saferun.up.railway.app/v1/settings/notifications \
 - `SLACK_WEBHOOK_URL`: Slack Webhook URL (alternative to Bot Token, optional)
 - `GENERIC_WEBHOOK_URL`: Generic webhook URL for all events (optional)
 - `GENERIC_WEBHOOK_SECRET`: Secret for webhook signature validation (optional)
-- `SMTP_HOST`: Email server host (optional)
-- `SMTP_PORT`: Email server port (optional)
-- `SMTP_USER`: Email username (optional)
-- `SMTP_PASS`: Email password (optional)
-- `SMTP_FROM`: Sender email address (optional)
 
-**Note:** Users can configure their own notification settings via API (see below), which override these global settings.
+**Note:** Users can configure their own notification settings via API (see above), which override these global settings.
 
 ## Pricing
 

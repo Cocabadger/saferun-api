@@ -165,14 +165,23 @@ async def apply_change(body: ApplyRequest, api_key: str = Depends(verify_api_key
                     new_rec["summary_json"] = summary
                     db.upsert_change(new_rec)
                 elif md.get("type") == "repo" or md.get("object") == "repository":
-                    # Conflict check using lastPushedAt similar to Notion
-                    current = await provider_instance.get_metadata(target_id, token)
-                    prev = rec.get("last_edited_time")
-                    curr = current.get("lastPushedAt") or current.get("lastCommitDate")
-                    if prev and curr and prev != curr:
-                        raise HTTPException(409, "repo changed since dry-run; run dry-run again")
-                    await provider_instance.archive(target_id, token)
-                    ms = 0
+                    # Check if this is DELETE REPOSITORY (permanent) or ARCHIVE (reversible)
+                    reason = rec.get("reason", "").lower()
+                    is_delete = "delete repository" in reason or "permanent" in reason
+                    
+                    if is_delete:
+                        # DELETE REPOSITORY - IRREVERSIBLE, no conflict check needed
+                        await provider_instance.delete_repository(target_id, token)
+                        ms = 0
+                    else:
+                        # ARCHIVE REPOSITORY - reversible, check for conflicts
+                        current = await provider_instance.get_metadata(target_id, token)
+                        prev = rec.get("last_edited_time")
+                        curr = current.get("lastPushedAt") or current.get("lastCommitDate")
+                        if prev and curr and prev != curr:
+                            raise HTTPException(409, "repo changed since dry-run; run dry-run again")
+                        await provider_instance.archive(target_id, token)
+                        ms = 0
                 else:
                     # branch delete
                     sha = await provider_instance.delete_branch(target_id, token)

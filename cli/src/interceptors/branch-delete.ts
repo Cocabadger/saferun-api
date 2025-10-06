@@ -1,9 +1,8 @@
 import chalk from 'chalk';
 import { DryRunResult } from '@saferun/sdk';
 import { ApprovalFlow, ApprovalOutcome } from '../utils/approval-flow';
-import { getAheadBehind, isProtectedBranch, matchesBranchPattern, runGitCommand } from '../utils/git';
+import { runGitCommand } from '../utils/git';
 import { logOperation } from '../utils/logger';
-import { ModeSettings, OperationRuleConfig } from '../utils/config';
 import { InterceptorContext } from './types';
 
 interface BranchDeleteTargets {
@@ -36,6 +35,8 @@ function parseBranchArgs(args: string[]): BranchDeleteTargets {
 
 export async function interceptBranchDelete(context: InterceptorContext): Promise<number> {
   const { branches, force } = parseBranchArgs(context.args);
+  
+  // If no branches to delete, just run the command
   if (branches.length === 0) {
     return runGitCommand(['branch', ...context.args], {
       cwd: context.gitInfo.repoRoot,
@@ -44,193 +45,103 @@ export async function interceptBranchDelete(context: InterceptorContext): Promis
   }
 
   const repoSlug = context.config.github.repo === 'auto' ? context.gitInfo.repoSlug ?? 'local/repo' : context.config.github.repo;
-  const defaultBranch = context.gitInfo.defaultBranch ?? 'main';
-  const rule = context.config.rules?.branch_delete;
-  const branchRules = context.config.github.branch_rules ?? [];
+  const githubToken = process.env.GITHUB_TOKEN || process.env.GH_TOKEN;
+  
+  if (!githubToken) {
+    console.error(chalk.red('GitHub token not found. Set GITHUB_TOKEN or GH_TOKEN environment variable.'));
+    return 1;
+  }
 
   const approvals: PendingApproval[] = [];
 
   for (const branchName of branches) {
-    const protectedBranch = isProtectedBranch(branchName, context.config.github.protected_branches ?? []);
-    const branchRule = branchRules.find((entry) => matchesBranchPattern(branchName, entry.pattern));
-
-    if (branchRule?.skip_checks) {
-      context.metrics.track('operation_allowed', {
-        hook: 'alias:branch',
-        operation_type: 'branch_delete',
-        repo: repoSlug,
-        branch: branchName,
-        reason: 'branch_rule_skip_checks',
-      }).catch(() => undefined);
-      await logOperation(context.gitInfo.repoRoot, {
-        event: 'branch_delete',
-        operation: 'branch_delete',
-        repo: repoSlug,
-        branch: branchName,
-        outcome: 'skip_checks',
-      });
-      continue;
-    }
-
-    const { ahead } = await getAheadBehind(branchName, defaultBranch, context.gitInfo.repoRoot);
-
-    const reasons: string[] = [];
-    if (protectedBranch) reasons.push('protected_branch');
-    if (force) reasons.push('force_delete');
-    if (ahead > 0) reasons.push(`unmerged_commits:${ahead}`);
-    if (branchRule?.risk_level) reasons.push(`branch_rule_risk:${branchRule.risk_level}`);
-
-    const humanPreview = protectedBranch
-      ? `Delete protected branch ${branchName}${ahead > 0 ? ` with ${ahead} unmerged commits` : ''}`
-      : `Delete branch ${branchName}${ahead > 0 ? ` with ${ahead} unmerged commits` : ''}`;
-
-    let riskScore = protectedBranch ? 9 : force ? 7.5 : 6;
-    riskScore += Math.min(ahead * 0.4, 2);
-    if (branchRule?.risk_level === 'low') riskScore = Math.min(riskScore, 5);
-    if (branchRule?.risk_level === 'high') riskScore = Math.max(riskScore, 8.5);
-    if (rule?.risk_score != null) riskScore = rule.risk_score;
-    riskScore = clampRisk(riskScore);
-
-    const excludedByRule = rule?.exclude_patterns?.some((pattern) => matchesBranchPattern(branchName, pattern));
-    if (excludedByRule) {
-      context.metrics.track('operation_allowed', {
-        hook: 'alias:branch',
-        operation_type: 'branch_delete',
-        repo: repoSlug,
-        branch: branchName,
-        reason: 'rule_excluded',
-      }).catch(() => undefined);
-      await logOperation(context.gitInfo.repoRoot, {
-        event: 'branch_delete',
-        operation: 'branch_delete',
-        repo: repoSlug,
-        branch: branchName,
-        outcome: 'rule_excluded',
-      });
-      continue;
-    }
-
-    const enforcement = resolveEnforcement(context.modeSettings, rule?.action, 'require_approval');
-
-    if (enforcement.action === 'allow' || enforcement.action === 'warn') {
-      if (enforcement.action === 'warn' || context.modeSettings?.show_warnings) {
-        console.warn(chalk.yellow(`SafeRun warning: deleting branch '${branchName}'.`));
-      }
-      context.metrics.track('operation_allowed', {
-        hook: 'alias:branch',
-        operation_type: 'branch_delete',
-        repo: repoSlug,
-        branch: branchName,
-        reason: enforcement.action === 'warn' ? 'policy_warn' : 'policy_allow',
-      }).catch(() => undefined);
-      await logOperation(context.gitInfo.repoRoot, {
-        event: 'branch_delete',
-        operation: 'branch_delete',
-        repo: repoSlug,
-        branch: branchName,
-        outcome: enforcement.action === 'warn' ? 'policy_warn' : 'policy_allow',
-      });
-      continue;
-    }
-
-    const requiresApproval = enforcement.requiresApproval || enforcement.shouldBlock;
-    const command = `git branch ${force ? '-D' : '-d'} ${branchName}`;
-
     try {
-      const dryRun = await context.client.gitOperation({
-        operationType: 'branch_delete',
-        target: `${repoSlug}#${branchName}`,
-        command,
-        metadata: {
-          repo: repoSlug,
-          branch: branchName,
-          protectedBranch,
-          force,
-          unmergedCommits: ahead,
-        },
-        riskScore: riskScore / 10,
-        humanPreview,
-        requiresApproval,
-        reasons,
+      // Call SafeRun API to check if branch delete needs approval
+      const dryRun: DryRunResult = await context.client.deleteGithubBranch({
+        repo: repoSlug,
+        branch: branchName,
+        githubToken,
+        webhookUrl: context.config.notifications?.webhook_url as string | undefined,
       });
 
-      if (!dryRun.needsApproval && !enforcement.shouldBlock) {
+      // Track the operation
+      context.metrics.track('branch_delete_check', {
+        hook: 'alias:branch',
+        operation_type: 'branch_delete',
+        repo: repoSlug,
+        branch: branchName,
+        needs_approval: dryRun.needsApproval,
+        change_id: dryRun.changeId,
+      }).catch(() => undefined);
+
+      // If no approval needed, API will handle it automatically
+      if (!dryRun.needsApproval) {
         context.metrics.track('operation_allowed', {
           hook: 'alias:branch',
           operation_type: 'branch_delete',
           repo: repoSlug,
           branch: branchName,
-          reason: 'api_allows',
+          reason: 'api_auto_execute',
         }).catch(() => undefined);
+        
         await logOperation(context.gitInfo.repoRoot, {
           event: 'branch_delete',
           operation: 'branch_delete',
           repo: repoSlug,
           branch: branchName,
-          outcome: 'api_allows',
+          outcome: 'auto_execute',
+          change_id: dryRun.changeId,
         });
+        
+        console.log(chalk.green(`✓ Branch '${branchName}' will be deleted (auto-executed by API, revert available for 2h)`));
         continue;
       }
 
-      if (!dryRun.needsApproval && enforcement.shouldBlock) {
-        console.error(chalk.red(`SafeRun policy blocks deletion of '${branchName}'.`));
-        context.metrics.track('operation_blocked', {
-          hook: 'alias:branch',
-          operation_type: 'branch_delete',
-          repo: repoSlug,
-          branch: branchName,
-          reason: 'policy_block',
-        }).catch(() => undefined);
-        await logOperation(context.gitInfo.repoRoot, {
-          event: 'branch_delete',
-          operation: 'branch_delete',
-          repo: repoSlug,
-          branch: branchName,
-          outcome: 'blocked',
-          reason: 'policy_block',
-        });
-        return 1;
-      }
-
+      // Request approval through SafeRun flow
       const flow = new ApprovalFlow({
         client: context.client,
         metrics: context.metrics,
         config: context.config,
         modeSettings: context.modeSettings,
       });
+
       const outcome = await flow.requestApproval(dryRun);
+      
       if (outcome !== ApprovalOutcome.Approved && outcome !== ApprovalOutcome.Bypassed) {
-        await context.client.confirmGitOperation({
-          changeId: dryRun.changeId,
-          status: 'cancelled',
-          metadata: { branch: branchName, repo: repoSlug },
-        });
+        console.error(chalk.red(`✗ SafeRun blocked deletion of branch '${branchName}' (${outcome})`));
+        
         await logOperation(context.gitInfo.repoRoot, {
           event: 'branch_delete',
           operation: 'branch_delete',
           repo: repoSlug,
           branch: branchName,
           outcome: 'cancelled',
+          change_id: dryRun.changeId,
         });
-        console.error(chalk.red(`SafeRun blocked deletion of branch '${branchName}'.`));
+        
         return 1;
       }
 
       approvals.push({
         branch: branchName,
         changeId: dryRun.changeId,
-        metadata: { branch: branchName, repo: repoSlug, bypassed: outcome === ApprovalOutcome.Bypassed },
+        bypassed: outcome === ApprovalOutcome.Bypassed,
       });
+
+      console.log(chalk.green(`✓ Branch '${branchName}' approved for deletion`));
+      
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      console.error(chalk.red(`SafeRun error while evaluating branch delete: ${message}`));
-      context.metrics.track('operation_allowed', {
+      console.error(chalk.red(`SafeRun API error for branch '${branchName}': ${message}`));
+      
+      context.metrics.track('operation_error', {
         hook: 'alias:branch',
         operation_type: 'branch_delete',
         repo: repoSlug,
         branch: branchName,
-        reason: 'api_error',
+        error: message,
       }).catch(() => undefined);
+      
       await logOperation(context.gitInfo.repoRoot, {
         event: 'branch_delete',
         operation: 'branch_delete',
@@ -239,116 +150,58 @@ export async function interceptBranchDelete(context: InterceptorContext): Promis
         outcome: 'api_error',
         error: message,
       });
+      
+      return 1;
     }
   }
 
-  const exitCode = await runGitCommand(['branch', ...context.args], {
-    cwd: context.gitInfo.repoRoot,
-    disableAliases: ['branch'],
-  });
-
-  for (const approval of approvals) {
-    await context.client.confirmGitOperation({
-      changeId: approval.changeId,
-      status: exitCode === 0 ? 'applied' : 'failed',
-      metadata: exitCode === 0 ? approval.metadata : { ...approval.metadata, exitCode },
+  // Execute git branch delete for approved branches
+  if (approvals.length > 0) {
+    const exitCode = await runGitCommand(['branch', ...context.args], {
+      cwd: context.gitInfo.repoRoot,
+      disableAliases: ['branch'],
     });
+
+    // Log execution results
+    for (const approval of approvals) {
+      if (exitCode === 0) {
+        context.metrics.track('operation_executed', {
+          hook: 'alias:branch',
+          operation_type: 'branch_delete',
+          repo: repoSlug,
+          branch: approval.branch,
+          change_id: approval.changeId,
+        }).catch(() => undefined);
+        
+        await logOperation(context.gitInfo.repoRoot, {
+          event: 'branch_delete',
+          operation: 'branch_delete',
+          repo: repoSlug,
+          branch: approval.branch,
+          outcome: 'executed',
+          change_id: approval.changeId,
+        });
+      } else {
+        await logOperation(context.gitInfo.repoRoot, {
+          event: 'branch_delete',
+          operation: 'branch_delete',
+          repo: repoSlug,
+          branch: approval.branch,
+          outcome: 'failed',
+          exitCode,
+          change_id: approval.changeId,
+        });
+      }
+    }
+
+    return exitCode;
   }
 
-  if (exitCode === 0) {
-    for (const branchName of branches) {
-      context.metrics.track('operation_allowed', {
-        hook: 'alias:branch',
-        operation_type: 'branch_delete',
-        repo: repoSlug,
-        branch: branchName,
-        reason: 'executed',
-      }).catch(() => undefined);
-      await logOperation(context.gitInfo.repoRoot, {
-        event: 'branch_delete',
-        operation: 'branch_delete',
-        repo: repoSlug,
-        branch: branchName,
-        outcome: 'executed',
-      });
-    }
-  } else {
-    for (const branchName of branches) {
-      context.metrics.track('operation_blocked', {
-        hook: 'alias:branch',
-        operation_type: 'branch_delete',
-        repo: repoSlug,
-        branch: branchName,
-        reason: 'git_failed',
-      }).catch(() => undefined);
-      await logOperation(context.gitInfo.repoRoot, {
-        event: 'branch_delete',
-        operation: 'branch_delete',
-        repo: repoSlug,
-        branch: branchName,
-        outcome: 'failed',
-        exitCode,
-      });
-    }
-  }
-
-  return exitCode;
+  return 0;
 }
 
 interface PendingApproval {
   branch: string;
   changeId: string;
-  metadata: Record<string, unknown>;
-}
-
-type EnforcementAction = 'allow' | 'warn' | 'require_approval' | 'block';
-
-interface EnforcementDecision {
-  action: EnforcementAction;
-  requiresApproval: boolean;
-  shouldBlock: boolean;
-}
-
-function resolveEnforcement(
-  modeSettings: ModeSettings | undefined,
-  ruleAction: OperationRuleConfig['action'] | undefined,
-  defaultAction: EnforcementAction,
-): EnforcementDecision {
-  if (modeSettings?.block_operations === false) {
-    const warn = modeSettings?.show_warnings === true;
-    return {
-      action: warn ? 'warn' : 'allow',
-      requiresApproval: false,
-      shouldBlock: false,
-    };
-  }
-
-  let action: EnforcementAction = (ruleAction as EnforcementAction | undefined) ?? defaultAction;
-
-  if (action === 'warn' && modeSettings?.show_warnings === false) {
-    action = 'allow';
-  }
-
-  if (action === 'require_approval' && modeSettings?.require_approval === false) {
-    action = modeSettings?.show_warnings ? 'warn' : 'allow';
-  }
-
-  switch (action) {
-    case 'allow':
-      return { action: 'allow', requiresApproval: false, shouldBlock: false };
-    case 'warn':
-      return { action: 'warn', requiresApproval: false, shouldBlock: false };
-    case 'block':
-      return { action: 'block', requiresApproval: true, shouldBlock: true };
-    case 'require_approval':
-    default:
-      return { action: 'require_approval', requiresApproval: true, shouldBlock: false };
-  }
-}
-
-function clampRisk(score: number): number {
-  if (Number.isNaN(score)) {
-    return 0;
-  }
-  return Math.min(10, Math.max(0, score));
+  bypassed: boolean;
 }

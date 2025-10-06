@@ -64,6 +64,22 @@ export class SafeRunClient {
     });
   }
 
+  deleteGithubRepo(params: {
+    repo: string;
+    githubToken: string;
+    reason?: string;
+    webhookUrl?: string;
+    policy?: Record<string, unknown>;
+  }): Promise<DryRunResult> {
+    return this.dryRun("github_delete_repo", {
+      token: params.githubToken,
+      target_id: params.repo,
+      reason: params.reason || "Delete repository (PERMANENT - cannot be undone)",
+      webhook_url: params.webhookUrl,
+      policy: params.policy,
+    });
+  }
+
   deleteGithubBranch(params: {
     repo: string;
     branch: string;
@@ -90,6 +106,43 @@ export class SafeRunClient {
     return this.dryRun("github_bulk_close_prs", {
       token: params.githubToken,
       target_id: target,
+      webhook_url: params.webhookUrl,
+      policy: params.policy,
+    });
+  }
+
+  forcePushGithub(params: {
+    repo: string;
+    branch: string;
+    githubToken: string;
+    reason?: string;
+    webhookUrl?: string;
+    policy?: Record<string, unknown>;
+  }): Promise<DryRunResult> {
+    return this.dryRun("github_force_push", {
+      token: params.githubToken,
+      target_id: `${params.repo}#${params.branch}`,
+      reason: params.reason,
+      webhook_url: params.webhookUrl,
+      policy: params.policy,
+    });
+  }
+
+  mergeGithub(params: {
+    repo: string;
+    sourceBranch: string;
+    targetBranch: string;
+    githubToken: string;
+    reason?: string;
+    webhookUrl?: string;
+    policy?: Record<string, unknown>;
+  }): Promise<DryRunResult> {
+    return this.dryRun("github_merge", {
+      token: params.githubToken,
+      target_id: params.repo,
+      source_branch: params.sourceBranch,
+      target_branch: params.targetBranch,
+      reason: params.reason,
       webhook_url: params.webhookUrl,
       policy: params.policy,
     });

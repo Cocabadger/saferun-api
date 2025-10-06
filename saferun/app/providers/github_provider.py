@@ -55,9 +55,14 @@ class GitHubProvider(Provider):
             owner, repo = owner_repo.split("/", 1)
             return {"kind": "bulk", "view": view, "owner": owner, "repo": repo}
         if "#" in target_id:
-            owner_repo, branch = target_id.split("#", 1)
+            owner_repo, ref = target_id.split("#", 1)
             owner, repo = owner_repo.split("/", 1)
-            return {"kind": "branch", "owner": owner, "repo": repo, "branch": branch}
+            # Check if it's a merge operation (source→target)
+            if "→" in ref:
+                source, target = ref.split("→", 1)
+                return {"kind": "merge", "owner": owner, "repo": repo, "source_branch": source, "target_branch": target}
+            # Otherwise it's a branch reference
+            return {"kind": "branch", "owner": owner, "repo": repo, "branch": ref}
         owner, repo = target_id.split("/", 1)
         return {"kind": "repo", "owner": owner, "repo": repo}
 
@@ -77,7 +82,7 @@ class GitHubProvider(Provider):
 
     def __getattribute__(self, name):
         # Ensure monkeypatched class-level async funcs are not bound with self
-        if name in {"get_metadata", "get_children_count", "archive", "unarchive", "delete_branch", "restore_branch", "list_open_prs", "bulk_close_prs", "bulk_reopen_prs"}:
+        if name in {"get_metadata", "get_children_count", "archive", "unarchive", "delete_branch", "restore_branch", "list_open_prs", "bulk_close_prs", "bulk_reopen_prs", "force_push", "merge"}:
             cls = type(self)
             d = cls.__dict__.get(name)
             if d is not None:
@@ -88,7 +93,7 @@ class GitHubProvider(Provider):
         return super().__getattribute__(name)
     @staticmethod
     async def get_metadata(target_id: str, token: str) -> Dict[str, Any]:
-        """Return metadata for repository/branch/bulk PR targets."""
+        """Return metadata for repository/branch/bulk PR/merge targets."""
         info = GitHubProvider._parse_target(target_id)
 
         if info["kind"] == "bulk":
@@ -104,6 +109,21 @@ class GitHubProvider(Provider):
             }
 
         repo_data = await GitHubProvider._get_repo(info["owner"], info["repo"], token)
+
+        if info["kind"] == "merge":
+            # Get metadata for both source and target branches
+            source_data = await GitHubProvider._get_branch(info["owner"], info["repo"], info["source_branch"], token)
+            target_data = await GitHubProvider._get_branch(info["owner"], info["repo"], info["target_branch"], token)
+            return {
+                "object": "merge",
+                "owner": info["owner"],
+                "repo": info["repo"],
+                "source_branch": info["source_branch"],
+                "target_branch": info["target_branch"],
+                "source_sha": source_data.get("commit", {}).get("sha"),
+                "target_sha": target_data.get("commit", {}).get("sha"),
+                "isTargetDefault": repo_data.get("default_branch") == info["target_branch"],
+            }
 
         if info["kind"] == "branch":
             branch_data = await GitHubProvider._get_branch(info["owner"], info["repo"], info["branch"], token)
@@ -164,6 +184,21 @@ class GitHubProvider(Provider):
             f"/repos/{info['owner']}/{info['repo']}",
             token,
             json_payload={"archived": False},
+        )
+
+    @staticmethod
+    async def delete_repository(target_id: str, token: str) -> None:
+        """
+        Delete repository (IRREVERSIBLE operation - CANNOT BE UNDONE).
+        This is the most dangerous operation - repository and all its data will be permanently deleted.
+        """
+        info = GitHubProvider._parse_target(target_id)
+        if info["kind"] != "repo":
+            raise RuntimeError("Delete repository only supported for repositories")
+        await GitHubProvider._request(
+            "DELETE",
+            f"/repos/{info['owner']}/{info['repo']}",
+            token,
         )
 
     # GitHub-specific actions
@@ -269,3 +304,75 @@ class GitHubProvider(Provider):
             )
 
         return {"ok": True, "status": "reverted", "reopened": pr_numbers}
+
+    # --- Force Push & Merge operations ---
+    @staticmethod
+    async def force_push(target_id: str, token: str, commit_sha: str = None) -> dict:
+        """
+        Force push to a branch (IRREVERSIBLE operation).
+        target_id format: owner/repo#branch
+        """
+        info = GitHubProvider._parse_target(target_id)
+        if info["kind"] != "branch":
+            raise RuntimeError("Force push requires owner/repo#branch format")
+
+        # Get current branch SHA before force push (for logging/audit)
+        branch_data = await GitHubProvider._get_branch(info["owner"], info["repo"], info["branch"], token)
+        previous_sha = branch_data.get("commit", {}).get("sha")
+
+        if not commit_sha:
+            raise RuntimeError("commit_sha is required for force push")
+
+        # Force update the branch reference
+        await GitHubProvider._request(
+            "PATCH",
+            f"/repos/{info['owner']}/{info['repo']}/git/refs/heads/{info['branch']}",
+            token,
+            json_payload={"sha": commit_sha, "force": True},
+        )
+
+        return {
+            "ok": True,
+            "previous_sha": previous_sha,
+            "new_sha": commit_sha,
+            "branch": info["branch"],
+        }
+
+    @staticmethod
+    async def merge(target_id: str, token: str, commit_message: str = None) -> dict:
+        """
+        Merge branches (IRREVERSIBLE operation).
+        target_id format: owner/repo#source_branch→target_branch
+        """
+        info = GitHubProvider._parse_target(target_id)
+        if info["kind"] != "merge":
+            raise RuntimeError("Merge requires owner/repo#source→target format")
+
+        # Get the target branch default_branch status
+        repo_data = await GitHubProvider._get_repo(info["owner"], info["repo"], token)
+        is_main_branch = repo_data.get("default_branch") == info["target_branch"]
+
+        # Prepare merge payload
+        payload = {
+            "base": info["target_branch"],
+            "head": info["source_branch"],
+        }
+        if commit_message:
+            payload["commit_message"] = commit_message
+
+        # Execute merge
+        result = await GitHubProvider._request(
+            "POST",
+            f"/repos/{info['owner']}/{info['repo']}/merges",
+            token,
+            json_payload=payload,
+        )
+
+        return {
+            "ok": True,
+            "merge_sha": result.get("sha") if result else None,
+            "source": info["source_branch"],
+            "target": info["target_branch"],
+            "is_main_branch": is_main_branch,
+        }
+

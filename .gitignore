@@ -18,6 +18,14 @@ dist/
 *.log
 *.bak
 
+# Tests - not needed in remote repo
+tests/
+htmlcov/
+.pytest_cache/
+pytest.ini
+requirements-dev.txt
+.coverage
+
 # Data/Secrets/Scratch
 *.sqlite3
 *.db
@@ -35,5 +43,9 @@ logs/
 
 # E2E and local outputs
 scripts/secrets/
+test_local.py
+
+# CLI tests - not needed in remote repo
+cli/tests/
 artifacts/
 logs/

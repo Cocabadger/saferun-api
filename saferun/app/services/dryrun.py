@@ -148,9 +148,64 @@ async def build_dryrun(req: DryRunArchiveRequest, notion_version: str | None = N
             need_approval, policy_reasons = policy_engine.evaluate(metadata, ctx, loaded_policy)
             all_reasons = risk_reasons + [f"policy:{r}" for r in policy_reasons]
 
+            # 4.5) Unified GitHub operation logic: categorize operations and apply branch-based rules
+            is_main_branch = False
+            revert_window_hours = None
+            operation_category = None  # "reversible" or "irreversible"
+            
+            if req.provider == "github":
+                # Determine operation category based on metadata
+                object_type = metadata.get("object")
+                
+                # Reversible operations (Группа A): can be undone
+                reversible_operations = ["repository", "branch"]  # archive, branch-delete
+                
+                # Irreversible operations (Группа B): cannot be easily undone  
+                irreversible_operations = ["merge"]  # force-push handled via target_id check
+                
+                if object_type in reversible_operations or metadata.get("type") == "bulk_pr":
+                    operation_category = "reversible"
+                elif object_type in irreversible_operations:
+                    operation_category = "irreversible"
+                    # For merge operations, check if target branch is main
+                    is_main_branch = metadata.get("isTargetDefault", False)
+                
+                # Determine if this affects main/default branch (for reversible operations)
+                if operation_category == "reversible":
+                    default_branch = metadata.get("default_branch", "main")
+                    
+                    # Check target_id for branch specification (repo#branch format)
+                    if "#" in req.target_id and "→" not in req.target_id:  # Not a merge
+                        _, branch_name = req.target_id.split("#", 1)
+                        is_main_branch = (branch_name == default_branch)
+                    elif object_type == "repository":
+                        # Whole repo operation affects main branch
+                        is_main_branch = True
+                    elif object_type == "branch":
+                        # Branch operation - check if it's the default branch being deleted
+                        is_main_branch = (metadata.get("name") == default_branch or metadata.get("isDefault", False))
+                
+                # Apply unified approval logic
+                if operation_category == "reversible":
+                    # Группа A: Reversible operations
+                    if is_main_branch:
+                        # Main branch → ALWAYS requires approval
+                        need_approval = True
+                        all_reasons.append("github:main_branch_protection")
+                    else:
+                        # Non-main branch → Execute immediately + revert option (2 hours)
+                        need_approval = False
+                        revert_window_hours = 2
+                        
+                elif operation_category == "irreversible":
+                    # Группа B: Irreversible operations → ALWAYS require approval
+                    need_approval = True
+                    all_reasons.append("github:irreversible_operation")
+                    # No revert option for irreversible operations
+
             # 5) Persist the change request
             change_id = new_change_id()
-            expires_dt_obj = expiry(30)
+            expires_dt_obj = expiry(120)  # 2 hours timeout for all approvals
             created_at_str = db.iso_z(expiry(0))
             expires_at_str = db.iso_z(expires_dt_obj)
             ttl_seconds = int(expires_dt_obj.timestamp() - datetime.now(timezone.utc).timestamp())
@@ -170,9 +225,49 @@ async def build_dryrun(req: DryRunArchiveRequest, notion_version: str | None = N
                 "created_at": created_at_str,
                 "webhook_url": req.webhook_url,  # Store webhook URL
             }
+            
+            # Add revert_window for non-approval GitHub archives
+            if revert_window_hours is not None:
+                revert_expires = expiry(0)  # Current time
+                from datetime import timedelta
+                revert_expires = datetime.now(timezone.utc) + timedelta(hours=revert_window_hours)
+                change_data["revert_window"] = revert_window_hours
+                change_data["revert_expires_at"] = db.iso_z(revert_expires)
+            
             storage.save_change(change_id, change_data, ttl_seconds)
 
-            # 6) Approval URL and optional notification
+            # 6) If no approval required but has revert_window - execute immediately and notify with revert option
+            if not need_approval and revert_window_hours is not None:
+                # Execute the action immediately
+                try:
+                    await provider_instance.archive(req.target_id, req.token)
+                    # Update status to executed
+                    change_data["status"] = "executed"
+                    change_data["executed_at"] = db.iso_z(datetime.now(timezone.utc))
+                    storage.save_change(change_id, change_data, ttl_seconds)
+                    
+                    # Send notification with Revert button
+                    import asyncio
+                    from ..notify import notifier
+                    base = os.environ.get("APP_BASE_URL", "http://localhost:8500")
+                    revert_url = f"{base}/v1/changes/{change_id}/revert"
+                    change_record = storage.get_change(change_id)
+                    if change_record:
+                        asyncio.create_task(
+                            notifier.publish("executed_with_revert", change_record, 
+                                           extras={"revert_url": revert_url, 
+                                                  "revert_window_hours": revert_window_hours,
+                                                  "meta": {"latency_ms": 0, "provider_version": "unknown"}}, 
+                                           api_key=api_key)
+                        )
+                except Exception as e:
+                    # If execution fails, update status and re-raise
+                    change_data["status"] = "failed"
+                    change_data["error"] = str(e)
+                    storage.save_change(change_id, change_data, ttl_seconds)
+                    raise
+
+            # 7) Approval URL and notification for approval-required changes
             approve_url = None
             if need_approval:
                 base = os.environ.get("APP_BASE_URL", "http://localhost:8500")

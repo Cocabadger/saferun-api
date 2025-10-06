@@ -82,6 +82,22 @@ class OnlineClientWithFallback {
     this.cache = options.cache;
     this.defaultAction = options.defaultAction;
     this.cacheDuration = options.cacheDuration;
+
+    // Return a proxy that forwards all methods to onlineClient
+    return new Proxy(this, {
+      get(target, prop, receiver) {
+        // If method exists on target (OnlineClientWithFallback), use it
+        if (prop in target) {
+          return Reflect.get(target, prop, receiver);
+        }
+        // Otherwise, forward to onlineClient (SafeRunClient)
+        const value = (target.onlineClient as any)[prop];
+        if (typeof value === 'function') {
+          return value.bind(target.onlineClient);
+        }
+        return value;
+      },
+    });
   }
 
   async gitOperation(params: any): Promise<any> {

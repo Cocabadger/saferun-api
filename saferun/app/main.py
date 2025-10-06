@@ -13,6 +13,7 @@ from .routers.auth import router as auth_router
 from .routers.approvals import router as approvals_router
 from .routers.slack import router as slack_router
 from .routers.settings import router as settings_router
+from .middleware.rate_limit import RateLimitMiddleware
 from saferun import __version__ as SR_VERSION
 from . import storage as storage_manager
 from . import db_adapter as db
@@ -54,6 +55,9 @@ app.add_middleware(
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allow_headers=["*"],
 )
+
+# Add rate limiting middleware (reads SR_FREE_TIER_LIMIT from Railway env)
+app.add_middleware(RateLimitMiddleware)
 
 
 @app.get("/")
@@ -130,9 +134,13 @@ app.include_router(health_router)
 app.include_router(metrics_router)
 app.include_router(auth_router)  # Auth doesn't require API key
 app.include_router(approvals_router)  # Approvals for web dashboard
-app.include_router(slack_router)  # Slack interactivity
+app.include_router(slack_router)  # Slack notifications (not a provider)
 app.include_router(settings_router)  # User settings
+
+# MVP: GitHub-only provider
 app.include_router(github_router)
-app.include_router(notion_router)
 app.include_router(archive_router)
 app.include_router(git_router)
+
+# Other providers - Coming after MVP testing
+# app.include_router(notion_router)

@@ -81,6 +81,9 @@ async def handle_slack_interaction(request: Request):
     elif action_id == "reject_change":
         success = await reject_change(change_id, user_name)
         message = "❌ Change rejected!" if success else "Failed to reject"
+    elif action_id == "revert_change":
+        success = await revert_change(change_id, user_name)
+        message = "🔄 Change reverted!" if success else "❌ Failed to revert (time expired or already reverted)"
     else:
         return JSONResponse({"ok": True})
 
@@ -150,3 +153,69 @@ async def reject_change(change_id: str, user: str) -> bool:
     storage.set_change_status(change_id, "rejected")
     db.insert_audit(change_id, "rejected", {"rejected_by": user, "rejected_via": "slack"})
     return True
+
+async def revert_change(change_id: str, user: str) -> bool:
+    """Revert an executed change (unarchive, restore branch, reopen PRs)"""
+    storage = storage_manager.get_storage()
+    change = storage.get_change(change_id)
+
+    if not change:
+        return False
+
+    # Check if change is in executed status
+    if change.get("status") != "executed":
+        return False
+
+    # Check if revert window has expired
+    from datetime import datetime, timezone
+    revert_expires = change.get("revert_expires_at")
+    if revert_expires:
+        expires_dt = datetime.fromisoformat(revert_expires.replace("Z", "+00:00"))
+        if datetime.now(timezone.utc) > expires_dt:
+            return False  # Revert window expired
+
+    # Execute revert based on operation type
+    provider = change.get("provider")
+    if provider == "github":
+        from ..providers import factory as provider_factory
+        import json
+        try:
+            provider_instance = provider_factory.get_provider(provider)
+            token = change.get("token")
+            target_id = change.get("target_id")
+            metadata = change.get("metadata", {})
+            object_type = metadata.get("object") or metadata.get("type")
+            
+            # Get summary_json which contains revert data (SHA, PR numbers)
+            summary_json = change.get("summary_json", {})
+            if isinstance(summary_json, str):
+                summary_json = json.loads(summary_json) if summary_json else {}
+            
+            # Determine revert action based on object type
+            if object_type == "repository":
+                # Unarchive repository
+                await provider_instance.unarchive(target_id, token)
+            elif object_type == "branch":
+                # Restore deleted branch using saved SHA from summary_json
+                sha = summary_json.get("github_restore_sha")
+                if not sha:
+                    raise RuntimeError("Missing branch SHA for restore in summary_json")
+                await provider_instance.restore_branch(target_id, token, sha)
+            elif object_type == "bulk_pr":
+                # Reopen closed PRs using PR numbers from summary_json
+                pr_numbers = summary_json.get("github_bulk_pr_numbers", [])
+                if not pr_numbers:
+                    raise RuntimeError("Missing PR numbers for reopen in summary_json")
+                await provider_instance.bulk_reopen_prs(target_id, [int(n) for n in pr_numbers], token)
+            else:
+                raise RuntimeError(f"Unsupported revert operation for type: {object_type}")
+            
+            # Update status
+            storage.set_change_status(change_id, "reverted")
+            db.insert_audit(change_id, "reverted", {"reverted_by": user, "reverted_via": "slack", "object_type": object_type})
+            return True
+        except Exception as e:
+            db.insert_audit(change_id, "revert_failed", {"error": str(e), "reverted_by": user})
+            return False
+
+    return False

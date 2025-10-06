@@ -146,6 +146,7 @@ export class UninstallCommand {
       await this.clearAlias(repoRoot, 'branch');
       await this.clearAlias(repoRoot, 'reset');
       await this.clearAlias(repoRoot, 'clean');
+      await this.clearAlias(repoRoot, 'push');
       return;
     }
 
@@ -156,7 +157,7 @@ export class UninstallCommand {
       backup = {};
     }
 
-    for (const alias of ['branch', 'reset', 'clean']) {
+    for (const alias of ['branch', 'reset', 'clean', 'push']) {
       const original = backup[alias];
       if (typeof original === 'string' && original.length > 0) {
         await execGit(['config', '--replace-all', `alias.${alias}`, original], { cwd: repoRoot }).catch(() => undefined);

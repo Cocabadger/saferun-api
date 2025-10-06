@@ -1,0 +1,48 @@
+# Tests - not needed in production
+tests/
+htmlcov/
+.pytest_cache/
+pytest.ini
+requirements-dev.txt
+TEST_REPORT.md
+SECURITY_FIX.md
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.venv/
+*.egg-info/
+
+# OS/Editor
+.DS_Store
+.vscode/
+.idea/
+
+# Git
+.git/
+.gitignore
+
+# Documentation (keep only README.md)
+*.md
+!README.md
+
+# Development files
+.env.*
+*.log
+*.bak
+
+# CLI directory - separate project
+cli/
+
+# SDK directory - separate project
+sdk/
+
+# Examples - not needed in production
+examples/
+
+# Local data
+data/
+*.db
+*.sqlite3

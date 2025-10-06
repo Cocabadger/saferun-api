@@ -43,6 +43,33 @@ class GitHubBulkClosePRsDryRunRequest(BaseModel):
     webhook_url: Optional[str] = None
 
 
+class GitHubRepoDeleteDryRunRequest(BaseModel):
+    token: str
+    target_id: str  # "org/repo"
+    reason: Optional[str] = None
+    policy: Optional[Dict] = None
+    webhook_url: Optional[str] = None
+
+
+class GitHubForcePushDryRunRequest(BaseModel):
+    token: str
+    target_id: str  # "org/repo#branch" format
+    commits_ahead: int = 0
+    reason: Optional[str] = None
+    policy: Optional[Dict] = None
+    webhook_url: Optional[str] = None
+
+
+class GitHubMergeDryRunRequest(BaseModel):
+    token: str
+    target_id: str  # "org/repo" format
+    source_branch: str
+    target_branch: str
+    reason: Optional[str] = None
+    policy: Optional[Dict] = None
+    webhook_url: Optional[str] = None
+
+
 class GitOperationDryRunRequest(BaseModel):
     operation_type: Literal[
         "force_push",
@@ -92,6 +119,7 @@ class DryRunArchiveRequest(BaseModel):
     token: str
     target_id: str
     provider: ProviderLiteral
+    reason: Optional[str] = None
     policy: Optional[Dict] = None
     webhook_url: Optional[str] = None
 
