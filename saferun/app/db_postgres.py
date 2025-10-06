@@ -36,6 +36,7 @@ def init_db():
         last_edited_time TIMESTAMP,
         policy_json TEXT,
         summary_json TEXT,
+        metadata TEXT,
         token TEXT,
         revert_token TEXT,
         requires_approval INTEGER DEFAULT 0
@@ -101,6 +102,19 @@ def init_db():
         updated_at TIMESTAMP DEFAULT NOW(),
         FOREIGN KEY (api_key) REFERENCES api_keys(api_key) ON DELETE CASCADE
     );
+    """)
+
+    # Migration: Add metadata column if not exists (for existing deployments)
+    cur.execute("""
+    DO $$
+    BEGIN
+        IF NOT EXISTS (
+            SELECT 1 FROM information_schema.columns 
+            WHERE table_name='changes' AND column_name='metadata'
+        ) THEN
+            ALTER TABLE changes ADD COLUMN metadata TEXT;
+        END IF;
+    END $$;
     """)
 
     conn.commit()
@@ -180,8 +194,8 @@ def upsert_change(change: dict):
     INSERT INTO changes(
         change_id, target_id, page_id, provider, title, status,
         risk_score, expires_at, created_at, last_edited_time,
-        policy_json, summary_json, token, revert_token, requires_approval
-    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+        policy_json, summary_json, metadata, token, revert_token, requires_approval
+    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
     ON CONFLICT(change_id) DO UPDATE SET
         target_id=EXCLUDED.target_id,
         page_id=EXCLUDED.page_id,
@@ -194,6 +208,7 @@ def upsert_change(change: dict):
         last_edited_time=EXCLUDED.last_edited_time,
         policy_json=EXCLUDED.policy_json,
         summary_json=EXCLUDED.summary_json,
+        metadata=EXCLUDED.metadata,
         token=EXCLUDED.token,
         revert_token=EXCLUDED.revert_token,
         requires_approval=EXCLUDED.requires_approval
@@ -210,6 +225,7 @@ def upsert_change(change: dict):
         parse_dt(change.get("last_edited_time")) if change.get("last_edited_time") else None,
         json.dumps(change.get("policy_json") or change.get("policy") or {}),
         json.dumps(change.get("summary_json") or change.get("summary") or {}),
+        json.dumps(change.get("metadata") or {}) if change.get("metadata") else None,
         change.get("token"),
         change.get("revert_token"),
         int(bool(change.get("requires_approval")))

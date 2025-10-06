@@ -1,10 +1,12 @@
 from fastapi import APIRouter, Request, HTTPException
 from fastapi.responses import JSONResponse
 import json, hmac, hashlib, os
+import logging
 from .. import storage as storage_manager
 from .. import db_adapter as db
 
 router = APIRouter(prefix="/slack", tags=["slack"])
+logger = logging.getLogger(__name__)
 
 SLACK_SIGNING_SECRET = os.getenv("SLACK_SIGNING_SECRET")
 
@@ -227,12 +229,17 @@ async def revert_change(change_id: str, user: str) -> tuple[bool, dict]:
             token = change.get("token")
             target_id = change.get("target_id")
             metadata = change.get("metadata", {})
+            # Metadata might be JSON string from storage
+            if isinstance(metadata, str):
+                metadata = json.loads(metadata) if metadata else {}
             object_type = metadata.get("object") or metadata.get("type")
             
             # Get summary_json which contains revert data (SHA, PR numbers)
             summary_json = change.get("summary_json", {})
+            logger.error(f"🔍 DEBUG summary_json RAW: {summary_json}, type: {type(summary_json)}")
             if isinstance(summary_json, str):
                 summary_json = json.loads(summary_json) if summary_json else {}
+            logger.error(f"🔍 DEBUG summary_json PARSED: {summary_json}, type: {type(summary_json)}")
             
             # Determine revert action based on object type
             if object_type == "repository":
@@ -241,6 +248,7 @@ async def revert_change(change_id: str, user: str) -> tuple[bool, dict]:
             elif object_type == "branch":
                 # Restore deleted branch using saved SHA from summary_json
                 sha = summary_json.get("github_restore_sha")
+                logger.error(f"🔍 DEBUG SHA retrieved: {sha}, full summary_json keys: {summary_json.keys()}")
                 if not sha:
                     raise RuntimeError("Missing branch SHA for restore in summary_json")
                 await provider_instance.restore_branch(target_id, token, sha)
