@@ -206,11 +206,30 @@ export class HookRunner {
 
       // If no approval needed, API will handle it automatically
       if (!dryRun.needsApproval) {
-        const message = deletion
-          ? `Branch '${branch}' deletion approved (auto-executed by API, revert available for 2h)`
-          : `Force push to '${branch}' approved (always requires approval for irreversible operations)`;
-        
-        console.log(chalk.green(`✓ ${message}`));
+        if (deletion) {
+          // Display formatted auto-execute message with revert info
+          console.log('\n' + chalk.cyan('═'.repeat(60)));
+          console.log(chalk.bold.white('  🛡️  SafeRun Protection Active'));
+          console.log(chalk.cyan('═'.repeat(60)));
+          console.log('');
+          console.log(chalk.white('Operation: ') + chalk.yellow('Branch Delete'));
+          console.log(chalk.white('Branch: ') + chalk.cyan(branch));
+          console.log(chalk.white('Risk Score: ') + chalk.green(`${dryRun.riskScore || 0}/10`));
+          console.log('');
+          console.log(chalk.green('✓ Auto-executed (non-main branch)'));
+          console.log('');
+          console.log(chalk.cyan('━'.repeat(60)));
+          console.log(chalk.bold.yellow('⏰ Revert Window: 2 hours'));
+          console.log(chalk.cyan('━'.repeat(60)));
+          console.log('');
+          if (dryRun.revertUrl) {
+            console.log(chalk.white('🌐 Revert URL:'));
+            console.log(chalk.blue(`   ${dryRun.revertUrl}`));
+            console.log('');
+          }
+        } else {
+          console.log(chalk.green(`✓ Force push to '${branch}' approved (always requires approval for irreversible operations)`));
+        }
         
         await context.metrics.track('operation_allowed', {
           hook: 'pre-push',
