@@ -319,6 +319,8 @@ export class SafeRunClient {
       Array.isArray(data?.reasons) ? data.reasons : [],
       data?.human_preview ?? "",
       this.parseDate(data?.expires_at),
+      data?.revert_url ?? undefined,
+      data?.revert_window_hours ?? undefined,
       this,
     );
   }

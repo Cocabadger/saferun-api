@@ -93,7 +93,27 @@ export async function interceptBranchDelete(context: InterceptorContext): Promis
           change_id: dryRun.changeId,
         });
         
-        console.log(chalk.green(`✓ Branch '${branchName}' will be deleted (auto-executed by API, revert available for 2h)`));
+        // Display formatted auto-execute message with revert info
+        console.log('\n' + chalk.cyan('═'.repeat(60)));
+        console.log(chalk.bold.white('  🛡️  SafeRun Protection Active'));
+        console.log(chalk.cyan('═'.repeat(60)));
+        console.log('');
+        console.log(chalk.white('Operation: ') + chalk.yellow('Branch Delete'));
+        console.log(chalk.white('Branch: ') + chalk.cyan(branchName));
+        console.log(chalk.white('Risk Score: ') + chalk.green(`${dryRun.riskScore || 0}/10`));
+        console.log('');
+        console.log(chalk.green('✓ Auto-executed (non-main branch)'));
+        console.log('');
+        console.log(chalk.cyan('━'.repeat(60)));
+        console.log(chalk.bold.yellow('⏰ Revert Window: 2 hours'));
+        console.log(chalk.cyan('━'.repeat(60)));
+        console.log('');
+        if (dryRun.revertUrl) {
+          console.log(chalk.white('🌐 Revert URL:'));
+          console.log(chalk.blue(`   ${dryRun.revertUrl}`));
+          console.log('');
+        }
+        
         continue;
       }
 

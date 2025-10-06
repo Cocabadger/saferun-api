@@ -109,12 +109,21 @@ class Notifier:
         # Add buttons based on event type
         if change_id:
             if event_type == "executed_with_revert":
+                # Determine success message based on item type
+                item_type = payload.get("item_type", "repository")
+                if item_type == "branch":
+                    success_msg = "*Branch deleted successfully.*"
+                elif item_type == "repo":
+                    success_msg = "*Repository archived successfully.*"
+                else:
+                    success_msg = "*Operation completed successfully.*"
+                
                 # Show Revert button only
                 blocks.append({
                     "type": "section",
                     "text": {
                         "type": "mrkdwn",
-                        "text": f"*Repository archived successfully.*\nYou have *{revert_window_hours} hours* to revert this action if needed."
+                        "text": f"{success_msg}\nYou have *{revert_window_hours} hours* to revert this action if needed."
                     }
                 })
                 blocks.append({

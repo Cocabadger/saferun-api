@@ -54,6 +54,8 @@ export class DryRunResult {
     public readonly reasons: string[],
     public readonly humanPreview: string,
     public readonly expiresAt: Date,
+    public readonly revertUrl: string | undefined,
+    public readonly revertWindowHours: number | undefined,
     private readonly client: SafeRunClient,
   ) {}
 

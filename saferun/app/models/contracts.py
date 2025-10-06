@@ -173,6 +173,7 @@ class DryRunArchiveResponse(BaseModel):
     telemetry: Dict
     approve_url: Optional[str] = None
     revert_url: Optional[str] = None
+    revert_window_hours: Optional[int] = None
     apply: Optional[bool] = None
     note: Optional[str] = None
     records_affected: Optional[int] = None

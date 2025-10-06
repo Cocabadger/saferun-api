@@ -82,7 +82,7 @@ async def handle_slack_interaction(request: Request):
         success = await reject_change(change_id, user_name)
         message = "❌ Change rejected!" if success else "Failed to reject"
     elif action_id == "revert_change":
-        success = await revert_change(change_id, user_name)
+        success, revert_info = await revert_change(change_id, user_name)
         message = "🔄 Change reverted!" if success else "❌ Failed to revert (time expired or already reverted)"
     else:
         return JSONResponse({"ok": True})
@@ -90,19 +90,53 @@ async def handle_slack_interaction(request: Request):
     # Update message using response_url
     if response_url:
         import httpx
-        update_payload = {
-            "replace_original": True,
-            "text": f"{message} (by @{user_name})",
-            "blocks": [
-                {
-                    "type": "section",
-                    "text": {
-                        "type": "mrkdwn",
-                        "text": f"*{message}*\nActioned by: @{user_name}\nChange ID: `{change_id}`"
+        
+        # Build enhanced message for successful revert
+        if action_id == "revert_change" and success and revert_info:
+            provider = revert_info.get("provider", "unknown")
+            target_id = revert_info.get("target_id", "")
+            operation = revert_info.get("operation", "Operation")
+            
+            # Generate verification link for GitHub
+            verification_link = ""
+            if provider == "github" and "#" in target_id:
+                repo, branch = target_id.split("#", 1)
+                if "→" not in branch:  # Branch restore (not merge)
+                    verification_link = f"\n\n*Verify on GitHub:*\n<https://github.com/{repo}/tree/{branch}|View restored branch>"
+            
+            update_payload = {
+                "replace_original": True,
+                "text": f"✅ Action Reverted",
+                "blocks": [
+                    {
+                        "type": "header",
+                        "text": {"type": "plain_text", "text": "✅ Action Reverted"}
+                    },
+                    {
+                        "type": "section",
+                        "text": {
+                            "type": "mrkdwn",
+                            "text": f"*{operation} reverted successfully!*\n\n*Actioned by:* @{user_name}\n*Change ID:* `{change_id}`\n*Provider:* {provider}{verification_link}"
+                        }
                     }
-                }
-            ]
-        }
+                ]
+            }
+        else:
+            # Default message for approve/reject/failed revert
+            update_payload = {
+                "replace_original": True,
+                "text": f"{message} (by @{user_name})",
+                "blocks": [
+                    {
+                        "type": "section",
+                        "text": {
+                            "type": "mrkdwn",
+                            "text": f"*{message}*\nActioned by: @{user_name}\nChange ID: `{change_id}`"
+                        }
+                    }
+                ]
+            }
+        
         async with httpx.AsyncClient() as client:
             await client.post(response_url, json=update_payload)
 
@@ -154,17 +188,19 @@ async def reject_change(change_id: str, user: str) -> bool:
     db.insert_audit(change_id, "rejected", {"rejected_by": user, "rejected_via": "slack"})
     return True
 
-async def revert_change(change_id: str, user: str) -> bool:
-    """Revert an executed change (unarchive, restore branch, reopen PRs)"""
+async def revert_change(change_id: str, user: str) -> tuple[bool, dict]:
+    """Revert an executed change (unarchive, restore branch, reopen PRs)
+    Returns: (success: bool, info: dict with provider, target_id, operation)
+    """
     storage = storage_manager.get_storage()
     change = storage.get_change(change_id)
 
     if not change:
-        return False
+        return False, {}
 
     # Check if change is in executed status
     if change.get("status") != "executed":
-        return False
+        return False, {}
 
     # Check if revert window has expired
     from datetime import datetime, timezone
@@ -172,7 +208,14 @@ async def revert_change(change_id: str, user: str) -> bool:
     if revert_expires:
         expires_dt = datetime.fromisoformat(revert_expires.replace("Z", "+00:00"))
         if datetime.now(timezone.utc) > expires_dt:
-            return False  # Revert window expired
+            return False, {}  # Revert window expired
+
+    # Prepare revert info
+    revert_info = {
+        "provider": change.get("provider"),
+        "target_id": change.get("target_id"),
+        "operation": change.get("title", "Operation")
+    }
 
     # Execute revert based on operation type
     provider = change.get("provider")
@@ -213,9 +256,9 @@ async def revert_change(change_id: str, user: str) -> bool:
             # Update status
             storage.set_change_status(change_id, "reverted")
             db.insert_audit(change_id, "reverted", {"reverted_by": user, "reverted_via": "slack", "object_type": object_type})
-            return True
+            return True, revert_info
         except Exception as e:
             db.insert_audit(change_id, "revert_failed", {"error": str(e), "reverted_by": user})
-            return False
+            return False, {}
 
-    return False
+    return False, {}

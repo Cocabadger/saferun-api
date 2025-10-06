@@ -224,6 +224,7 @@ async def build_dryrun(req: DryRunArchiveRequest, notion_version: str | None = N
                 "requires_approval": need_approval,
                 "created_at": created_at_str,
                 "webhook_url": req.webhook_url,  # Store webhook URL
+                "metadata": metadata,  # Store metadata for revert logic (object type, etc.)
             }
             
             # Add revert_window for non-approval GitHub archives
@@ -244,6 +245,8 @@ async def build_dryrun(req: DryRunArchiveRequest, notion_version: str | None = N
                     if req.provider == "github" and item_type == "branch":
                         revert_sha = await provider_instance.delete_branch(req.target_id, req.token)
                         change_data["revert_token"] = revert_sha  # Store SHA for revert
+                        # Also store in summary_json for consistency with approval-based execution
+                        change_data["summary_json"] = {"github_restore_sha": revert_sha}
                     else:
                         await provider_instance.archive(req.target_id, req.token)
                     
@@ -263,6 +266,7 @@ async def build_dryrun(req: DryRunArchiveRequest, notion_version: str | None = N
                             notifier.publish("executed_with_revert", change_record, 
                                            extras={"revert_url": revert_url, 
                                                   "revert_window_hours": revert_window_hours,
+                                                  "item_type": item_type,  # Pass item type for proper message
                                                   "meta": {"latency_ms": 0, "provider_version": "unknown"}}, 
                                            api_key=api_key)
                         )
@@ -367,6 +371,14 @@ async def build_dryrun(req: DryRunArchiveRequest, notion_version: str | None = N
             if req.provider == "github" and item_type == "branch":
                 op = "delete_branch"
 
+            # Prepare revert_url if revert window is available
+            revert_response_url = None
+            revert_window_response = None
+            if revert_window_hours is not None:
+                base = os.environ.get("APP_BASE_URL", "http://localhost:8500")
+                revert_response_url = f"{base}/v1/changes/{change_id}/revert"
+                revert_window_response = revert_window_hours
+
             return DryRunArchiveResponse(
                 change_id=change_id,
                 target=TargetRef(provider=req.provider, target_id=req.target_id, type=item_type),
@@ -383,7 +395,8 @@ async def build_dryrun(req: DryRunArchiveRequest, notion_version: str | None = N
                 requires_approval=need_approval,
                 human_preview=hp,
                 approve_url=approve_url,
-                revert_url=None,
+                revert_url=revert_response_url,
+                revert_window_hours=revert_window_response,
                 telemetry=telemetry_dict,
                 expires_at=expires_dt_obj,
             )
