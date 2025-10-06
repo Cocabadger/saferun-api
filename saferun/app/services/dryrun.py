@@ -245,7 +245,7 @@ async def build_dryrun(req: DryRunArchiveRequest, notion_version: str | None = N
                     if req.provider == "github" and item_type == "branch":
                         revert_sha = await provider_instance.delete_branch(req.target_id, req.token)
                         change_data["revert_token"] = revert_sha  # Store SHA for revert
-                        # Also store in summary_json for consistency with approval-based execution
+                        # Store in summary_json for revert (storage will serialize to JSON automatically)
                         change_data["summary_json"] = {"github_restore_sha": revert_sha}
                     else:
                         await provider_instance.archive(req.target_id, req.token)
