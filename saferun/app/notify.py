@@ -70,12 +70,85 @@ class Notifier:
         risk_score = payload.get("risk_score", 0.0)
         title = payload.get("title", "Unknown operation")
         provider = payload.get("provider", "unknown")
+        target_id = payload.get("target_id", "")
+        
+        # Determine operation type and repository from metadata/payload
+        operation_display = title  # Default to title
+        repository_name = title
+        
+        # For GitHub, parse operation type from metadata or extras
+        if provider == "github":
+            extras = payload.get("extras", {})
+            metadata = extras.get("metadata", {})
+            object_type = metadata.get("object")
+            operation_type = metadata.get("operation_type")
+            item_type = metadata.get("type")  # For bulk operations
+            
+            # Extract repo name from target_id (format: owner/repo or owner/repo#branch)
+            if target_id:
+                if "#" in target_id:
+                    repository_name = target_id.split("#")[0]
+                elif "/" in target_id:
+                    repository_name = target_id
+            
+            # Determine operation display text based on operation_type or object_type
+            if operation_type == "delete_repo":
+                operation_display = "Repository DELETE (PERMANENT)"
+            elif operation_type == "force_push":
+                operation_display = "Force Push"
+            elif object_type == "merge":
+                # Check if merging to main/default
+                if metadata.get("isTargetDefault"):
+                    operation_display = "Merge to Main Branch"
+                else:
+                    target_branch = metadata.get("target_branch", "branch")
+                    operation_display = f"Merge to {target_branch}"
+            elif object_type == "branch":
+                if metadata.get("isDefault"):
+                    operation_display = "Delete Main Branch"
+                else:
+                    branch_name = metadata.get("name") or metadata.get("branch", "branch")
+                    operation_display = f"Delete Branch: {branch_name}"
+            elif object_type == "repository":
+                operation_display = "Archive Repository"
+            elif item_type == "bulk_pr":
+                # Bulk PR operations
+                records_affected = metadata.get("records_affected", 0)
+                operation_display = f"Close {records_affected} Pull Requests"
+            else:
+                operation_display = f"GitHub Operation: {title}"
+
+        # Provider emoji mapping
+        provider_emoji = {
+            "github": "🐙",
+            "notion": "📝",
+            "airtable": "🗂️"
+        }.get(provider.lower(), "🔧")
 
         # Different header based on event type
         if event_type == "executed_with_revert":
             header_text = "✅ Action Executed"
         else:
             header_text = "🛡️ SafeRun Approval Required"
+
+        # Build fields based on provider
+        fields = []
+        if provider == "github" and repository_name != operation_display:
+            # For GitHub, show Provider, Repository, Operation separately
+            fields.extend([
+                {"type": "mrkdwn", "text": f"*Provider:*\n{provider_emoji} {provider.capitalize()}"},
+                {"type": "mrkdwn", "text": f"*Repository:*\n{repository_name}"},
+                {"type": "mrkdwn", "text": f"*Operation:*\n{operation_display}"},
+                {"type": "mrkdwn", "text": f"*Risk Score:*\n{risk_score:.1f}/10"}
+            ])
+        else:
+            # For other providers or fallback, use original layout
+            fields.extend([
+                {"type": "mrkdwn", "text": f"*Provider:*\n{provider_emoji} {provider.capitalize()}"},
+                {"type": "mrkdwn", "text": f"*Operation:*\n{operation_display}"},
+                {"type": "mrkdwn", "text": f"*Risk Score:*\n{risk_score:.1f}/10"},
+                {"type": "mrkdwn", "text": f"*Change ID:*\n`{change_id}`"}
+            ])
 
         blocks = [
             {
@@ -87,12 +160,7 @@ class Notifier:
             },
             {
                 "type": "section",
-                "fields": [
-                    {"type": "mrkdwn", "text": f"*Operation:*\n{title}"},
-                    {"type": "mrkdwn", "text": f"*Risk Score:*\n{risk_score:.1f}/10"},
-                    {"type": "mrkdwn", "text": f"*Provider:*\n{provider}"},
-                    {"type": "mrkdwn", "text": f"*Change ID:*\n`{change_id}`"}
-                ]
+                "fields": fields
             }
         ]
 

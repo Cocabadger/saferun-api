@@ -22,9 +22,10 @@ def compute_risk_airtable(title: str, linked_count: int, edited_age_hours: float
 
     return risk_score, reasons
 
-def compute_risk(provider: str, title: str, blocks_count: int, last_edit: str | None, linked_count: int = 0) -> tuple[float, list[str]]:
+def compute_risk(provider: str, title: str, blocks_count: int, last_edit: str | None, linked_count: int = 0, metadata: dict = None) -> tuple[float, list[str]]:
     risk_score = 0.0
     reasons = []
+    metadata = metadata or {}
     # debug: compute_risk diagnostics (removed)
 
     edited_age_hours = 1e9 # Default to a very large number
@@ -38,11 +39,38 @@ def compute_risk(provider: str, title: str, blocks_count: int, last_edit: str | 
         risk_score += airtable_risk
         reasons.extend(airtable_reasons)
     elif provider == "github":
-        # GitHub heuristics
+        # GitHub operation-based risk scoring
+        object_type = metadata.get("object")  # "repository", "branch", "merge"
+        operation_type = metadata.get("operation_type")  # Custom operation marker
+        
+        # HIGH RISK: Irreversible operations
+        if operation_type == "delete_repo" or object_type == "repository":
+            # Repository deletion is PERMANENT and cannot be easily undone
+            risk_score += 8.0
+            reasons.append("github_irreversible_repo_deletion")
+        elif operation_type == "force_push":
+            # Force push can lose commit history
+            risk_score += 7.0
+            reasons.append("github_force_push_danger")
+        
+        # MEDIUM-HIGH RISK: Merge and branch operations
+        elif object_type == "merge":
+            # Merge to main/default branch
+            if metadata.get("isTargetDefault"):
+                risk_score += 5.0
+                reasons.append("github_merge_to_main")
+            else:
+                risk_score += 2.0
+                reasons.append("github_merge_operation")
+        elif object_type == "branch" and metadata.get("isDefault"):
+            # Deleting default/main branch
+            risk_score += 6.0
+            reasons.append("github_default_branch_deletion")
+        
+        # Additional GitHub heuristics
         if title and any(k in title.lower() for k in ["prod", "infra", "deploy"]):
             risk_score += 0.30
             reasons.append("github_name_keywords")
-        # We pass default branch as blocks_count sentinel -1? Keep separate: rely on reasons injection elsewhere.
         if edited_age_hours < 24:
             risk_score += 0.20
             reasons.append("github_recent_commit")

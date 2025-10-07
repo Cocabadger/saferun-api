@@ -102,12 +102,18 @@ async def build_dryrun(req: DryRunArchiveRequest, notion_version: str | None = N
                     item_type = "branch"
                 else:
                     item_type = "repo"
+                
+                # Detect operation type from reason or metadata
+                if req.reason and "DELETE" in req.reason.upper():
+                    metadata["operation_type"] = "delete_repo"
+                elif req.reason and "FORCE" in req.reason.upper():
+                    metadata["operation_type"] = "force_push"
 
             # 2) Calculate risk score and other context variables
             linked_count = metadata.get("linkedCount", 0)
             if req.provider == "github":
                 last_edit = metadata.get("lastPushedAt") or metadata.get("lastCommitDate") or last_edit
-            risk_score, risk_reasons = compute_risk(req.provider, title, blocks, last_edit, linked_count)
+            risk_score, risk_reasons = compute_risk(req.provider, title, blocks, last_edit, linked_count, metadata=metadata)
 
             edited_age_hours = 1e9
             if last_edit:
@@ -270,6 +276,7 @@ async def build_dryrun(req: DryRunArchiveRequest, notion_version: str | None = N
                                            extras={"revert_url": revert_url, 
                                                   "revert_window_hours": revert_window_hours,
                                                   "item_type": item_type,  # Pass item type for proper message
+                                                  "metadata": metadata,  # Pass metadata for operation type detection
                                                   "meta": {"latency_ms": 0, "provider_version": "unknown"}}, 
                                            api_key=api_key)
                         )
@@ -292,7 +299,7 @@ async def build_dryrun(req: DryRunArchiveRequest, notion_version: str | None = N
                 change_record = storage.get_change(change_id)
                 if change_record:
                     asyncio.create_task(
-                        notifier.publish("dry_run", change_record, extras={"approve_url": approve_url, "meta": {"latency_ms": 0, "provider_version": "unknown"}}, api_key=api_key)
+                        notifier.publish("dry_run", change_record, extras={"approve_url": approve_url, "metadata": metadata, "meta": {"latency_ms": 0, "provider_version": "unknown"}}, api_key=api_key)
                     )
 
             telemetry_dict = {"latency_ms": 0, "provider_version": "unknown"}
