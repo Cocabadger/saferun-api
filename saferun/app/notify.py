@@ -76,10 +76,21 @@ class Notifier:
         operation_display = title  # Default to title
         repository_name = title
         
-        # For GitHub, parse operation type from metadata or extras
+        # For GitHub, parse operation type from metadata (stored in change_data or extras)
         if provider == "github":
-            extras = payload.get("extras", {})
-            metadata = extras.get("metadata", {})
+            # Try to get metadata from change record first, then from extras
+            metadata = payload.get("metadata", {})
+            if not metadata:
+                extras = payload.get("extras", {})
+                metadata = extras.get("metadata", {})
+            
+            # Parse metadata if it's a JSON string from storage
+            if isinstance(metadata, str):
+                try:
+                    metadata = json.loads(metadata)
+                except:
+                    metadata = {}
+            
             object_type = metadata.get("object")
             operation_type = metadata.get("operation_type")
             item_type = metadata.get("type")  # For bulk operations
