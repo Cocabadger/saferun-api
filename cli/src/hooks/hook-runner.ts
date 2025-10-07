@@ -187,17 +187,38 @@ export class HookRunner {
           webhookUrl: context.config.notifications?.webhook_url as string | undefined,
         });
       } else if (isMergeCommit && protectedBranch) {
-        // Handle merge to protected branch via API
-        const reason = `Merge commit to protected branch ${branch}`;
-
-        dryRun = await context.client.mergeGithub({
+        // Merge commit to protected branch detected
+        console.log('\n' + chalk.cyan('═'.repeat(60)));
+        console.log(chalk.bold.white('  🔀 Merge Commit Detected'));
+        console.log(chalk.cyan('═'.repeat(60)));
+        console.log('');
+        console.log(chalk.white('Target Branch: ') + chalk.yellow(branch) + chalk.gray(' (protected)'));
+        console.log(chalk.white('Source Branch: ') + chalk.gray('unknown (merged via git CLI)'));
+        console.log('');
+        console.log(chalk.yellow('⚠️  SafeRun Recommendation:'));
+        console.log(chalk.gray('  • Use Pull Requests for better tracking and review'));
+        console.log(chalk.gray('  • AI agents should use SafeRun SDK for full protection'));
+        console.log('');
+        console.log(chalk.green('✓ Proceeding with merge (manual merge allowed)'));
+        console.log(chalk.cyan('═'.repeat(60)) + '\n');
+        
+        await context.metrics.track('operation_allowed', {
+          hook: 'pre-push',
+          operation_type: 'merge',
+          branch,
           repo: repoSlug,
-          sourceBranch: 'feature', // We can't determine exact source from hook
-          targetBranch: branch,
-          githubToken,
-          reason,
-          webhookUrl: context.config.notifications?.webhook_url as string | undefined,
+          reason: 'manual_merge_cli',
         });
+        
+        await logOperation(context.gitInfo.repoRoot, {
+          event: 'allow',
+          operation: 'merge',
+          repo: repoSlug,
+          branch,
+          reason: 'manual_merge_via_git_cli',
+        });
+        
+        return;
       } else {
         // Regular push - allow
         await context.metrics.track('operation_allowed', {
