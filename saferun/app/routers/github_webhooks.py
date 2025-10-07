@@ -5,7 +5,6 @@ import uuid
 from typing import Optional
 from datetime import datetime, timezone, timedelta
 
-from .. import storage as storage_manager
 from .. import db_adapter as db
 from ..services.github import (
     verify_webhook_signature,
@@ -170,7 +169,6 @@ async def github_webhook_event(
         print(f"⚠️ No SafeRun user found for GitHub event: {repo_full_name} (installation_id={installation_id})")
     
     # Create change record
-    storage = storage_manager.get_storage()
     change = {
         "change_id": change_id,
         "target_id": repo_full_name,
@@ -194,7 +192,7 @@ async def github_webhook_event(
         })
     }
     
-    storage.upsert_change(change)
+    db.upsert_change(change)
     
     # Insert audit log
     db.insert_audit(change_id, "github_webhook_received", {
@@ -255,8 +253,7 @@ async def revert_github_action(
     - change_id: SafeRun change ID to revert
     - github_token: GitHub token with write permissions (query param)
     """
-    storage = storage_manager.get_storage()
-    change = storage.get_change(change_id)
+    change = db.fetchone("SELECT * FROM changes WHERE change_id=%s", (change_id,))
     
     if not change:
         raise HTTPException(status_code=404, detail="Change not found")
@@ -301,8 +298,10 @@ async def revert_github_action(
     
     if success:
         # Update change status
-        change["status"] = "reverted"
-        storage.upsert_change(change)
+        db.exec(
+            "UPDATE changes SET status=%s WHERE change_id=%s",
+            ("reverted", change_id)
+        )
         
         # Add audit log
         db.insert_audit(change_id, "reverted", {"revert_type": revert_action["type"]})
