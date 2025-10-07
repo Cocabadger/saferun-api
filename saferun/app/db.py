@@ -85,6 +85,19 @@ def init_db():
         is_active INTEGER DEFAULT 1
     );
     """)
+    
+    # GitHub installations table for GitHub App
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS github_installations(
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        installation_id INTEGER UNIQUE NOT NULL,
+        api_key TEXT,
+        account_login TEXT,
+        installed_at TEXT NOT NULL,
+        repositories_json TEXT,
+        FOREIGN KEY (api_key) REFERENCES api_keys(api_key)
+    );
+    """)
 
     # --- migrations
     # add target_id if missing
@@ -132,6 +145,13 @@ def init_db():
                 cur.execute(f"ALTER TABLE changes ADD COLUMN {col} {col_type};")
             except Exception:
                 pass
+    
+    # Add github_installation_id to api_keys if missing
+    if not _column_exists(con, "api_keys", "github_installation_id"):
+        try:
+            cur.execute("ALTER TABLE api_keys ADD COLUMN github_installation_id INTEGER;")
+        except Exception:
+            pass
 
     # Ensure change_id is unique so ON CONFLICT(change_id) works even for migrated schemas
     try:

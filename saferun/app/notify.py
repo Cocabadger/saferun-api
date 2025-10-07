@@ -405,3 +405,151 @@ class Notifier:
         await asyncio.gather(*tasks, return_exceptions=True)
 
 notifier = Notifier()
+
+
+async def send_to_slack(webhook_url: str, message: Dict[str, Any]) -> bool:
+    """
+    Helper function to send formatted message to Slack webhook
+    Used by GitHub webhooks router
+    
+    Args:
+        webhook_url: Slack webhook URL
+        message: Formatted Slack message payload
+    
+    Returns:
+        bool: True if successful
+    """
+    try:
+        async with httpx.AsyncClient(timeout=TIMEOUT) as client:
+            response = await client.post(webhook_url, json=message)
+            return response.status_code == 200
+    except Exception as e:
+        logger.error(f"Failed to send to Slack: {e}")
+        return False
+
+
+def format_slack_message(action, user_email: str, source: str = "github_webhook", event_type: str = "push") -> Dict[str, Any]:
+    """
+    Format GitHub webhook event into Slack message
+    
+    Args:
+        action: Action model instance
+        user_email: User email
+        source: Source of event (github_webhook, sdk, cli)
+        event_type: GitHub event type (push, delete, pull_request, etc)
+    
+    Returns:
+        Dict: Formatted Slack message payload
+    """
+    metadata = action.metadata or {}
+    revert_action = metadata.get("revert_action", {})
+    event_payload = metadata.get("payload", {})
+    sender = metadata.get("sender", "unknown")
+    
+    # Build operation description
+    operation_desc = action.operation_type.replace("github_", "").replace("_", " ").title()
+    
+    # Risk level emoji
+    risk_emoji = "🔴" if action.risk_score >= 7.0 else "🟡" if action.risk_score >= 4.0 else "🟢"
+    
+    # Source badge
+    source_badge = {
+        "github_webhook": "🌐 GitHub Webhook",
+        "sdk": "📦 SafeRun SDK",
+        "cli": "💻 Git CLI"
+    }.get(source, source)
+    
+    message = {
+        "text": f"🚨 SafeRun Alert - GitHub Event Detected",
+        "blocks": [
+            {
+                "type": "header",
+                "text": {
+                    "type": "plain_text",
+                    "text": f"{risk_emoji} SafeRun Alert - GitHub Event Detected"
+                }
+            },
+            {
+                "type": "section",
+                "fields": [
+                    {
+                        "type": "mrkdwn",
+                        "text": f"*Operation:*\n{operation_desc}"
+                    },
+                    {
+                        "type": "mrkdwn",
+                        "text": f"*Repository:*\n`{action.repo_name}`"
+                    },
+                    {
+                        "type": "mrkdwn",
+                        "text": f"*Author:*\n@{sender}"
+                    },
+                    {
+                        "type": "mrkdwn",
+                        "text": f"*Risk Score:*\n{action.risk_score}/10"
+                    },
+                    {
+                        "type": "mrkdwn",
+                        "text": f"*Source:*\n{source_badge}"
+                    },
+                    {
+                        "type": "mrkdwn",
+                        "text": f"*User:*\n{user_email}"
+                    }
+                ]
+            }
+        ]
+    }
+    
+    # Add branch info if available
+    if action.branch_name:
+        message["blocks"][1]["fields"].insert(2, {
+            "type": "mrkdwn",
+            "text": f"*Branch:*\n`{action.branch_name}`"
+        })
+    
+    # Add risk reasons if available
+    if action.risk_reasons:
+        reasons_text = "\n".join([f"• {r.replace('github_', '').replace('_', ' ').title()}" for r in action.risk_reasons])
+        message["blocks"].append({
+            "type": "section",
+            "text": {
+                "type": "mrkdwn",
+                "text": f"*⚠️ Risk Factors:*\n{reasons_text}"
+            }
+        })
+    
+    # Add warning for bypassed protection
+    if source == "github_webhook":
+        message["blocks"].append({
+            "type": "section",
+            "text": {
+                "type": "mrkdwn",
+                "text": ":warning: *Event bypassed CLI/SDK protection*\nThis operation was performed directly via GitHub API or Web UI."
+            }
+        })
+    
+    # Add revert information if available
+    if revert_action:
+        revert_type = revert_action.get("type", "").replace("_", " ").title()
+        message["blocks"].append({
+            "type": "section",
+            "text": {
+                "type": "mrkdwn",
+                "text": f"*🔄 Revert Available:*\n{revert_type} - Use `/webhooks/github/revert/{action.id}` endpoint"
+            }
+        })
+    
+    # Add approval requirement for high-risk
+    if action.risk_score >= 7.0:
+        message["blocks"].append({
+            "type": "section",
+            "text": {
+                "type": "mrkdwn",
+                "text": f":rotating_light: *Approval Required*\nAction ID: `{action.id}` - Check SafeRun dashboard"
+            }
+        })
+    
+    message["blocks"].append({"type": "divider"})
+    
+    return message

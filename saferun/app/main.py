@@ -5,6 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from .routers.archive import router as archive_router
 from .routers.github import router as github_router
+from .routers.github_webhooks import router as github_webhooks_router
 from .routers.notion import router as notion_router
 from .routers.health import router as health_router
 from .routers.metrics import router as metrics_router
@@ -132,6 +133,9 @@ app.include_router(auth_router)  # Auth doesn't require API key
 app.include_router(approvals_router)  # Approvals for web dashboard
 app.include_router(slack_router)  # Slack notifications (not a provider)
 app.include_router(settings_router)  # User settings
+
+# GitHub webhooks - Level 3 Protection
+app.include_router(github_webhooks_router)
 
 # MVP: GitHub-only provider
 app.include_router(github_router)

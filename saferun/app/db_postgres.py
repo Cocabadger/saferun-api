@@ -104,6 +104,19 @@ def init_db():
     );
     """)
 
+    # Create GitHub installations table (for GitHub App)
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS github_installations(
+        id SERIAL PRIMARY KEY,
+        installation_id INTEGER UNIQUE NOT NULL,
+        api_key TEXT,
+        account_login TEXT,
+        installed_at TIMESTAMP NOT NULL,
+        repositories_json TEXT DEFAULT '[]',
+        FOREIGN KEY (api_key) REFERENCES api_keys(api_key) ON DELETE SET NULL
+    );
+    """)
+
     # Migration: Add metadata column if not exists (for existing deployments)
     cur.execute("""
     DO $$
@@ -113,6 +126,19 @@ def init_db():
             WHERE table_name='changes' AND column_name='metadata'
         ) THEN
             ALTER TABLE changes ADD COLUMN metadata TEXT;
+        END IF;
+    END $$;
+    """)
+
+    # Migration: Add github_installation_id to api_keys (for GitHub App linking)
+    cur.execute("""
+    DO $$
+    BEGIN
+        IF NOT EXISTS (
+            SELECT 1 FROM information_schema.columns 
+            WHERE table_name='api_keys' AND column_name='github_installation_id'
+        ) THEN
+            ALTER TABLE api_keys ADD COLUMN github_installation_id INTEGER;
         END IF;
     END $$;
     """)
