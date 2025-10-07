@@ -137,16 +137,20 @@ export class HookRunner {
     const deletion = localSha === ZERO_SHA || !localSha;
     const newBranch = remoteSha === ZERO_SHA || !remoteSha;
 
-    // Determine if this is deletion or force push
+    // Determine if this is deletion, force push, or merge
     let commitsAhead = 0;
     let isForcePush = false;
+    let isMergeCommit = false;
 
     if (!deletion && !newBranch && localSha && remoteSha) {
       commitsAhead = await getUnmergedCommitCount(remoteSha, localSha, context.gitInfo.repoRoot);
       isForcePush = commitsAhead > 0 && !(await this.isAncestor(remoteSha, localSha, context.gitInfo.repoRoot));
+      
+      // Check if the local commit is a merge commit
+      isMergeCommit = await this.isMergeCommit(localSha, context.gitInfo.repoRoot);
     }
 
-    const operationType = deletion ? 'branch_delete' : 'force_push';
+    const operationType = deletion ? 'branch_delete' : (isForcePush ? 'force_push' : (isMergeCommit ? 'merge' : 'push'));
     
     // Simple cache key based on operation and branch
     const cacheKey = context.cache.getOperationHash('pre-push', [operationType, repoSlug, branch], {});
@@ -178,6 +182,18 @@ export class HookRunner {
         dryRun = await context.client.forcePushGithub({
           repo: repoSlug,
           branch,
+          githubToken,
+          reason,
+          webhookUrl: context.config.notifications?.webhook_url as string | undefined,
+        });
+      } else if (isMergeCommit && protectedBranch) {
+        // Handle merge to protected branch via API
+        const reason = `Merge commit to protected branch ${branch}`;
+
+        dryRun = await context.client.mergeGithub({
+          repo: repoSlug,
+          sourceBranch: 'feature', // We can't determine exact source from hook
+          targetBranch: branch,
           githubToken,
           reason,
           webhookUrl: context.config.notifications?.webhook_url as string | undefined,
@@ -253,7 +269,7 @@ export class HookRunner {
       }
 
       // Requires approval - show message
-      const operationName = deletion ? 'branch deletion' : 'force push';
+      const operationName = deletion ? 'branch deletion' : (isForcePush ? 'force push' : (isMergeCommit ? 'merge to protected branch' : 'operation'));
       console.log('\n' + chalk.yellow(`⚠️  SafeRun: ${operationName} requires approval`));
 
       // Show AI-specific message if detected
@@ -664,6 +680,17 @@ export class HookRunner {
     try {
       await execGit(['merge-base', '--is-ancestor', base, tip], { cwd });
       return true;
+    } catch {
+      return false;
+    }
+  }
+
+  private async isMergeCommit(sha: string, cwd: string): Promise<boolean> {
+    try {
+      // Get parent count - merge commits have 2+ parents
+      const stdout = await execGit(['rev-list', '--parents', '-n', '1', sha], { cwd });
+      const parents = stdout.trim().split(' ');
+      return parents.length > 2; // First element is the commit itself, so >2 means 2+ parents
     } catch {
       return false;
     }

@@ -89,6 +89,62 @@ class SafeRunClient:
         }
         return self.dry_run("github_bulk_close_prs", payload)
 
+    def delete_github_repo(
+        self,
+        repo: str,
+        github_token: str,
+        reason: Optional[str] = None,
+        webhook_url: Optional[str] = None,
+        policy: Optional[Dict[str, Any]] = None,
+    ) -> DryRunResult:
+        payload = {
+            "token": github_token,
+            "target_id": repo,
+            "reason": reason or "Delete repository (PERMANENT - cannot be undone)",
+            "webhook_url": webhook_url,
+            "policy": policy,
+        }
+        return self.dry_run("github_delete_repo", payload)
+
+    def force_push_github(
+        self,
+        repo: str,
+        branch: str,
+        github_token: str,
+        reason: Optional[str] = None,
+        webhook_url: Optional[str] = None,
+        policy: Optional[Dict[str, Any]] = None,
+    ) -> DryRunResult:
+        payload = {
+            "token": github_token,
+            "target_id": f"{repo}#{branch}",
+            "reason": reason,
+            "webhook_url": webhook_url,
+            "policy": policy,
+        }
+        return self.dry_run("github_force_push", payload)
+
+    def merge_github(
+        self,
+        repo: str,
+        source_branch: str,
+        target_branch: str,
+        github_token: str,
+        reason: Optional[str] = None,
+        webhook_url: Optional[str] = None,
+        policy: Optional[Dict[str, Any]] = None,
+    ) -> DryRunResult:
+        payload = {
+            "token": github_token,
+            "target_id": repo,
+            "source_branch": source_branch,
+            "target_branch": target_branch,
+            "reason": reason,
+            "webhook_url": webhook_url,
+            "policy": policy,
+        }
+        return self.dry_run("github_merge", payload)
+
     def archive_notion_page(
         self,
         page_id: str,
