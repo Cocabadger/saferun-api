@@ -73,7 +73,7 @@ async def dry_run_github_force_push(req: GitHubForcePushDryRunRequest, api_key: 
         provider="github",
         policy=req.policy,
         webhook_url=req.webhook_url,
-        reason=req.reason
+        reason=req.reason or "FORCE-PUSH: Rewrite branch history (DANGEROUS)"
     )
     return await build_dryrun(generic_req, api_key=api_key)
 
