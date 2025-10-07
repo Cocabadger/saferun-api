@@ -210,27 +210,36 @@ async def github_webhook_event(
     
     # Send Slack notification if user has webhook configured
     if slack_webhook_url:
-        # Create mock action object for formatting
-        class MockAction:
-            def __init__(self, data):
-                self.id = change_id
-                summary = json.loads(change.get("summary_json", "{}"))
-                self.operation_type = summary.get("operation_type", "")
-                self.repo_name = summary.get("repo_name", "")
-                self.branch_name = summary.get("branch_name", "")
-                self.risk_score = risk_score
-                self.risk_reasons = reasons
-                self.metadata = summary
-        
-        mock_action = MockAction(change)
-        slack_message = format_slack_message(
-            action=mock_action,
-            user_email=user_email,
-            source="github_webhook",
-            event_type=event_type
-        )
-        
-        await send_to_slack(slack_webhook_url, slack_message)
+        try:
+            # Create mock action object for formatting
+            class MockAction:
+                def __init__(self, data):
+                    self.id = change_id
+                    summary = json.loads(change.get("summary_json", "{}"))
+                    self.operation_type = summary.get("operation_type", "")
+                    self.repo_name = summary.get("repo_name", "")
+                    self.branch_name = summary.get("branch_name", "")
+                    self.risk_score = risk_score
+                    self.risk_reasons = reasons
+                    self.metadata = summary
+            
+            mock_action = MockAction(change)
+            slack_message = format_slack_message(
+                action=mock_action,
+                user_email=user_email,
+                source="github_webhook",
+                event_type=event_type
+            )
+            
+            success = await send_to_slack(slack_webhook_url, slack_message)
+            if success:
+                print(f"✅ Slack notification sent for change {change_id}")
+            else:
+                print(f"❌ Failed to send Slack notification for change {change_id}")
+        except Exception as e:
+            print(f"❌ Error sending Slack notification: {e}")
+            import traceback
+            traceback.print_exc()
     
     # Log high-risk operations
     if risk_score >= 7.0:
