@@ -85,7 +85,7 @@ class GitOperationDryRunRequest(BaseModel):
     target: str
     command: str
     metadata: Dict = {}
-    risk_score: float = Field(ge=0.0, le=1.0)
+    risk_score: float = Field(ge=0.0, le=10.0)  # Changed from 1.0 to 10.0 to support new scoring
     human_preview: str
     requires_approval: Optional[bool] = None
     reasons: List[str] = []
@@ -166,7 +166,7 @@ class DryRunArchiveResponse(BaseModel):
     target: TargetRef
     summary: Summary
     diff: List[DiffUnit]
-    risk_score: float = Field(ge=0.0, le=1.0)
+    risk_score: float = Field(ge=0.0, le=10.0)  # Changed from 1.0 to 10.0 to support new scoring
     reasons: List[str] = []
     requires_approval: bool = False
     human_preview: str
