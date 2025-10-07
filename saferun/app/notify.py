@@ -80,20 +80,25 @@ class Notifier:
         if provider == "github":
             # Try to get metadata from change record first, then from extras
             metadata = payload.get("metadata", {})
+            logger.error(f"🔍 DEBUG metadata from payload: {metadata}, type: {type(metadata)}")
             if not metadata:
                 extras = payload.get("extras", {})
                 metadata = extras.get("metadata", {})
+                logger.error(f"🔍 DEBUG metadata from extras: {metadata}")
             
             # Parse metadata if it's a JSON string from storage
             if isinstance(metadata, str):
                 try:
                     metadata = json.loads(metadata)
-                except:
+                    logger.error(f"🔍 DEBUG metadata PARSED: {metadata}")
+                except Exception as e:
+                    logger.error(f"🔍 DEBUG metadata PARSE FAILED: {e}")
                     metadata = {}
             
             object_type = metadata.get("object")
             operation_type = metadata.get("operation_type")
             item_type = metadata.get("type")  # For bulk operations
+            logger.error(f"🔍 DEBUG object_type={object_type}, operation_type={operation_type}, item_type={item_type}")
             
             # Extract repo name from target_id (format: owner/repo or owner/repo#branch)
             if target_id:
