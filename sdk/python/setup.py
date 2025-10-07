@@ -2,7 +2,7 @@ from setuptools import setup, find_packages
 
 setup(
     name="saferun",
-    version="0.1.0",
+    version="0.2.0",
     description="Python SDK for SafeRun API",
     packages=find_packages(include=["saferun", "saferun.*"]),
     install_requires=[
