@@ -380,6 +380,7 @@ class Notifier:
             "revert_url": (extras or {}).get("revert_url"),
             "revert_window_hours": (extras or {}).get("revert_window_hours"),
             "revert_token": (extras or {}).get("revert_token"),
+            "metadata": change.get("metadata"),  # Add metadata from change_data
             "ts": change.get("ts") or change.get("created_at"),
             "meta": (extras or {}).get("meta", {}),
         }
