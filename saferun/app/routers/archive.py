@@ -201,11 +201,6 @@ async def apply_change(body: ApplyRequest, api_key: str = Depends(verify_api_key
                     new_rec["summary_json"] = summary
                     db.upsert_change(new_rec)
             else:
-                if provider_name == "slack":
-                    try:
-                        print(f"DEBUG: Token being passed to SlackProvider.archive: {token_for_apply[:5]}... (len={len(token_for_apply)}) change_id={body.change_id}")
-                    except Exception:
-                        pass
                 result = await provider_instance.archive(rec["target_id"], token_for_apply)
                 if provider_name == "slack":
                     # Slack SDK returns dict-like responses with ok/error fields (always HTTP 200)
