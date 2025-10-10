@@ -290,7 +290,15 @@ async def revert_github_action(
     if not change:
         raise HTTPException(status_code=404, detail="Change not found")
     
-    summary = json.loads(change.get("summary_json", "{}"))
+    summary_json = change.get("summary_json") or "{}"
+    try:
+        summary = json.loads(summary_json) if isinstance(summary_json, str) else summary_json
+    except (json.JSONDecodeError, TypeError):
+        summary = {}
+    
+    if not isinstance(summary, dict):
+        summary = {}
+    
     revert_action = summary.get("revert_action")
     
     if not revert_action:
