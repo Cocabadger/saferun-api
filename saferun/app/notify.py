@@ -532,12 +532,33 @@ def format_slack_message(action, user_email: str, source: str = "github_webhook"
     # Add revert information if available
     if revert_action:
         revert_type = revert_action.get("type", "").replace("_", " ").title()
+        revert_url = f"https://saferun-api.up.railway.app/webhooks/github/revert/{action.id}"
+        
+        # Add text description
         message["blocks"].append({
             "type": "section",
             "text": {
                 "type": "mrkdwn",
                 "text": f"*🔄 Revert Available:*\n{revert_type} - Use `/webhooks/github/revert/{action.id}` endpoint"
             }
+        })
+        
+        # Add interactive Revert button
+        message["blocks"].append({
+            "type": "actions",
+            "elements": [
+                {
+                    "type": "button",
+                    "text": {
+                        "type": "plain_text",
+                        "text": "🔄 Revert",
+                        "emoji": True
+                    },
+                    "style": "danger",
+                    "url": revert_url,
+                    "action_id": f"revert_{action.id}"
+                }
+            ]
         })
     
     # Add approval requirement for high-risk
