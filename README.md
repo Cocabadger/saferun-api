@@ -2,6 +2,26 @@
 
 AI Safety Middleware - Prevent destructive actions by AI agents
 
+## ⚠️ SECURITY STATUS: PRE-RELEASE
+
+**🔴 CRITICAL VULNERABILITIES IDENTIFIED:**
+- **Issue #1:** No secrets detection in pre-commit hook (credential leak risk)
+- **Issue #2:** `SAFERUN_DISABLE=1` bypass vulnerability
+
+**📋 Current Status:**
+- ❌ **NOT READY for production use** (vulnerabilities being fixed)
+- ✅ Safe for testing in isolated environments only
+- 📅 Target fix: Sprint 3 Week 1 (see [VULNERABILITY_SUMMARY.md](./VULNERABILITY_SUMMARY.md))
+
+**Defense in Depth (Current):**
+- ✅ GitHub Webhooks: 100% post-facto coverage
+- ⚠️ CLI Protection: 60% effective (bypass exists)
+- ✅ Revert Mechanism: Works for most operations
+
+**For Security Details:** See [SECURITY_VULNERABILITIES.md](./SECURITY_VULNERABILITIES.md)
+
+---
+
 ## Quick Start
 
 ### 1. Install dependencies

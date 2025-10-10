@@ -129,6 +129,14 @@ async def github_webhook_event(
     sender = payload.get("sender", {})
     sender_login = sender.get("login", "unknown")
     
+    # FILTER OUT: Push events with zero commits (GitHub sends these on branch delete - ignore them!)
+    if event_type == "push":
+        commits = payload.get("commits", [])
+        deleted = payload.get("deleted", False)
+        if not commits or deleted:
+            print(f"⏭️  Ignoring empty push event (likely branch delete artifact): {repo_full_name}")
+            return {"status": "ignored", "reason": "empty_push_event"}
+    
     # Calculate risk score
     risk_score, reasons = calculate_github_risk_score(event_type, payload)
     

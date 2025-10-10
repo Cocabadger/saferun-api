@@ -262,24 +262,27 @@ async def build_dryrun(req: DryRunArchiveRequest, notion_version: str | None = N
                     storage.save_change(change_id, change_data, ttl_seconds)
                     
                     # Send notification with Revert button
-                    import asyncio
-                    from ..notify import notifier
-                    # Use API_BASE_URL for API endpoints
-                    api_base = os.environ.get("API_BASE_URL") or os.environ.get("RAILWAY_PUBLIC_DOMAIN", "http://localhost:8500")
-                    if api_base and not api_base.startswith("http"):
-                        api_base = f"https://{api_base}"
-                    revert_url = f"{api_base}/v1/changes/{change_id}/revert"
-                    change_record = storage.get_change(change_id)
-                    if change_record:
-                        asyncio.create_task(
-                            notifier.publish("executed_with_revert", change_record, 
-                                           extras={"revert_url": revert_url, 
-                                                  "revert_window_hours": revert_window_hours,
-                                                  "item_type": item_type,  # Pass item type for proper message
-                                                  "metadata": metadata,  # Pass metadata for operation type detection
-                                                  "meta": {"latency_ms": 0, "provider_version": "unknown"}}, 
-                                           api_key=api_key)
-                        )
+                    # SKIP notification for GitHub operations - webhook will handle it!
+                    # This prevents duplicate Slack messages (CLI API call + GitHub webhook)
+                    if req.provider != "github":
+                        import asyncio
+                        from ..notify import notifier
+                        # Use API_BASE_URL for API endpoints
+                        api_base = os.environ.get("API_BASE_URL") or os.environ.get("RAILWAY_PUBLIC_DOMAIN", "http://localhost:8500")
+                        if api_base and not api_base.startswith("http"):
+                            api_base = f"https://{api_base}"
+                        revert_url = f"{api_base}/v1/changes/{change_id}/revert"
+                        change_record = storage.get_change(change_id)
+                        if change_record:
+                            asyncio.create_task(
+                                notifier.publish("executed_with_revert", change_record, 
+                                               extras={"revert_url": revert_url, 
+                                                      "revert_window_hours": revert_window_hours,
+                                                      "item_type": item_type,  # Pass item type for proper message
+                                                      "metadata": metadata,  # Pass metadata for operation type detection
+                                                      "meta": {"latency_ms": 0, "provider_version": "unknown"}}, 
+                                               api_key=api_key)
+                            )
                 except Exception as e:
                     # If execution fails, update status and re-raise
                     change_data["status"] = "failed"
