@@ -534,16 +534,16 @@ def format_slack_message(action, user_email: str, source: str = "github_webhook"
         revert_type = revert_action.get("type", "").replace("_", " ").title()
         revert_url = f"https://saferun-api.up.railway.app/webhooks/github/revert/{action.id}"
         
-        # Add text description
+        # Add text description with curl alternative
         message["blocks"].append({
             "type": "section",
             "text": {
                 "type": "mrkdwn",
-                "text": f"*🔄 Revert Available:*\n{revert_type} - Use `/webhooks/github/revert/{action.id}` endpoint"
+                "text": f"*🔄 Revert Available:*\n{revert_type}\n\n*Alternative (curl):*\n```curl -X POST '{revert_url}' \\\n  -H 'Content-Type: application/json' \\\n  -d '{{\"github_token\": \"ghp_YOUR_TOKEN\"}}'```"
             }
         })
         
-        # Add interactive Revert button
+        # Add interactive Revert button (opens Modal for token input)
         message["blocks"].append({
             "type": "actions",
             "elements": [
@@ -551,12 +551,11 @@ def format_slack_message(action, user_email: str, source: str = "github_webhook"
                     "type": "button",
                     "text": {
                         "type": "plain_text",
-                        "text": "🔄 Revert",
+                        "text": "🔄 Revert (Enter Token)",
                         "emoji": True
                     },
                     "style": "danger",
-                    "url": revert_url,
-                    "action_id": f"revert_{action.id}"
+                    "action_id": f"revert_action_{action.id}"
                 }
             ]
         })

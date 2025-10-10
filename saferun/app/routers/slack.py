@@ -62,6 +62,11 @@ async def handle_slack_interaction(request: Request):
 
     # Extract action info
     action_type = payload.get("type")
+    
+    # Handle modal submission (revert with token)
+    if action_type == "view_submission":
+        return await handle_modal_submission(payload)
+    
     if action_type != "block_actions":
         return JSONResponse({"ok": True})  # Ignore non-action events
 
@@ -75,6 +80,12 @@ async def handle_slack_interaction(request: Request):
     user = payload.get("user", {})
     user_name = user.get("name", "unknown")
     response_url = payload.get("response_url")
+    trigger_id = payload.get("trigger_id")  # For opening modals
+
+    # Handle revert action - open modal for GitHub token input
+    if action_id.startswith("revert_action_"):
+        change_id_from_action = action_id.replace("revert_action_", "")
+        return await open_revert_modal(trigger_id, change_id_from_action, payload)
 
     # Process action
     if action_id == "approve_change":
@@ -263,7 +274,167 @@ async def revert_change(change_id: str, user: str) -> tuple[bool, dict]:
             db.insert_audit(change_id, "reverted", {"reverted_by": user, "reverted_via": "slack", "object_type": object_type})
             return True, revert_info
         except Exception as e:
-            db.insert_audit(change_id, "revert_failed", {"error": str(e), "reverted_by": user})
+            print(f"❌ Revert failed: {str(e)}")
+            import traceback
+            traceback.print_exc()
             return False, {}
 
-    return False, {}
+async def open_revert_modal(trigger_id: str, change_id: str, payload: dict) -> JSONResponse:
+    """Open Slack modal for GitHub token input"""
+    
+    # Get SLACK_BOT_TOKEN from env
+    slack_bot_token = os.getenv("SLACK_BOT_TOKEN")
+    if not slack_bot_token:
+        print("❌ SLACK_BOT_TOKEN not configured")
+        return JSONResponse({"ok": False, "error": "Slack bot token not configured"})
+    
+    # Fetch change details
+    change = db.fetchone("SELECT * FROM changes WHERE change_id=%s", (change_id,))
+    if not change:
+        return JSONResponse({"ok": False, "error": "Change not found"})
+    
+    summary_json = json.loads(change.get("summary_json", "{}"))
+    operation_type = summary_json.get("operation_type", "Unknown Operation")
+    repo_name = summary_json.get("repo_name", "Unknown Repo")
+    branch_name = summary_json.get("branch_name", "")
+    
+    # Build modal view
+    modal_view = {
+        "type": "modal",
+        "callback_id": f"revert_modal_{change_id}",
+        "title": {
+            "type": "plain_text",
+            "text": "🔄 Revert Operation"
+        },
+        "submit": {
+            "type": "plain_text",
+            "text": "Revert"
+        },
+        "close": {
+            "type": "plain_text",
+            "text": "Cancel"
+        },
+        "blocks": [
+            {
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": f"*Operation:* {operation_type}\n*Repository:* `{repo_name}`" + (f"\n*Branch:* `{branch_name}`" if branch_name else "")
+                }
+            },
+            {
+                "type": "divider"
+            },
+            {
+                "type": "input",
+                "block_id": "github_token_block",
+                "element": {
+                    "type": "plain_text_input",
+                    "action_id": "github_token_input",
+                    "placeholder": {
+                        "type": "plain_text",
+                        "text": "ghp_YourGitHubPersonalAccessToken"
+                    }
+                },
+                "label": {
+                    "type": "plain_text",
+                    "text": "GitHub Personal Access Token (with repo permissions)"
+                }
+            },
+            {
+                "type": "context",
+                "elements": [
+                    {
+                        "type": "mrkdwn",
+                        "text": "🔒 Your token will be used once and not stored."
+                    }
+                ]
+            }
+        ]
+    }
+    
+    # Open modal using Slack API
+    import httpx
+    async with httpx.AsyncClient() as client:
+        response = await client.post(
+            "https://slack.com/api/views.open",
+            headers={
+                "Authorization": f"Bearer {slack_bot_token}",
+                "Content-Type": "application/json"
+            },
+            json={
+                "trigger_id": trigger_id,
+                "view": modal_view
+            }
+        )
+        
+        result = response.json()
+        if not result.get("ok"):
+            print(f"❌ Failed to open modal: {result.get('error')}")
+            return JSONResponse({"ok": False, "error": result.get("error")})
+    
+    return JSONResponse({"ok": True})
+
+async def handle_modal_submission(payload: dict) -> JSONResponse:
+    """Handle modal submission (user entered GitHub token)"""
+    
+    view = payload.get("view", {})
+    callback_id = view.get("callback_id", "")
+    
+    # Extract change_id from callback_id (format: revert_modal_{change_id})
+    if not callback_id.startswith("revert_modal_"):
+        return JSONResponse({"ok": False})
+    
+    change_id = callback_id.replace("revert_modal_", "")
+    
+    # Extract GitHub token from modal input
+    state_values = view.get("state", {}).get("values", {})
+    github_token_block = state_values.get("github_token_block", {})
+    github_token_input = github_token_block.get("github_token_input", {})
+    github_token = github_token_input.get("value", "").strip()
+    
+    if not github_token:
+        return JSONResponse({
+            "response_action": "errors",
+            "errors": {
+                "github_token_block": "GitHub token is required"
+            }
+        })
+    
+    # Get user info
+    user = payload.get("user", {})
+    user_name = user.get("name", "unknown")
+    
+    # Call revert endpoint with github_token
+    import httpx
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.post(
+                f"https://saferun-api.up.railway.app/webhooks/github/revert/{change_id}",
+                json={"github_token": github_token},
+                timeout=30.0
+            )
+            
+            if response.status_code == 200:
+                result = response.json()
+                # Slack will close modal and show success message
+                return JSONResponse({
+                    "response_action": "clear"
+                })
+            else:
+                error_detail = response.json().get("detail", "Unknown error")
+                return JSONResponse({
+                    "response_action": "errors",
+                    "errors": {
+                        "github_token_block": f"Revert failed: {error_detail}"
+                    }
+                })
+                
+    except Exception as e:
+        return JSONResponse({
+            "response_action": "errors",
+            "errors": {
+                "github_token_block": f"Error: {str(e)}"
+            }
+        })
+

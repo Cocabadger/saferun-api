@@ -267,15 +267,24 @@ async def github_webhook_event(
 @router.post("/revert/{change_id}")
 async def revert_github_action(
     change_id: str,
-    github_token: str
+    request: Request
 ):
     """
     Revert a GitHub action (force push, delete, merge)
     
     Requires:
     - change_id: SafeRun change ID to revert
-    - github_token: GitHub token with write permissions (query param)
+    - github_token: GitHub token with write permissions (JSON body: {"github_token": "ghp_XXX"})
     """
+    # Parse JSON body
+    try:
+        body = await request.json()
+        github_token = body.get("github_token")
+        if not github_token:
+            raise HTTPException(status_code=400, detail="github_token required in request body")
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Invalid JSON body: {str(e)}")
+    
     change = db.fetchone("SELECT * FROM changes WHERE change_id=%s", (change_id,))
     
     if not change:
