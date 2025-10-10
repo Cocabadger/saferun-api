@@ -427,6 +427,51 @@ export class HookRunner {
       return;
     }
 
+    // STEP 1: Scan for secrets in ALL commits (not just protected branches)
+    const { scanStagedFilesForSecrets } = await import('../utils/secrets-scanner');
+    const { secrets, sensitiveFiles } = scanStagedFilesForSecrets(context.gitInfo.repoRoot);
+
+    if (secrets.length > 0 || sensitiveFiles.length > 0) {
+      console.error(chalk.red('\n🔐 SECRETS DETECTED! Commit blocked.\n'));
+
+      if (sensitiveFiles.length > 0) {
+        console.error(chalk.yellow('Sensitive files found:'));
+        sensitiveFiles.forEach((file) => {
+          console.error(chalk.yellow(`  • ${file}`));
+        });
+        console.error('');
+      }
+
+      if (secrets.length > 0) {
+        console.error(chalk.red('Secret patterns detected:'));
+        secrets.forEach((match) => {
+          console.error(chalk.red(`  • ${match.file}:${match.line} - ${match.pattern}`));
+          if (match.snippet && process.env.SAFERUN_DEBUG) {
+            console.error(chalk.gray(`    ${match.snippet}`));
+          }
+        });
+        console.error('');
+      }
+
+      console.error(chalk.cyan('To fix:'));
+      console.error(chalk.cyan('  1. Remove secrets from staged files'));
+      console.error(chalk.cyan('  2. Use environment variables or secret managers'));
+      console.error(chalk.cyan('  3. Add sensitive files to .gitignore\n'));
+
+      await context.metrics.track('operation_blocked', {
+        hook: 'pre-commit',
+        operation_type: 'secrets_detected',
+        repo: context.gitInfo.repoSlug ?? 'unknown',
+        branch,
+        reason: 'secrets_in_commit',
+        secrets_count: secrets.length,
+        sensitive_files_count: sensitiveFiles.length,
+      }).catch(() => undefined);
+
+      process.exit(1);
+    }
+
+    // STEP 2: Check protected branch commits (existing logic)
     const protectedBranch = isProtectedBranch(branch, context.config.github.protected_branches ?? []);
     if (!protectedBranch) {
       return;
