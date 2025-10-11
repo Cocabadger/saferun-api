@@ -224,8 +224,9 @@ def upsert_change(change: dict):
     INSERT INTO changes(
         change_id, target_id, page_id, provider, title, status,
         risk_score, expires_at, created_at, last_edited_time,
-        policy_json, summary_json, metadata, token, revert_token, requires_approval
-    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+        policy_json, summary_json, metadata, token, revert_token, requires_approval,
+        api_key, branch_head_sha
+    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
     ON CONFLICT(change_id) DO UPDATE SET
         target_id=EXCLUDED.target_id,
         page_id=EXCLUDED.page_id,
@@ -241,7 +242,9 @@ def upsert_change(change: dict):
         metadata=EXCLUDED.metadata,
         token=EXCLUDED.token,
         revert_token=EXCLUDED.revert_token,
-        requires_approval=EXCLUDED.requires_approval
+        requires_approval=EXCLUDED.requires_approval,
+        api_key=EXCLUDED.api_key,
+        branch_head_sha=EXCLUDED.branch_head_sha
     """, (
         change["change_id"],
         change.get("target_id"),
@@ -258,7 +261,9 @@ def upsert_change(change: dict):
         json.dumps(change.get("metadata") or {}) if change.get("metadata") else None,
         change.get("token"),
         change.get("revert_token"),
-        int(bool(change.get("requires_approval")))
+        int(bool(change.get("requires_approval"))),
+        change.get("api_key"),
+        change.get("branch_head_sha")
     ))
 
     conn.commit()
