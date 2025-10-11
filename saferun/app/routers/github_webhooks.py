@@ -385,7 +385,7 @@ async def revert_github_action(
     
     elif revert_action["type"] == "repository_unarchive":
         from saferun.app.providers.github_provider import GitHubProvider
-        await GitHubProvider.unarchive_repository(
+        await GitHubProvider.unarchive(
             target_id=f"{revert_action['owner']}/{revert_action['repo']}",
             token=github_token
         )
