@@ -218,8 +218,8 @@ async def github_webhook_event(
         "expires_at": iso_z(datetime.now(timezone.utc) + timedelta(hours=24)),
         "created_at": iso_z(datetime.now(timezone.utc)),
         "last_edited_time": iso_z(datetime.now(timezone.utc)),
-        "policy_json": json.dumps({"risk_reasons": reasons}),
-        "summary_json": json.dumps({
+        "policy_json": {"risk_reasons": reasons},
+        "summary_json": {
             "operation_type": action_type,
             "repo_name": repo_full_name,
             "branch_name": payload.get("ref", "").replace("refs/heads/", "") if event_type == "push" else payload.get("ref", ""),
@@ -228,7 +228,7 @@ async def github_webhook_event(
             "sender": sender_login,
             "payload": payload,
             "revert_action": revert_action  # Now contains SHA for delete events!
-        }),
+        },
         "api_key": user_api_key,  # Link to user for multi-user isolation
         "branch_head_sha": branch_head_sha  # Save SHA for future revert
     }
