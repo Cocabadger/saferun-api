@@ -306,4 +306,17 @@ def create_revert_action(event_type: str, payload: Dict[str, Any]) -> Optional[D
                 "merge_commit_sha": pr.get("merge_commit_sha")
             }
     
+    elif event_type == "repository":
+        action = payload.get("action")
+        
+        if action == "archived":
+            return {
+                "type": "repository_unarchive",
+                "owner": payload["repository"]["owner"]["login"],
+                "repo": payload["repository"]["name"]
+            }
+        elif action == "deleted":
+            # Repository delete is IRREVERSIBLE - no revert action possible
+            return None
+    
     return None

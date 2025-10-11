@@ -383,6 +383,14 @@ async def revert_github_action(
             github_token=github_token
         )
     
+    elif revert_action["type"] == "repository_unarchive":
+        from saferun.app.providers.github_provider import GitHubProvider
+        await GitHubProvider.unarchive_repository(
+            target_id=f"{revert_action['owner']}/{revert_action['repo']}",
+            token=github_token
+        )
+        success = True
+    
     if success:
         # Update change status
         db.exec(
@@ -414,7 +422,8 @@ async def revert_github_action(
                     revert_type_label = {
                         "branch_restore": "Branch Restored",
                         "force_push_revert": "Force Push Reverted",
-                        "merge_revert": "Merge Reverted"
+                        "merge_revert": "Merge Reverted",
+                        "repository_unarchive": "Repository Unarchived"
                     }.get(revert_action["type"], "Reverted")
                     
                     slack_message = {
