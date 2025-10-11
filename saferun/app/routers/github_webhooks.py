@@ -250,7 +250,8 @@ async def github_webhook_event(
             class MockAction:
                 def __init__(self, data):
                     self.id = change_id
-                    summary = json.loads(change.get("summary_json", "{}"))
+                    summary_json = change.get("summary_json", "{}")
+                    summary = json.loads(summary_json) if isinstance(summary_json, str) else summary_json
                     self.operation_type = summary.get("operation_type", "")
                     self.repo_name = summary.get("repo_name", "")
                     self.branch_name = summary.get("branch_name", "")
