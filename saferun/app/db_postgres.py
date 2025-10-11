@@ -39,8 +39,12 @@ def init_db():
         metadata TEXT,
         token TEXT,
         revert_token TEXT,
-        requires_approval INTEGER DEFAULT 0
+        requires_approval INTEGER DEFAULT 0,
+        api_key TEXT,
+        branch_head_sha TEXT
     );
+    
+    CREATE INDEX IF NOT EXISTS idx_changes_api_key ON changes(api_key);
     """)
 
     # Create audit table

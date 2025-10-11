@@ -182,6 +182,31 @@ async def github_webhook_event(
         user_email = sender_login
         print(f"⚠️ No SafeRun user found for GitHub event: {repo_full_name} (installation_id={installation_id})")
     
+    # Extract branch SHA for push events
+    branch_head_sha = None
+    if event_type == "push":
+        branch_head_sha = payload.get("after")  # SHA of the new HEAD
+    
+    # Create revert action and populate SHA for delete events from DB
+    revert_action = create_revert_action(event_type, payload)
+    
+    # For delete events, get SHA from last push to this branch
+    if event_type == "delete" and payload.get("ref_type") == "branch" and revert_action:
+        branch_name = payload.get("ref", "")
+        # Query last push event for this branch
+        last_push = db.fetchone(
+            """SELECT branch_head_sha FROM changes 
+               WHERE target_id = %s 
+               AND branch_head_sha IS NOT NULL
+               ORDER BY created_at DESC LIMIT 1""",
+            (repo_full_name,)
+        )
+        if last_push and last_push.get("branch_head_sha"):
+            revert_action["sha"] = last_push["branch_head_sha"]
+            print(f"✅ Retrieved SHA for branch '{branch_name}' delete: {revert_action['sha']}")
+        else:
+            print(f"⚠️ No SHA found for deleted branch '{branch_name}' in {repo_full_name}")
+    
     # Create change record
     change = {
         "change_id": change_id,
@@ -202,8 +227,10 @@ async def github_webhook_event(
             "event_type": event_type,
             "sender": sender_login,
             "payload": payload,
-            "revert_action": create_revert_action(event_type, payload)
-        })
+            "revert_action": revert_action  # Now contains SHA for delete events!
+        }),
+        "api_key": user_api_key,  # Link to user for multi-user isolation
+        "branch_head_sha": branch_head_sha  # Save SHA for future revert
     }
     
     db.upsert_change(change)
@@ -289,6 +316,25 @@ async def revert_github_action(
     
     if not change:
         raise HTTPException(status_code=404, detail="Change not found")
+    
+    # SECURITY: Verify user owns this change (multi-user isolation)
+    # For old records (api_key=NULL), allow revert (backward compatibility)
+    # For new records, verify ownership via API key from GitHub token or request header
+    change_api_key = change.get("api_key")
+    if change_api_key:
+        # Get user's API key from request header (if available)
+        request_api_key = request.headers.get("X-API-Key")
+        
+        # TODO: Alternatively, could derive api_key from github_token by looking up installations
+        # For now, if api_key is set but doesn't match, reject (prevents cross-user reverts)
+        if request_api_key and request_api_key != change_api_key:
+            raise HTTPException(
+                status_code=403, 
+                detail="Forbidden: You don't have permission to revert this change"
+            )
+        elif not request_api_key:
+            print(f"⚠️ Revert attempted without API key for change with api_key={change_api_key[:10]}...")
+            # Allow for now (backward compat), but log warning
     
     summary_json = change.get("summary_json") or "{}"
     try:
