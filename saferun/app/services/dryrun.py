@@ -195,9 +195,11 @@ async def build_dryrun(req: DryRunArchiveRequest, notion_version: str | None = N
                 if operation_category == "reversible":
                     # Группа A: Reversible operations
                     if is_main_branch:
-                        # Main branch → ALWAYS requires approval
+                        # Main branch → ALWAYS requires approval + revert window after execution
                         need_approval = True
                         all_reasons.append("github:main_branch_protection")
+                        # Add revert window for post-approval execution
+                        revert_window_hours = 24  # 24 hours to revert after approval execution
                     else:
                         # Non-main branch → Execute immediately + revert option (2 hours)
                         need_approval = False
