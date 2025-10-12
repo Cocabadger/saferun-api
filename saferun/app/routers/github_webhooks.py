@@ -172,10 +172,10 @@ async def github_webhook_event(
                 user_email = user_row.get("email")
                 # Get Slack webhook from notification settings
                 notif_row = db.fetchone(
-                    "SELECT slack_webhook_url FROM user_notification_settings WHERE api_key=%s", 
+                    "SELECT slack_webhook_url, slack_enabled FROM user_notification_settings WHERE api_key=%s", 
                     (user_api_key,)
                 )
-                if notif_row:
+                if notif_row and notif_row.get("slack_enabled"):
                     slack_webhook_url = notif_row.get("slack_webhook_url")
     
     if not user_email:
@@ -405,10 +405,10 @@ async def revert_github_action(
         if change_api_key:
             try:
                 notif_row = db.fetchone(
-                    "SELECT slack_webhook_url FROM user_notification_settings WHERE api_key=%s",
+                    "SELECT slack_webhook_url, slack_enabled FROM user_notification_settings WHERE api_key=%s",
                     (change_api_key,)
                 )
-                if notif_row and notif_row.get("slack_webhook_url"):
+                if notif_row and notif_row.get("slack_enabled") and notif_row.get("slack_webhook_url"):
                     slack_webhook_url = notif_row.get("slack_webhook_url")
                     
                     # Get user email

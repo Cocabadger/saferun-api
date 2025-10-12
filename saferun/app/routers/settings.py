@@ -59,6 +59,14 @@ async def update_notification_settings(
 ):
     """Update notification settings for the authenticated user."""
 
+    # Auto-enable Slack if webhook/token provided
+    if settings.slack_webhook_url or settings.slack_bot_token:
+        settings.slack_enabled = True
+    
+    # Auto-enable generic webhook if URL provided
+    if settings.webhook_url:
+        settings.webhook_enabled = True
+
     # Validate at least one notification channel is enabled
     enabled_channels = []
     if settings.slack_enabled:
