@@ -534,14 +534,50 @@ def format_slack_message(action, user_email: str, source: str = "github_webhook"
         revert_type = revert_action.get("type", "").replace("_", " ").title()
         revert_url = f"https://saferun-api.up.railway.app/webhooks/github/revert/{action.id}"
         
-        # Add text description with curl instructions
-        message["blocks"].append({
-            "type": "section",
-            "text": {
-                "type": "mrkdwn",
-                "text": f"*🔄 Revert Available:*\n{revert_type}\n\n*To revert (via curl):*\n```curl -X POST '{revert_url}' \\\n  -H 'Content-Type: application/json' \\\n  -d '{{\"github_token\": \"ghp_YOUR_TOKEN\"}}'```"
-            }
-        })
+        # Special handling for merge revert (limited revert with warnings)
+        if revert_action.get("type") == "merge_revert":
+            repo_name = metadata.get("repository", "")
+            owner, repo = repo_name.split("/") if "/" in repo_name else ("", repo_name)
+            branch_protection_url = f"https://github.com/{owner}/{repo}/settings/branches" if owner else ""
+            
+            warning_text = (
+                f"*⚠️ Limited Revert Available:*\n"
+                f"{revert_type} (creates counter-commit)\n\n"
+                f"*⚠️ Limitations:*\n"
+                f"• Original merge remains in Git history\n"
+                f"• Temporal window existed - code may have been deployed\n"
+                f"• Does NOT prevent future unauthorized merges\n\n"
+                f"*To revert changes (via curl):*\n"
+                f"```curl -X POST '{revert_url}' \\\n  -H 'Content-Type: application/json' \\\n  -d '{{\"github_token\": \"ghp_YOUR_TOKEN\"}}'```"
+            )
+            
+            if branch_protection_url:
+                warning_text += (
+                    f"\n\n*🛡️ RECOMMENDED: Enable Branch Protection*\n"
+                    f"Prevent merges without review:\n"
+                    f"{branch_protection_url}\n\n"
+                    f"Required settings:\n"
+                    f"✅ Require pull request reviews before merging\n"
+                    f"✅ Dismiss stale pull request approvals\n"
+                    f"❌ Allow force pushes (keep disabled)"
+                )
+            
+            message["blocks"].append({
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": warning_text
+                }
+            })
+        else:
+            # Standard revert message for other operations
+            message["blocks"].append({
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": f"*🔄 Revert Available:*\n{revert_type}\n\n*To revert (via curl):*\n```curl -X POST '{revert_url}' \\\n  -H 'Content-Type: application/json' \\\n  -d '{{\"github_token\": \"ghp_YOUR_TOKEN\"}}'```"
+                }
+            })
     
     # Add approval requirement for high-risk
     if action.risk_score >= 7.0:
