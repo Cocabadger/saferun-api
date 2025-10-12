@@ -536,7 +536,7 @@ def format_slack_message(action, user_email: str, source: str = "github_webhook"
         
         # Special handling for merge revert (limited revert with warnings)
         if revert_action.get("type") == "merge_revert":
-            repo_name = metadata.get("repository", "")
+            repo_name = metadata.get("repo_name", "")
             owner, repo = repo_name.split("/") if "/" in repo_name else ("", repo_name)
             branch_protection_url = f"https://github.com/{owner}/{repo}/settings/branches" if owner else ""
             
