@@ -418,36 +418,81 @@ async def revert_github_action(
                     )
                     user_email = user_row.get("email") if user_row else "Unknown"
                     
-                    # Format message
+                    # Format message based on revert type
+                    revert_type = revert_action["type"]
                     revert_type_label = {
                         "branch_restore": "Branch Restored",
                         "force_push_revert": "Force Push Reverted",
                         "merge_revert": "Merge Reverted",
                         "repository_unarchive": "Repository Unarchived"
-                    }.get(revert_action["type"], "Reverted")
+                    }.get(revert_type, "Reverted")
                     
-                    slack_message = {
-                        "text": f"✅ {revert_type_label} Successfully",
-                        "blocks": [
-                            {
-                                "type": "header",
-                                "text": {
-                                    "type": "plain_text",
-                                    "text": f"✅ SafeRun Revert - {revert_type_label}",
-                                    "emoji": True
+                    # Build message blocks based on operation type
+                    if revert_type == "merge_revert":
+                        # Special message for merge revert with counter-commit info
+                        slack_message = {
+                            "text": f"✅ {revert_type_label} - Counter-Commit Created",
+                            "blocks": [
+                                {
+                                    "type": "header",
+                                    "text": {
+                                        "type": "plain_text",
+                                        "text": f"🔄 SafeRun Revert - {revert_type_label}",
+                                        "emoji": True
+                                    }
+                                },
+                                {
+                                    "type": "section",
+                                    "fields": [
+                                        {"type": "mrkdwn", "text": f"*Repository:*\n{revert_action.get('owner')}/{revert_action.get('repo')}"},
+                                        {"type": "mrkdwn", "text": f"*Branch:*\n{revert_action.get('branch')}"},
+                                        {"type": "mrkdwn", "text": f"*Reverted by:*\n{user_email}"},
+                                        {"type": "mrkdwn", "text": f"*Change ID:*\n{change_id[:8]}..."}
+                                    ]
+                                },
+                                {
+                                    "type": "section",
+                                    "text": {
+                                        "type": "mrkdwn",
+                                        "text": (
+                                            "*✅ Counter-commit created*\n"
+                                            "The merge has been reverted by creating a new commit that undoes the changes.\n\n"
+                                            "*⚠️ Note:*\n"
+                                            "• Original merge commit remains in Git history\n"
+                                            "• Code changes have been undone in the current branch state\n"
+                                            "• This does NOT prevent future unauthorized merges\n\n"
+                                            "*🛡️ Recommendation:*\n"
+                                            f"Enable Branch Protection to prevent future unauthorized merges:\n"
+                                            f"https://github.com/{revert_action.get('owner')}/{revert_action.get('repo')}/settings/branches"
+                                        )
+                                    }
                                 }
-                            },
-                            {
-                                "type": "section",
-                                "fields": [
-                                    {"type": "mrkdwn", "text": f"*Repository:*\n{revert_action.get('owner')}/{revert_action.get('repo')}"},
-                                    {"type": "mrkdwn", "text": f"*Branch:*\n{revert_action.get('branch')}"},
-                                    {"type": "mrkdwn", "text": f"*Restored by:*\n{user_email}"},
-                                    {"type": "mrkdwn", "text": f"*Change ID:*\n{change_id[:8]}..."}
-                                ]
-                            }
-                        ]
-                    }
+                            ]
+                        }
+                    else:
+                        # Standard revert message for other operations
+                        slack_message = {
+                            "text": f"✅ {revert_type_label} Successfully",
+                            "blocks": [
+                                {
+                                    "type": "header",
+                                    "text": {
+                                        "type": "plain_text",
+                                        "text": f"✅ SafeRun Revert - {revert_type_label}",
+                                        "emoji": True
+                                    }
+                                },
+                                {
+                                    "type": "section",
+                                    "fields": [
+                                        {"type": "mrkdwn", "text": f"*Repository:*\n{revert_action.get('owner')}/{revert_action.get('repo')}"},
+                                        {"type": "mrkdwn", "text": f"*Branch:*\n{revert_action.get('branch')}"},
+                                        {"type": "mrkdwn", "text": f"*Restored by:*\n{user_email}"},
+                                        {"type": "mrkdwn", "text": f"*Change ID:*\n{change_id[:8]}..."}
+                                    ]
+                                }
+                            ]
+                        }
                     
                     await send_to_slack(slack_webhook_url, slack_message)
                     print(f"✅ Sent revert success notification to Slack for {user_email}")
