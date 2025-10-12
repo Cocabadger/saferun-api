@@ -273,7 +273,7 @@ async def build_dryrun(req: DryRunArchiveRequest, notion_version: str | None = N
                         api_base = os.environ.get("API_BASE_URL") or os.environ.get("RAILWAY_PUBLIC_DOMAIN", "http://localhost:8500")
                         if api_base and not api_base.startswith("http"):
                             api_base = f"https://{api_base}"
-                        revert_url = f"{api_base}/v1/changes/{change_id}/revert"
+                        revert_url = f"{api_base}/webhooks/github/revert/{change_id}"
                         change_record = storage.get_change(change_id)
                         if change_record:
                             asyncio.create_task(
@@ -394,7 +394,7 @@ async def build_dryrun(req: DryRunArchiveRequest, notion_version: str | None = N
                 api_base = os.environ.get("API_BASE_URL") or os.environ.get("RAILWAY_PUBLIC_DOMAIN", "http://localhost:8500")
                 if api_base and not api_base.startswith("http"):
                     api_base = f"https://{api_base}"
-                revert_response_url = f"{api_base}/v1/changes/{change_id}/revert"
+                revert_response_url = f"{api_base}/webhooks/github/revert/{change_id}"
                 revert_window_response = revert_window_hours
 
             return DryRunArchiveResponse(
