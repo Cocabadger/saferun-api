@@ -269,7 +269,67 @@ class Notifier:
         approve_url = payload.get("approve_url")
         risk_score = payload.get("risk_score", 0.0)
         title = payload.get("title", "Unknown operation")
+        provider = payload.get("provider", "unknown")
+        target_id = payload.get("target_id", "")
+        
+        # Determine operation type and repository from metadata/payload
+        operation_display = title  # Default to title
+        repository_name = title
+        
+        # For GitHub, parse operation type from metadata
+        if provider == "github":
+            metadata = payload.get("metadata", {})
+            if not metadata:
+                extras = payload.get("extras", {})
+                metadata = extras.get("metadata", {})
+            
+            # Parse metadata if it's a JSON string from storage
+            if isinstance(metadata, str):
+                try:
+                    metadata = json.loads(metadata)
+                except Exception:
+                    metadata = {}
+            
+            object_type = metadata.get("object")
+            
+            # Extract repo name from target_id
+            if target_id:
+                if "#" in target_id:
+                    repository_name = target_id.split("#")[0]
+                elif "/" in target_id:
+                    repository_name = target_id
+            
+            # Determine operation display text
+            if object_type == "repository":
+                operation_display = "Archive Repository"
+            elif object_type == "branch":
+                branch_name = metadata.get("name") or metadata.get("branch", "branch")
+                operation_display = f"Delete Branch: {branch_name}"
+            elif object_type == "merge":
+                if metadata.get("isTargetDefault"):
+                    operation_display = "Merge to Main Branch"
+                else:
+                    operation_display = "Merge to Branch"
+            else:
+                operation_display = f"GitHub Operation: {title}"
 
+        # Build fields based on provider
+        fields = []
+        if provider == "github" and repository_name != operation_display:
+            # For GitHub, show Provider, Repository, Operation separately
+            fields = [
+                {"type": "mrkdwn", "text": f"*Provider:*\n🐙 {provider.capitalize()}"},
+                {"type": "mrkdwn", "text": f"*Repository:*\n{repository_name}"},
+                {"type": "mrkdwn", "text": f"*Operation:*\n{operation_display}"},
+                {"type": "mrkdwn", "text": f"*Risk Score:*\n{risk_score:.1f}/10"}
+            ]
+        else:
+            # For other providers or fallback
+            fields = [
+                {"type": "mrkdwn", "text": f"*Operation:*\n{operation_display}"},
+                {"type": "mrkdwn", "text": f"*Risk Score:*\n{risk_score:.1f}/10"}
+            ]
+        
         blocks = [
             {
                 "type": "header",
@@ -280,10 +340,7 @@ class Notifier:
             },
             {
                 "type": "section",
-                "fields": [
-                    {"type": "mrkdwn", "text": f"*Operation:*\n{title}"},
-                    {"type": "mrkdwn", "text": f"*Risk Score:*\n{risk_score:.1f}/10"}
-                ]
+                "fields": fields
             }
         ]
 
