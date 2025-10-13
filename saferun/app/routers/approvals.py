@@ -22,6 +22,7 @@ class ApprovalDetailResponse(BaseModel):
     risk_score: float
     reasons: list[str] = []
     metadata: Dict = {}
+    revert_window: Optional[int] = None  # Revert window in hours
     created_at: Optional[str] = None
 
 
@@ -83,7 +84,8 @@ async def get_approval_details(change_id: str) -> ApprovalDetailResponse:
         target=summary_data.get("target") or rec.get("target_id"),
         risk_score=float(rec.get("risk_score") or 0.0),
         reasons=summary_data.get("reasons") or [],
-        metadata=summary_data.get("metadata") or {},
+        metadata=rec.get("metadata") or summary_data.get("metadata") or {},
+        revert_window=rec.get("revert_window"),  # Add revert_window
         created_at=to_iso(rec.get("created_at")),
     )
 
