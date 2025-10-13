@@ -2,7 +2,7 @@
 import asyncio
 import logging
 from datetime import datetime, timezone
-from saferun.app.storage import storage_manager
+from .. import db_postgres as db
 
 logger = logging.getLogger(__name__)
 
@@ -17,10 +17,8 @@ async def check_expired_operations():
     Returns list of expired change_ids.
     """
     try:
-        storage = storage_manager.get_storage()
-        
-        # Get PostgreSQL connection
-        conn = storage.db_adapter.get_connection()
+        # Get PostgreSQL connection directly
+        conn = db.get_connection()
         cur = conn.cursor()
         
         # Update expired operations
