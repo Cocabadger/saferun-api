@@ -21,6 +21,7 @@ from .auth import verify_api_key
 from pydantic import BaseModel
 from typing import Optional, Any, Dict
 import uuid
+import os
 from datetime import datetime, timedelta
 import hashlib
 
@@ -206,7 +207,7 @@ async def create_pending_operation(
     Returns: (change_id, dry_run_result)
     """
     from .. import storage as storage_manager
-    from ..notify import send_slack_notification
+    from ..notify import notifier
     
     # 1. Calculate risk using dry-run logic
     target_id = f"{owner}/{repo}"
@@ -247,14 +248,23 @@ async def create_pending_operation(
     
     # 3. Send Slack notification
     try:
-        await send_slack_notification(
-            change_id=change_id,
-            api_key=api_key,
-            operation_type=operation_type,
-            target=target_id,
-            risk_score=dry_run_result.risk_score,
-            requires_approval=True,
-            revert_window_hours=24
+        # Get change data for notification
+        change_data = storage.get_change(change_id)
+        
+        # Build extras for notification
+        api_base = os.getenv("APP_BASE_URL", "https://saferun-api.up.railway.app")
+        extras = {
+            "approve_url": f"{api_base}/approvals/{change_id}",
+            "revert_window_hours": 24,
+            "metadata": metadata or {}
+        }
+        
+        # Send notification via notifier.publish
+        await notifier.publish(
+            event="dry_run",
+            change=change_data,
+            extras=extras,
+            api_key=api_key
         )
     except Exception as e:
         # Log error but don't fail the request
