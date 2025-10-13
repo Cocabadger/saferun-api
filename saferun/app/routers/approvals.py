@@ -233,17 +233,15 @@ async def approve_operation(change_id: str) -> ApprovalActionResponse:
                     owner, repo = parts[0], parts[1].split("#")[0] if "#" in parts[1] else parts[1]
                 
                 # Execute based on operation_type or object_type
-                print(f"[DEBUG] operation_type={operation_type}, object_type={object_type}, owner={owner}, repo={repo}")
+                print(f"[DEBUG] operation_type={operation_type}, object_type={object_type}, target_id={target_id}")
                 if operation_type == "github_repo_archive" or (object_type == "repository" and "archive" in str(summary_json)):
                     # Archive repository
-                    print(f"[DEBUG] Executing archive: owner={owner}, repo={repo}, token={'YES' if token else 'NO'}")
-                    if owner and repo:
-                        await GitHubProvider.archive(owner, repo, token)
-                        print(f"[DEBUG] Archive completed successfully")
+                    print(f"[DEBUG] Executing archive: target_id={target_id}, token={'YES' if token else 'NO'}")
+                    await GitHubProvider.archive(target_id, token)
+                    print(f"[DEBUG] Archive completed successfully")
                 elif operation_type == "github_repo_unarchive" or (object_type == "repository" and "unarchive" in str(summary_json)):
                     # Unarchive repository
-                    if owner and repo:
-                        await GitHubProvider.unarchive(owner, repo, token)
+                    await GitHubProvider.unarchive(target_id, token)
                 elif object_type == "branch":
                     # Delete branch (stores SHA for revert)
                     revert_sha = await GitHubProvider.delete_branch(target_id, token)
