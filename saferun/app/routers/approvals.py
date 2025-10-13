@@ -196,6 +196,9 @@ async def approve_operation(change_id: str) -> ApprovalActionResponse:
         metadata = rec.get("metadata")
         api_key = rec.get("api_key")
         
+        print(f"[DEBUG] APPROVAL START: change_id={change_id}, provider={provider}, target_id={target_id}")
+        print(f"[DEBUG] token={'PRESENT' if token else 'MISSING'}, metadata type={type(metadata)}")
+        
         # Parse metadata if it's a string
         try:
             # Execute based on provider
@@ -230,10 +233,13 @@ async def approve_operation(change_id: str) -> ApprovalActionResponse:
                     owner, repo = parts[0], parts[1].split("#")[0] if "#" in parts[1] else parts[1]
                 
                 # Execute based on operation_type or object_type
+                print(f"[DEBUG] operation_type={operation_type}, object_type={object_type}, owner={owner}, repo={repo}")
                 if operation_type == "github_repo_archive" or (object_type == "repository" and "archive" in str(summary_json)):
                     # Archive repository
+                    print(f"[DEBUG] Executing archive: owner={owner}, repo={repo}, token={'YES' if token else 'NO'}")
                     if owner and repo:
                         await GitHubProvider.archive(owner, repo, token)
+                        print(f"[DEBUG] Archive completed successfully")
                 elif operation_type == "github_repo_unarchive" or (object_type == "repository" and "unarchive" in str(summary_json)):
                     # Unarchive repository
                     if owner and repo:
@@ -275,6 +281,9 @@ async def approve_operation(change_id: str) -> ApprovalActionResponse:
             
         except Exception as e:
             # If execution fails, update status and re-raise
+            print(f"[ERROR] Approval execution failed: {type(e).__name__}: {str(e)}")
+            import traceback
+            print(f"[ERROR] Traceback:\n{traceback.format_exc()}")
             rec["status"] = "failed"
             rec["error"] = str(e)
             storage.set_change_status(change_id, "failed")
