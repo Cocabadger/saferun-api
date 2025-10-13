@@ -1,5 +1,6 @@
 from contextlib import asynccontextmanager
 import os
+import asyncio
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -17,6 +18,7 @@ from .routers.settings import router as settings_router
 from saferun import __version__ as SR_VERSION
 from . import storage as storage_manager
 from . import db_adapter as db
+from .services.expiry_checker import expiry_checker_loop
 
 DATABASE_URL = os.getenv("DATABASE_URL")
 
@@ -36,8 +38,18 @@ async def lifespan(app: FastAPI):
     db.init_db()
     storage = storage_manager.get_storage()
     storage.run_gc()
+    
+    # Start expiry checker background task
+    expiry_task = asyncio.create_task(expiry_checker_loop())
+    
     yield
-    # on shutdown (if needed)
+    
+    # on shutdown - cancel background task
+    expiry_task.cancel()
+    try:
+        await expiry_task
+    except asyncio.CancelledError:
+        pass
 
 app = FastAPI(title="SafeRun", version=SR_VERSION, lifespan=lifespan)
 

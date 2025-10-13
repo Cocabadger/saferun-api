@@ -39,6 +39,8 @@ async def get_approval_details(change_id: str) -> ApprovalDetailResponse:
     Get detailed information about a pending approval request.
     Used by the web dashboard to display operation details.
     """
+    from datetime import datetime, timezone
+    
     storage = storage_manager.get_storage()
     rec = storage.get_change(change_id)
 
@@ -47,6 +49,27 @@ async def get_approval_details(change_id: str) -> ApprovalDetailResponse:
 
     requires_approval = bool(rec.get("requires_approval"))
     status = rec.get("status", "pending")
+    
+    # Check if operation expired
+    revert_expires_at = rec.get("revert_expires_at")
+    if revert_expires_at and status == "pending":
+        # Parse timestamp
+        if isinstance(revert_expires_at, str):
+            expires_dt = datetime.fromisoformat(revert_expires_at.replace('Z', '+00:00'))
+        else:
+            expires_dt = revert_expires_at
+        
+        # Ensure timezone aware
+        if expires_dt.tzinfo is None:
+            expires_dt = expires_dt.replace(tzinfo=timezone.utc)
+        
+        now = datetime.now(timezone.utc)
+        
+        if now > expires_dt:
+            # Auto-expire
+            storage.set_change_status(change_id, "expired")
+            status = "expired"
+    
     approved = not requires_approval and status in {"pending", "approved", "applied"}
 
     # Parse JSON strings if needed
@@ -110,6 +133,8 @@ async def approve_operation(change_id: str) -> ApprovalActionResponse:
     For CLI/SDK operations: sets requires_approval to False so they can proceed.
     For API operations with revert_window: executes immediately and sends notification.
     """
+    from datetime import datetime, timezone
+    
     storage = storage_manager.get_storage()
     rec = storage.get_change(change_id)
 
@@ -117,8 +142,31 @@ async def approve_operation(change_id: str) -> ApprovalActionResponse:
         raise HTTPException(status_code=404, detail="Approval request not found")
 
     current_status = rec.get("status", "pending")
+    
+    # Check if operation expired
+    revert_expires_at = rec.get("revert_expires_at")
+    if revert_expires_at and current_status == "pending":
+        # Parse timestamp
+        if isinstance(revert_expires_at, str):
+            expires_dt = datetime.fromisoformat(revert_expires_at.replace('Z', '+00:00'))
+        else:
+            expires_dt = revert_expires_at
+        
+        # Ensure timezone aware
+        if expires_dt.tzinfo is None:
+            expires_dt = expires_dt.replace(tzinfo=timezone.utc)
+        
+        now = datetime.now(timezone.utc)
+        
+        if now > expires_dt:
+            # Operation expired - abort
+            storage.set_change_status(change_id, "expired")
+            raise HTTPException(
+                status_code=410,  # Gone
+                detail="Operation expired after revert window. No action taken for security."
+            )
 
-    if current_status in {"applied", "cancelled", "rejected"}:
+    if current_status in {"applied", "cancelled", "rejected", "expired"}:
         raise HTTPException(
             status_code=409,
             detail=f"Cannot approve: operation already {current_status}"
@@ -223,6 +271,8 @@ async def reject_operation(change_id: str) -> ApprovalActionResponse:
     Reject a pending operation.
     Sets status to rejected so the CLI will abort.
     """
+    from datetime import datetime, timezone
+    
     storage = storage_manager.get_storage()
     rec = storage.get_change(change_id)
 
@@ -230,8 +280,33 @@ async def reject_operation(change_id: str) -> ApprovalActionResponse:
         raise HTTPException(status_code=404, detail="Approval request not found")
 
     current_status = rec.get("status", "pending")
+    
+    # Check if already expired (idempotent - return success)
+    revert_expires_at = rec.get("revert_expires_at")
+    if revert_expires_at and current_status == "pending":
+        # Parse timestamp
+        if isinstance(revert_expires_at, str):
+            expires_dt = datetime.fromisoformat(revert_expires_at.replace('Z', '+00:00'))
+        else:
+            expires_dt = revert_expires_at
+        
+        # Ensure timezone aware
+        if expires_dt.tzinfo is None:
+            expires_dt = expires_dt.replace(tzinfo=timezone.utc)
+        
+        now = datetime.now(timezone.utc)
+        
+        if now > expires_dt:
+            # Already expired - update status and return
+            storage.set_change_status(change_id, "expired")
+            return ApprovalActionResponse(
+                change_id=change_id,
+                status="expired",
+                approved=False,
+                message="Operation already expired. No action needed."
+            )
 
-    if current_status in {"applied", "cancelled", "rejected"}:
+    if current_status in {"applied", "cancelled", "rejected", "expired"}:
         raise HTTPException(
             status_code=409,
             detail=f"Cannot reject: operation already {current_status}"
