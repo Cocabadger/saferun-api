@@ -209,12 +209,35 @@ async def approve_operation(change_id: str) -> ApprovalActionResponse:
             if provider == "github":
                 from ..providers.github_provider import GitHubProvider
                 
+                # Get summary_json for operation_type
+                summary_json = rec.get("summary_json", {})
+                if isinstance(summary_json, str):
+                    import json
+                    try:
+                        summary_json = json.loads(summary_json)
+                    except Exception:
+                        summary_json = {}
+                
+                operation_type = summary_json.get("operation_type") or metadata.get("operation_type") if metadata else None
+                
                 # Determine operation type from metadata
                 object_type = metadata.get("object") if metadata else None
                 
-                if object_type == "repository":
+                # Parse owner/repo from target_id
+                owner, repo = None, None
+                if "/" in target_id:
+                    parts = target_id.split("/")
+                    owner, repo = parts[0], parts[1].split("#")[0] if "#" in parts[1] else parts[1]
+                
+                # Execute based on operation_type or object_type
+                if operation_type == "github_repo_archive" or (object_type == "repository" and "archive" in str(summary_json)):
                     # Archive repository
-                    await GitHubProvider.archive(target_id, token)
+                    if owner and repo:
+                        await GitHubProvider.archive(owner, repo, token)
+                elif operation_type == "github_repo_unarchive" or (object_type == "repository" and "unarchive" in str(summary_json)):
+                    # Unarchive repository
+                    if owner and repo:
+                        await GitHubProvider.unarchive(owner, repo, token)
                 elif object_type == "branch":
                     # Delete branch (stores SHA for revert)
                     revert_sha = await GitHubProvider.delete_branch(target_id, token)
