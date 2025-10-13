@@ -190,3 +190,67 @@ def expiry(minutes: int = 30) -> datetime:
 
 # Alias the notion response to the generic dry-run response shape for now
 DryRunNotionArchiveResponse = DryRunArchiveResponse
+
+
+# ============================================================================
+# API OPERATION REQUESTS (Phase 1 MVP)
+# ============================================================================
+
+class ArchiveRepositoryRequest(BaseModel):
+    """Request to archive a GitHub repository"""
+    token: str = Field(..., description="GitHub Personal Access Token")
+    reason: Optional[str] = Field(None, description="Optional reason for archiving")
+
+
+class UnarchiveRepositoryRequest(BaseModel):
+    """Request to unarchive a GitHub repository"""
+    token: str = Field(..., description="GitHub Personal Access Token")
+    reason: Optional[str] = Field(None, description="Optional reason for unarchiving")
+
+
+class DeleteBranchRequest(BaseModel):
+    """Request to delete a GitHub branch"""
+    token: str = Field(..., description="GitHub Personal Access Token")
+    reason: Optional[str] = Field(None, description="Optional reason for deletion")
+
+
+class DeleteRepositoryRequest(BaseModel):
+    """Request to delete a GitHub repository (PERMANENT)"""
+    token: str = Field(..., description="GitHub Personal Access Token with delete_repo scope")
+    reason: str = Field(..., min_length=20, description="Required reason for deletion (minimum 20 characters)")
+    confirm_deletion: str = Field(..., description="Must be 'DELETE:{owner}/{repo}' to confirm")
+
+
+class MergePullRequestRequest(BaseModel):
+    """Request to merge a pull request"""
+    token: str = Field(..., description="GitHub Personal Access Token")
+    commit_title: Optional[str] = Field(None, description="Custom merge commit title")
+    commit_message: Optional[str] = Field(None, description="Custom merge commit message")
+    merge_method: Literal["merge", "squash", "rebase"] = Field("merge", description="Merge method to use")
+    reason: Optional[str] = Field(None, description="Optional reason for merging")
+
+
+class ForcePushRequest(BaseModel):
+    """Request to force push to a branch"""
+    token: str = Field(..., description="GitHub Personal Access Token")
+    ref: str = Field(..., description="Git reference to update (e.g., 'refs/heads/main')")
+    sha: str = Field(..., description="Target commit SHA to force push")
+    reason: Optional[str] = Field(None, description="Optional reason for force push")
+
+
+# ============================================================================
+# API OPERATION RESPONSES (Phase 1 MVP)
+# ============================================================================
+
+class OperationResponse(BaseModel):
+    """Standard response for operational API endpoints"""
+    change_id: str = Field(..., description="Unique identifier for this operation")
+    status: Literal["pending", "approved", "rejected", "executed", "expired"] = Field("pending", description="Current operation status")
+    requires_approval: bool = Field(True, description="Whether human approval is required")
+    revert_window_hours: int = Field(24, description="Hours until operation expires")
+    expires_at: str = Field(..., description="ISO 8601 timestamp when operation expires")
+    risk_score: float = Field(..., ge=0.0, le=10.0, description="Risk score (0.0-10.0)")
+    revertable: bool = Field(True, description="Whether operation can be reverted after execution")
+    revert_type: Optional[Literal["counter_commit", "branch_restore", "repository_unarchive", "restore_previous_sha"]] = Field(None, description="Type of revert available")
+    warning: Optional[str] = Field(None, description="Critical warning for dangerous operations")
+    message: str = Field(..., description="Human-readable status message")

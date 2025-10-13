@@ -9,10 +9,20 @@ from ..models.contracts import (
     GitHubRepoDeleteDryRunRequest,
     GitHubForcePushDryRunRequest,
     GitHubMergeDryRunRequest,
+    ArchiveRepositoryRequest,
+    UnarchiveRepositoryRequest,
+    DeleteBranchRequest,
+    DeleteRepositoryRequest,
+    MergePullRequestRequest,
+    ForcePushRequest,
+    OperationResponse,
 )
 from .auth import verify_api_key
 from pydantic import BaseModel
 from typing import Optional, Any, Dict
+import uuid
+from datetime import datetime, timedelta
+import hashlib
 
 router = APIRouter(tags=["GitHub"], dependencies=[Depends(verify_api_key)]) 
 
@@ -175,4 +185,180 @@ async def get_change_status(change_id: str, api_key: str = Depends(verify_api_ke
         error=change.get("error"),
         metadata=metadata
     )
+
+
+# ============================================================================
+# OPERATIONAL API ENDPOINTS (Phase 1 MVP)
+# ============================================================================
+
+async def create_pending_operation(
+    operation_type: str,
+    owner: str,
+    repo: str,
+    api_key: str,
+    token: str,
+    reason: Optional[str] = None,
+    metadata: Optional[Dict[str, Any]] = None
+) -> tuple[str, DryRunArchiveResponse]:
+    """
+    Helper function to create a pending operation.
+    
+    Returns: (change_id, dry_run_result)
+    """
+    from .. import storage as storage_manager
+    from ..notify import send_slack_notification
+    
+    # 1. Calculate risk using dry-run logic
+    target_id = f"{owner}/{repo}"
+    if metadata and metadata.get("branch"):
+        target_id = f"{owner}/{repo}#{metadata['branch']}"
+    
+    generic_req = DryRunArchiveRequest(
+        token=token,
+        target_id=target_id,
+        provider="github",
+        reason=reason,
+        metadata=metadata or {"owner": owner, "repo": repo}
+    )
+    
+    dry_run_result = await build_dryrun(generic_req, api_key=api_key)
+    
+    # 2. Create pending operation in database
+    change_id = dry_run_result.change_id
+    
+    storage = storage_manager.get_storage()
+    storage.upsert_change(
+        change_id=change_id,
+        api_key=api_key,
+        status="pending",
+        operation_type=operation_type,
+        risk_score=dry_run_result.risk_score,
+        summary_json={
+            **(metadata or {}),
+            "owner": owner,
+            "repo": repo,
+            "operation": operation_type,
+            "token_hash": hashlib.sha256(token.encode()).hexdigest()[:16],
+            "reason": reason
+        },
+        revert_window=24,
+        revert_expires_at=datetime.now() + timedelta(hours=24)
+    )
+    
+    # 3. Send Slack notification
+    try:
+        await send_slack_notification(
+            change_id=change_id,
+            api_key=api_key,
+            operation_type=operation_type,
+            target=target_id,
+            risk_score=dry_run_result.risk_score,
+            requires_approval=True,
+            revert_window_hours=24
+        )
+    except Exception as e:
+        # Log error but don't fail the request
+        print(f"Failed to send Slack notification: {e}")
+    
+    return change_id, dry_run_result
+
+
+@router.post("/v1/github/repos/{owner}/{repo}/archive", response_model=OperationResponse)
+async def archive_repository(
+    owner: str,
+    repo: str,
+    req: ArchiveRepositoryRequest,
+    api_key: str = Depends(verify_api_key)
+) -> OperationResponse:
+    """
+    Archive a GitHub repository with human approval requirement.
+    
+    Flow:
+    1. Validates GitHub token
+    2. Calculates risk score (typically 8.0)
+    3. Creates pending operation in database
+    4. Sends Slack notification with Approve/Reject buttons
+    5. Returns change_id for tracking
+    6. Operation executes after human approval
+    
+    Args:
+        owner: Repository owner (username or org name)
+        repo: Repository name
+        req: Request containing GitHub token and optional reason
+        api_key: SafeRun API key (from header)
+    
+    Returns:
+        OperationResponse with change_id and status
+    
+    Example:
+        ```bash
+        curl -X POST https://saferun-api.up.railway.app/v1/github/repos/owner/repo/archive \\
+          -H "X-API-Key: YOUR_API_KEY" \\
+          -H "Content-Type: application/json" \\
+          -d '{"token": "ghp_...", "reason": "Archiving old project"}'
+        ```
+    """
+    # Create pending operation
+    change_id, dry_run_result = await create_pending_operation(
+        operation_type="github_repo_archive",
+        owner=owner,
+        repo=repo,
+        api_key=api_key,
+        token=req.token,
+        reason=req.reason,
+        metadata={"object": "repository", "operation": "archive"}
+    )
+    
+    # Return response
+    expires_at = datetime.now() + timedelta(hours=24)
+    return OperationResponse(
+        change_id=change_id,
+        status="pending",
+        requires_approval=True,
+        revert_window_hours=24,
+        expires_at=expires_at.isoformat(),
+        risk_score=dry_run_result.risk_score,
+        revertable=True,
+        revert_type="repository_unarchive",
+        message="Archive request created. Check Slack for approval."
+    )
+
+
+@router.post("/v1/github/repos/{owner}/{repo}/unarchive", response_model=OperationResponse)
+async def unarchive_repository(
+    owner: str,
+    repo: str,
+    req: UnarchiveRepositoryRequest,
+    api_key: str = Depends(verify_api_key)
+) -> OperationResponse:
+    """
+    Unarchive a GitHub repository with human approval requirement.
+    
+    Similar to archive but with lower risk score (typically 6.0).
+    """
+    # Create pending operation
+    change_id, dry_run_result = await create_pending_operation(
+        operation_type="github_repo_unarchive",
+        owner=owner,
+        repo=repo,
+        api_key=api_key,
+        token=req.token,
+        reason=req.reason,
+        metadata={"object": "repository", "operation": "unarchive"}
+    )
+    
+    # Return response
+    expires_at = datetime.now() + timedelta(hours=24)
+    return OperationResponse(
+        change_id=change_id,
+        status="pending",
+        requires_approval=True,
+        revert_window_hours=24,
+        expires_at=expires_at.isoformat(),
+        risk_score=dry_run_result.risk_score,
+        revertable=True,
+        revert_type="repository_unarchive",
+        message="Unarchive request created. Check Slack for approval."
+    )
+
 
