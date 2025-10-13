@@ -401,6 +401,12 @@ async def build_dryrun(req: DryRunArchiveRequest, notion_version: str | None = N
                 revert_response_url = f"{api_base}/webhooks/github/revert/{change_id}"
                 revert_window_response = revert_window_hours
 
+            # Save change to database (for approval flow)
+            # NOTE: For auto-execute flow, change_data is already saved earlier (line 250, 268)
+            # This handles the approval flow where we need to persist the change for later execution
+            if need_approval:
+                storage.save_change(change_id, change_data, ttl_seconds)
+
             return DryRunArchiveResponse(
                 change_id=change_id,
                 target=TargetRef(provider=req.provider, target_id=req.target_id, type=item_type),
