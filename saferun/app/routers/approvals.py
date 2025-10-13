@@ -92,7 +92,8 @@ async def get_approval_details(change_id: str) -> ApprovalDetailResponse:
 async def approve_operation(change_id: str) -> ApprovalActionResponse:
     """
     Approve a pending operation.
-    Sets requires_approval to False so the CLI can proceed with execution.
+    For CLI/SDK operations: sets requires_approval to False so they can proceed.
+    For API operations with revert_window: executes immediately and sends notification.
     """
     storage = storage_manager.get_storage()
     rec = storage.get_change(change_id)
@@ -116,6 +117,82 @@ async def approve_operation(change_id: str) -> ApprovalActionResponse:
     # Update status to approved
     storage.set_change_status(change_id, "approved")
     db.insert_audit(change_id, "approved", {"approved_via": "web_dashboard"})
+
+    # Check if this is an API operation with revert_window (needs immediate execution)
+    revert_window_hours = rec.get("revert_window")
+    if revert_window_hours is not None:
+        # Execute the operation immediately
+        import asyncio
+        import os
+        from datetime import datetime, timezone
+        from .. import db_adapter as db_module
+        
+        provider = rec.get("provider")
+        target_id = rec.get("target_id")
+        token = rec.get("token")
+        metadata = rec.get("metadata")
+        api_key = rec.get("api_key")
+        
+        # Parse metadata if it's a string
+        if isinstance(metadata, str):
+            import json
+            try:
+                metadata = json.loads(metadata)
+            except Exception:
+                metadata = {}
+        
+        try:
+            # Execute based on provider
+            if provider == "github":
+                from ..providers.github_provider import GitHubProvider
+                
+                # Determine operation type from metadata
+                object_type = metadata.get("object") if metadata else None
+                
+                if object_type == "repository":
+                    # Archive repository
+                    await GitHubProvider.archive(target_id, token)
+                elif object_type == "branch":
+                    # Delete branch (stores SHA for revert)
+                    revert_sha = await GitHubProvider.delete_branch(target_id, token)
+                    rec["revert_token"] = revert_sha
+                    rec["summary_json"] = {"github_restore_sha": revert_sha}
+            
+            # Update status to executed
+            rec["status"] = "executed"
+            rec["executed_at"] = db_module.iso_z(datetime.now(timezone.utc))
+            storage.set_change_status(change_id, "executed")
+            
+            # Send Slack notification with revert instructions
+            from ..notify import notifier
+            
+            # Build revert URL
+            api_base = os.environ.get("API_BASE_URL") or os.environ.get("RAILWAY_PUBLIC_DOMAIN", "http://localhost:8500")
+            if api_base and not api_base.startswith("http"):
+                api_base = f"https://{api_base}"
+            revert_url = f"{api_base}/webhooks/github/revert/{change_id}"
+            
+            # Send notification
+            asyncio.create_task(
+                notifier.publish(
+                    "executed_with_revert",
+                    rec,
+                    extras={
+                        "revert_url": revert_url,
+                        "revert_window_hours": revert_window_hours,
+                        "metadata": metadata,
+                        "meta": {"latency_ms": 0, "provider_version": "unknown"}
+                    },
+                    api_key=api_key
+                )
+            )
+            
+        except Exception as e:
+            # If execution fails, update status and re-raise
+            rec["status"] = "failed"
+            rec["error"] = str(e)
+            storage.set_change_status(change_id, "failed")
+            raise HTTPException(status_code=500, detail=f"Execution failed: {str(e)}")
 
     return ApprovalActionResponse(
         change_id=change_id,

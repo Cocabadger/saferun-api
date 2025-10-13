@@ -53,13 +53,13 @@ class Notifier:
             if bot_token:
                 await self._send_slack_bot(payload, text, bot_token, channel, event_type)
             elif webhook_url:
-                await self._send_slack_webhook(payload, text, webhook_url)
+                await self._send_slack_webhook(payload, text, webhook_url, event_type)
         elif SLACK_BOT_TOKEN or SLACK_URL:
             # Fallback to global env vars
             if SLACK_BOT_TOKEN:
                 await self._send_slack_bot(payload, text, SLACK_BOT_TOKEN, SLACK_CHANNEL, event_type)
             elif SLACK_URL:
-                await self._send_slack_webhook(payload, text, SLACK_URL)
+                await self._send_slack_webhook(payload, text, SLACK_URL, event_type)
 
     async def _send_slack_bot(self, payload: Dict[str, Any], text: str, bot_token: str, channel: str, event_type: str = "dry_run") -> None:
         """Send via Slack Bot API with interactive buttons"""
@@ -263,10 +263,12 @@ class Notifier:
             return resp
         await self._retry(do)
 
-    async def _send_slack_webhook(self, payload: Dict[str, Any], text: str, webhook_url: str) -> None:
+    async def _send_slack_webhook(self, payload: Dict[str, Any], text: str, webhook_url: str, event_type: str = "dry_run") -> None:
         """Fallback: Send via Incoming Webhook (simple, no interactivity)"""
         change_id = payload.get("change_id")
         approve_url = payload.get("approve_url")
+        revert_url = payload.get("revert_url")
+        revert_window_hours = payload.get("revert_window_hours")
         risk_score = payload.get("risk_score", 0.0)
         title = payload.get("title", "Unknown operation")
         provider = payload.get("provider", "unknown")
@@ -313,6 +315,12 @@ class Notifier:
             else:
                 operation_display = f"GitHub Operation: {title}"
 
+        # Header text based on event type
+        if event_type == "executed_with_revert":
+            header_text = "✅ Action Executed"
+        else:
+            header_text = "🛡️ SafeRun Approval Required"
+
         # Build fields based on provider
         fields = []
         if provider == "github" and repository_name != operation_display:
@@ -335,7 +343,7 @@ class Notifier:
                 "type": "header",
                 "text": {
                     "type": "plain_text",
-                    "text": "🛡️ SafeRun Approval Required"
+                    "text": header_text
                 }
             },
             {
@@ -344,8 +352,37 @@ class Notifier:
             }
         ]
 
-        # Add approve URL if available
-        if approve_url:
+        # For executed_with_revert, show revert instructions
+        if event_type == "executed_with_revert" and revert_url:
+            # Success message based on operation
+            if "Archive" in operation_display:
+                success_msg = "*Repository archived successfully.*"
+            elif "Delete Branch" in operation_display:
+                success_msg = "*Branch deleted successfully.*"
+            else:
+                success_msg = "*Operation completed successfully.*"
+            
+            blocks.append({
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": f"{success_msg}\nYou have *{revert_window_hours} hours* to revert this action if needed."
+                }
+            })
+            
+            # Add revert instructions with curl command
+            revert_operation = "Repository Unarchive" if "Archive" in operation_display else "Branch Restore"
+            curl_command = f"curl -X POST '{revert_url}' -H 'Content-Type: application/json' -d '{{\"github_token\": \"YOUR_TOKEN\"}}'"
+            
+            blocks.append({
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": f"*🔄 Revert Available:* {revert_operation}\n\n```{curl_command}```"
+                }
+            })
+        elif approve_url:
+            # Add approve URL for dry_run events
             blocks.append({
                 "type": "section",
                 "text": {
@@ -355,7 +392,7 @@ class Notifier:
             })
 
         # Webhook only supports URL buttons (not interactive)
-        if change_id:
+        if change_id and event_type != "executed_with_revert":
             api_base = os.getenv("APP_BASE_URL", "http://localhost:8500")
             blocks.append({
                 "type": "actions",
