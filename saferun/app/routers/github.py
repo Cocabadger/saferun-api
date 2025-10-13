@@ -116,7 +116,7 @@ async def get_change_status(change_id: str, api_key: str = Depends(verify_api_ke
     Poll change status for API operations with approval.
     Returns current status: pending, approved, executed, rejected, or failed.
     """
-    from ..storage import storage_manager
+    from .. import storage_manager
     
     storage = storage_manager.get_storage()
     change = storage.get_change(change_id)
