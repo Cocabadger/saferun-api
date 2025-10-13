@@ -41,7 +41,9 @@ def init_db():
         revert_token TEXT,
         requires_approval INTEGER DEFAULT 0,
         api_key TEXT,
-        branch_head_sha TEXT
+        branch_head_sha TEXT,
+        revert_window INTEGER,
+        revert_expires_at TIMESTAMP
     );
     
     CREATE INDEX IF NOT EXISTS idx_changes_api_key ON changes(api_key);
@@ -147,6 +149,26 @@ def init_db():
     END $$;
     """)
 
+    # Migration: Add revert_window columns to changes table
+    cur.execute("""
+    DO $$
+    BEGIN
+        IF NOT EXISTS (
+            SELECT 1 FROM information_schema.columns 
+            WHERE table_name='changes' AND column_name='revert_window'
+        ) THEN
+            ALTER TABLE changes ADD COLUMN revert_window INTEGER;
+        END IF;
+        
+        IF NOT EXISTS (
+            SELECT 1 FROM information_schema.columns 
+            WHERE table_name='changes' AND column_name='revert_expires_at'
+        ) THEN
+            ALTER TABLE changes ADD COLUMN revert_expires_at TIMESTAMP;
+        END IF;
+    END $$;
+    """)
+
     conn.commit()
     conn.close()
 
@@ -225,8 +247,8 @@ def upsert_change(change: dict):
         change_id, target_id, page_id, provider, title, status,
         risk_score, expires_at, created_at, last_edited_time,
         policy_json, summary_json, metadata, token, revert_token, requires_approval,
-        api_key, branch_head_sha
-    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+        api_key, branch_head_sha, revert_window, revert_expires_at
+    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
     ON CONFLICT(change_id) DO UPDATE SET
         target_id=EXCLUDED.target_id,
         page_id=EXCLUDED.page_id,
@@ -244,7 +266,9 @@ def upsert_change(change: dict):
         revert_token=EXCLUDED.revert_token,
         requires_approval=EXCLUDED.requires_approval,
         api_key=EXCLUDED.api_key,
-        branch_head_sha=EXCLUDED.branch_head_sha
+        branch_head_sha=EXCLUDED.branch_head_sha,
+        revert_window=EXCLUDED.revert_window,
+        revert_expires_at=EXCLUDED.revert_expires_at
     """, (
         change["change_id"],
         change.get("target_id"),
@@ -263,7 +287,9 @@ def upsert_change(change: dict):
         change.get("revert_token"),
         int(bool(change.get("requires_approval"))),
         change.get("api_key"),
-        change.get("branch_head_sha")
+        change.get("branch_head_sha"),
+        change.get("revert_window"),
+        parse_dt(change.get("revert_expires_at")) if change.get("revert_expires_at") else None
     ))
 
     conn.commit()
