@@ -32,69 +32,72 @@ async def build_dryrun(req: DryRunArchiveRequest, notion_version: str | None = N
         raise ValueError(f"Unsupported provider: {req.provider}")
 
     with time_dryrun(req.provider):
-        try:
-            # 1) Fetch metadata and children count from provider
-            if req.provider == "notion":
-                # Use local wrappers so tests can monkeypatch get_page/get_children_count
-                try:
-                    pg = await get_page(req.target_id, req.token)
-                except NameError:
-                    pg = await provider_instance.get_metadata(req.target_id, req.token)
+        # 1) Fetch metadata and children count from provider
+        if req.provider == "notion":
+            # Use local wrappers so tests can monkeypatch get_page/get_children_count
+            try:
+                pg = await get_page(req.target_id, req.token)
+            except NameError:
+                pg = await provider_instance.get_metadata(req.target_id, req.token)
 
-                metadata = pg[0] if isinstance(pg, (tuple, list)) else pg
+            metadata = pg[0] if isinstance(pg, (tuple, list)) else pg
 
-                try:
-                    children_raw = await get_children_count(req.target_id, req.token)
-                except NameError:
-                    children_raw = await provider_instance.get_children_count(req.target_id, req.token)
+            try:
+                children_raw = await get_children_count(req.target_id, req.token)
+            except NameError:
+                children_raw = await provider_instance.get_children_count(req.target_id, req.token)
+        else:
+            # Use metadata from request if provided, otherwise fetch from provider
+            if req.metadata and req.metadata != {}:
+                metadata = req.metadata
             else:
                 metadata = await provider_instance.get_metadata(req.target_id, req.token)
-                children_raw = await provider_instance.get_children_count(req.target_id, req.token)
+            children_raw = await provider_instance.get_children_count(req.target_id, req.token)
 
-            # Normalize children/blocks
-            blocks = children_raw[0] if isinstance(children_raw, (tuple, list)) else children_raw
+        # Normalize children/blocks
+        blocks = children_raw[0] if isinstance(children_raw, (tuple, list)) else children_raw
 
-            # 1.a) Notion-specific normalization (title, parent_type)
-            title = None
-            if req.provider == "notion" and isinstance(metadata, dict):
-                props = metadata.get("properties", {})
-                for v in props.values():
-                    if isinstance(v, dict) and v.get("type") == "title":
-                        rich = v.get("title") or []
-                        if isinstance(rich, list):
-                            title = "".join([x.get("plain_text", "") for x in rich]) or None
-                        break
+        # 1.a) Notion-specific normalization (title, parent_type)
+        title = None
+        if req.provider == "notion" and isinstance(metadata, dict):
+            props = metadata.get("properties", {})
+            for v in props.values():
+                if isinstance(v, dict) and v.get("type") == "title":
+                    rich = v.get("title") or []
+                    if isinstance(rich, list):
+                        title = "".join([x.get("plain_text", "") for x in rich]) or None
+                    break
 
-                parent = metadata.get("parent", {})
-                if parent.get("workspace"):
-                    metadata["parent_type"] = "workspace"
-                elif parent.get("database_id"):
-                    metadata["parent_type"] = "database"
-                elif parent.get("page_id"):
-                    metadata["parent_type"] = "page"
+            parent = metadata.get("parent", {})
+            if parent.get("workspace"):
+                metadata["parent_type"] = "workspace"
+            elif parent.get("database_id"):
+                metadata["parent_type"] = "database"
+            elif parent.get("page_id"):
+                metadata["parent_type"] = "page"
 
-            # Title fallback for non-Notion providers
-            title = title or (metadata.get("name") or metadata.get("title"))
+        # Title fallback for non-Notion providers
+        title = title or (metadata.get("name") or metadata.get("title"))
 
-            # Support multiple provider-specific last edited keys
-            last_edit = (
-                metadata.get("modifiedTime")
-                or metadata.get("lastModifiedTime")
-                or metadata.get("last_edited_time")
-            )
+        # Support multiple provider-specific last edited keys
+        last_edit = (
+            metadata.get("modifiedTime")
+            or metadata.get("lastModifiedTime")
+            or metadata.get("last_edited_time")
+        )
 
-            # Item type normalization per provider
-            item_type = metadata.get("mimeType") or metadata.get("filetype") or metadata.get("object")
-            if req.provider == "gsheets":
+        # Item type normalization per provider
+        item_type = metadata.get("mimeType") or metadata.get("filetype") or metadata.get("object")
+        if req.provider == "gsheets":
+            item_type = "file"
+        if req.provider == "slack":
+            # Distinguish channel vs file
+            if isinstance(metadata, dict) and metadata.get("object") == "channel":
+                item_type = "channel"
+            else:
                 item_type = "file"
-            if req.provider == "slack":
-                # Distinguish channel vs file
-                if isinstance(metadata, dict) and metadata.get("object") == "channel":
-                    item_type = "channel"
-                else:
-                    item_type = "file"
-            if req.provider == "airtable":
-                item_type = "bulk_view" if metadata.get("type") == "bulk_view_dry_run" else "record"
+        if req.provider == "airtable":
+            item_type = "bulk_view" if metadata.get("type") == "bulk_view_dry_run" else "record"
             if req.provider == "github":
                 if metadata.get("type") in ("bulk_pr_dry_run", "bulk_pr"):
                     item_type = "bulk_pr"
