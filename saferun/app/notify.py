@@ -121,7 +121,13 @@ class Notifier:
                     branch_name = metadata.get("name") or metadata.get("branch", "branch")
                     operation_display = f"Delete Branch: {branch_name}"
             elif object_type == "repository":
-                operation_display = "Archive Repository"
+                # Check operation_type for archive vs unarchive
+                if operation_type == "github_repo_unarchive":
+                    operation_display = "Unarchive Repository"
+                elif operation_type == "github_repo_archive":
+                    operation_display = "Archive Repository"
+                else:
+                    operation_display = "Repository Operation"
             elif item_type == "bulk_pr":
                 # Bulk PR operations
                 records_affected = metadata.get("records_affected", 0)
@@ -510,7 +516,7 @@ class Notifier:
         webhook_url = change.get("webhook_url")
 
         text_map = {
-            "dry_run": ":rotating_light: [SafeRun] High-risk DRY-RUN → approval needed",
+            "dry_run": ":rotating_light: [SafeRun] High-risk API Request → approval needed",
             "applied": ":white_check_mark: [SafeRun] Applied",
             "reverted": ":rewind: [SafeRun] Reverted",
             "expired": ":hourglass_flowing_sand: [SafeRun] Expired",
