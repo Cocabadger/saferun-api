@@ -543,6 +543,15 @@ def format_slack_message(action, user_email: str, source: str = "github_webhook"
     # Build operation description
     operation_desc = action.operation_type.replace("github_", "").replace("_", " ").title()
     
+    # Special formatting for specific operations
+    if "repository" in action.operation_type.lower() and event_type == "repository":
+        # Get repository action type from payload
+        repository_action = event_payload.get("action", "")
+        if repository_action == "unarchived":
+            operation_desc = "Repository Unarchived"
+        elif repository_action == "archived":
+            operation_desc = "Repository Archived"
+    
     # Risk level emoji
     risk_emoji = "🔴" if action.risk_score >= 7.0 else "🟡" if action.risk_score >= 4.0 else "🟢"
     
@@ -613,8 +622,8 @@ def format_slack_message(action, user_email: str, source: str = "github_webhook"
             }
         })
     
-    # Add warning for bypassed protection
-    if source == "github_webhook":
+    # Add warning for bypassed protection (only for high-risk operations)
+    if source == "github_webhook" and action.risk_score >= 4.0:
         message["blocks"].append({
             "type": "section",
             "text": {
