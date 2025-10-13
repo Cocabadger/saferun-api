@@ -208,7 +208,6 @@ async def create_pending_operation(
     """
     from .. import db_postgres as db
     from ..notify import notifier
-    from ..services.risk import calculate_github_risk
     
     # 1. Calculate risk score
     target_id = f"{owner}/{repo}"
