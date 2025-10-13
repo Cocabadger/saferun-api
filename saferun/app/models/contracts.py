@@ -122,6 +122,7 @@ class DryRunArchiveRequest(BaseModel):
     reason: Optional[str] = None
     policy: Optional[Dict] = None
     webhook_url: Optional[str] = None
+    metadata: Optional[Dict] = None  # For passing operation context (e.g., object type for GitHub)
 
 class DiffUnit(BaseModel):
     op: Literal["archive", "delete_branch", "bulk_preview", "git_operation"]
