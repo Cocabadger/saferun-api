@@ -242,6 +242,7 @@ async def create_pending_operation(
         "risk_score": risk_score,
         "requires_approval": True,
         "api_key": api_key,
+        "token": token,  # Store token for approval execution
         "expires_at": expires_at.isoformat(),
         "created_at": datetime.now().isoformat(),
         "revert_window": 24,
