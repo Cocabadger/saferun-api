@@ -49,7 +49,7 @@ async def build_dryrun(req: DryRunArchiveRequest, notion_version: str | None = N
                     children_raw = await provider_instance.get_children_count(req.target_id, req.token)
             else:
                 # Use metadata from request if provided, otherwise fetch from provider
-                if req.metadata and req.metadata != {}:
+                if req.metadata is not None and req.metadata != {}:
                     metadata = req.metadata
                 else:
                     metadata = await provider_instance.get_metadata(req.target_id, req.token)
