@@ -65,6 +65,19 @@ async def get_approval_details(change_id: str) -> ApprovalDetailResponse:
     if not isinstance(summary_data, dict):
         summary_data = {}
 
+    # Parse metadata (may be stored as JSON string)
+    metadata_raw = rec.get("metadata") or summary_data.get("metadata") or {}
+    if isinstance(metadata_raw, str):
+        try:
+            metadata_parsed = json.loads(metadata_raw)
+        except Exception:
+            metadata_parsed = {}
+    else:
+        metadata_parsed = metadata_raw
+    
+    if not isinstance(metadata_parsed, dict):
+        metadata_parsed = {}
+
     # Convert datetime objects to ISO strings
     from datetime import datetime
     def to_iso(val):
@@ -84,7 +97,7 @@ async def get_approval_details(change_id: str) -> ApprovalDetailResponse:
         target=summary_data.get("target") or rec.get("target_id"),
         risk_score=float(rec.get("risk_score") or 0.0),
         reasons=summary_data.get("reasons") or [],
-        metadata=rec.get("metadata") or summary_data.get("metadata") or {},
+        metadata=metadata_parsed,
         revert_window=rec.get("revert_window"),  # Add revert_window
         created_at=to_iso(rec.get("created_at")),
     )
