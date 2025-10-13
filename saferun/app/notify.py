@@ -303,7 +303,12 @@ class Notifier:
             
             # Determine operation display text
             if object_type == "repository":
-                operation_display = "Archive Repository"
+                # Check operation_type to distinguish between archive and delete
+                op_type = metadata.get("operation_type", "")
+                if op_type == "delete_repo":
+                    operation_display = "🔴 Repository Deletion (PERMANENT)"
+                else:
+                    operation_display = "Archive Repository"
             elif object_type == "branch":
                 branch_name = metadata.get("name") or metadata.get("branch", "branch")
                 operation_display = f"Delete Branch: {branch_name}"
@@ -351,6 +356,33 @@ class Notifier:
                 "fields": fields
             }
         ]
+
+        # Add CRITICAL WARNING for repository deletion
+        if provider == "github":
+            metadata = payload.get("metadata", {})
+            if isinstance(metadata, str):
+                try:
+                    metadata = json.loads(metadata)
+                except Exception:
+                    metadata = {}
+            op_type = metadata.get("operation_type", "")
+            if op_type == "delete_repo":
+                blocks.append({
+                    "type": "section",
+                    "text": {
+                        "type": "mrkdwn",
+                        "text": (
+                            "🔴 *CRITICAL WARNING - PERMANENT OPERATION*\n\n"
+                            "*This operation is IRREVERSIBLE:*\n"
+                            "• All repository data will be permanently deleted\n"
+                            "• All issues, pull requests, and wikis will be lost\n"
+                            "• All Git history will be destroyed\n"
+                            "• Repository cannot be recovered after deletion\n\n"
+                            "⚠️ *Note:* This operation requires `delete_repo` scope in GitHub PAT\n"
+                            "If PAT lacks this permission, the operation will fail with 403/404 error."
+                        )
+                    }
+                })
 
         # For executed_with_revert, show revert instructions
         if event_type == "executed_with_revert" and revert_url:
