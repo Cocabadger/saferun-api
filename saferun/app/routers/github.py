@@ -200,69 +200,86 @@ async def create_pending_operation(
     token: str,
     reason: Optional[str] = None,
     metadata: Optional[Dict[str, Any]] = None
-) -> tuple[str, DryRunArchiveResponse]:
+) -> tuple[str, float]:
     """
     Helper function to create a pending operation.
     
-    Returns: (change_id, dry_run_result)
+    Returns: (change_id, risk_score)
     """
-    from .. import storage as storage_manager
+    from .. import db_postgres as db
     from ..notify import notifier
+    from ..services.risk import calculate_github_risk
     
-    # 1. Calculate risk using dry-run logic
+    # 1. Calculate risk score
     target_id = f"{owner}/{repo}"
     if metadata and metadata.get("branch"):
         target_id = f"{owner}/{repo}#{metadata['branch']}"
     
-    generic_req = DryRunArchiveRequest(
-        token=token,
-        target_id=target_id,
-        provider="github",
-        reason=reason,
-        metadata=metadata or {"owner": owner, "repo": repo}
-    )
-    
-    dry_run_result = await build_dryrun(generic_req, api_key=api_key)
+    # Determine risk score based on operation type
+    risk_score = 8.0  # Default for archive
+    if operation_type == "github_repo_archive":
+        risk_score = 8.0
+    elif operation_type == "github_repo_unarchive":
+        risk_score = 6.0
+    elif operation_type == "github_repo_delete":
+        risk_score = 10.0
+    elif operation_type == "github_branch_delete":
+        risk_score = 7.0 if "main" in target_id or "master" in target_id else 4.0
+    elif operation_type == "github_pr_merge":
+        risk_score = 6.0
+    elif operation_type == "github_force_push":
+        risk_score = 9.0 if "main" in target_id or "master" in target_id else 7.0
     
     # 2. Create pending operation in database
-    change_id = dry_run_result.change_id
+    change_id = str(uuid.uuid4())
+    expires_at = datetime.now() + timedelta(hours=24)
     
-    storage = storage_manager.get_storage()
-    storage.upsert_change(
-        change_id=change_id,
-        api_key=api_key,
-        status="pending",
-        operation_type=operation_type,
-        risk_score=dry_run_result.risk_score,
-        summary_json={
+    change_record = {
+        "change_id": change_id,
+        "target_id": target_id,
+        "provider": "github",
+        "title": f"{operation_type.replace('_', ' ').title()}",
+        "status": "pending",
+        "risk_score": risk_score,
+        "requires_approval": True,
+        "api_key": api_key,
+        "expires_at": expires_at.isoformat(),
+        "created_at": datetime.now().isoformat(),
+        "revert_window": 24,
+        "revert_expires_at": expires_at.isoformat(),
+        "summary_json": {
             **(metadata or {}),
             "owner": owner,
             "repo": repo,
             "operation": operation_type,
+            "operation_type": operation_type,
             "token_hash": hashlib.sha256(token.encode()).hexdigest()[:16],
             "reason": reason
         },
-        revert_window=24,
-        revert_expires_at=datetime.now() + timedelta(hours=24)
-    )
+        "metadata": {
+            "object": metadata.get("object", "repository") if metadata else "repository",
+            "owner": owner,
+            "repo": repo,
+            "operation_type": operation_type
+        }
+    }
+    
+    db.upsert_change(change_record)
     
     # 3. Send Slack notification
     try:
-        # Get change data for notification
-        change_data = storage.get_change(change_id)
-        
         # Build extras for notification
         api_base = os.getenv("APP_BASE_URL", "https://saferun-api.up.railway.app")
         extras = {
             "approve_url": f"{api_base}/approvals/{change_id}",
             "revert_window_hours": 24,
-            "metadata": metadata or {}
+            "metadata": change_record["metadata"]
         }
         
         # Send notification via notifier.publish
         await notifier.publish(
             event="dry_run",
-            change=change_data,
+            change=change_record,
             extras=extras,
             api_key=api_key
         )
@@ -270,7 +287,7 @@ async def create_pending_operation(
         # Log error but don't fail the request
         print(f"Failed to send Slack notification: {e}")
     
-    return change_id, dry_run_result
+    return change_id, risk_score
 
 
 @router.post("/v1/github/repos/{owner}/{repo}/archive", response_model=OperationResponse)
@@ -309,7 +326,7 @@ async def archive_repository(
         ```
     """
     # Create pending operation
-    change_id, dry_run_result = await create_pending_operation(
+    change_id, risk_score = await create_pending_operation(
         operation_type="github_repo_archive",
         owner=owner,
         repo=repo,
@@ -327,7 +344,7 @@ async def archive_repository(
         requires_approval=True,
         revert_window_hours=24,
         expires_at=expires_at.isoformat(),
-        risk_score=dry_run_result.risk_score,
+        risk_score=risk_score,
         revertable=True,
         revert_type="repository_unarchive",
         message="Archive request created. Check Slack for approval."
@@ -347,7 +364,7 @@ async def unarchive_repository(
     Similar to archive but with lower risk score (typically 6.0).
     """
     # Create pending operation
-    change_id, dry_run_result = await create_pending_operation(
+    change_id, risk_score = await create_pending_operation(
         operation_type="github_repo_unarchive",
         owner=owner,
         repo=repo,
@@ -365,7 +382,7 @@ async def unarchive_repository(
         requires_approval=True,
         revert_window_hours=24,
         expires_at=expires_at.isoformat(),
-        risk_score=dry_run_result.risk_score,
+        risk_score=risk_score,
         revertable=True,
         revert_type="repository_unarchive",
         message="Unarchive request created. Check Slack for approval."
