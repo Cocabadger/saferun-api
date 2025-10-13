@@ -551,6 +551,12 @@ def format_slack_message(action, user_email: str, source: str = "github_webhook"
             operation_desc = "Repository Unarchived"
         elif repository_action == "archived":
             operation_desc = "Repository Archived"
+        elif repository_action == "deleted":
+            operation_desc = "🔴 Repository Deletion (PERMANENT)"
+    
+    # Special handling for delete repository operation via API/SDK
+    if "repo.delete" in action.operation_type.lower() or "repo_delete" in action.operation_type.lower():
+        operation_desc = "🔴 Repository Deletion (PERMANENT)"
     
     # Risk level emoji
     risk_emoji = "🔴" if action.risk_score >= 7.0 else "🟡" if action.risk_score >= 4.0 else "🟢"
@@ -619,6 +625,25 @@ def format_slack_message(action, user_email: str, source: str = "github_webhook"
             "text": {
                 "type": "mrkdwn",
                 "text": f"*⚠️ Risk Factors:*\n{reasons_text}"
+            }
+        })
+    
+    # Add CRITICAL warning for repository deletion
+    if "repo.delete" in action.operation_type.lower() or "repo_delete" in action.operation_type.lower():
+        message["blocks"].append({
+            "type": "section",
+            "text": {
+                "type": "mrkdwn",
+                "text": (
+                    "🔴 *CRITICAL WARNING - PERMANENT OPERATION*\n\n"
+                    "*This operation is IRREVERSIBLE:*\n"
+                    "• All repository data will be permanently deleted\n"
+                    "• All issues, pull requests, and wikis will be lost\n"
+                    "• All Git history will be destroyed\n"
+                    "• Repository cannot be recovered after deletion\n\n"
+                    "⚠️ *Note:* This operation requires `delete_repo` scope in GitHub PAT\n"
+                    "If PAT lacks this permission, the operation will fail with 403/404 error."
+                )
             }
         })
     
