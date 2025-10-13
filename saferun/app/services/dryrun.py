@@ -158,66 +158,53 @@ async def build_dryrun(req: DryRunArchiveRequest, notion_version: str | None = N
             need_approval, policy_reasons = policy_engine.evaluate(metadata, ctx, loaded_policy)
             all_reasons = risk_reasons + [f"policy:{r}" for r in policy_reasons]
 
-            # 4.5) Unified GitHub operation logic: categorize operations and apply branch-based rules
-            is_main_branch = False
-            revert_window_hours = None
-            operation_category = None  # "reversible" or "irreversible"
+            # 4.5) UNIFIED APPROVAL LOGIC (MVP): ALL operations require approval, 24h window
+            # Philosophy: SafeRun is PROTECTION system. No auto-execute.
             
+            # ALL OPERATIONS:
+            need_approval = True              # ALWAYS require approval
+            revert_window_hours = 24          # ALWAYS 24 hours for everything
+            
+            # Determine if operation is reversible (for revert button after execution)
+            is_reversible = False
             if req.provider == "github":
-                # Determine operation category based on metadata
                 object_type = metadata.get("object")
+                operation_type = metadata.get("operation_type", "")
                 
-                # Reversible operations (Группа A): can be undone
+                # Reversible operations: can be undone
                 reversible_operations = ["repository", "branch"]  # archive, branch-delete
                 
-                # Irreversible operations (Группа B): cannot be easily undone  
-                irreversible_operations = ["merge"]  # force-push handled via target_id check
+                # Irreversible operations: cannot be undone
+                irreversible_operations = ["merge", "force_push", "delete_repo"]
                 
-                if object_type in reversible_operations or metadata.get("type") == "bulk_pr":
-                    operation_category = "reversible"
-                elif object_type in irreversible_operations:
-                    operation_category = "irreversible"
-                    # For merge operations, check if target branch is main
-                    is_main_branch = metadata.get("isTargetDefault", False)
-                
-                # Determine if this affects main/default branch (for reversible operations)
-                if operation_category == "reversible":
-                    default_branch = metadata.get("default_branch", "main")
-                    
-                    # Check target_id for branch specification (repo#branch format)
-                    if "#" in req.target_id and "→" not in req.target_id:  # Not a merge
-                        _, branch_name = req.target_id.split("#", 1)
-                        is_main_branch = (branch_name == default_branch)
-                    elif object_type == "repository":
-                        # Whole repo operation affects main branch
-                        is_main_branch = True
-                    elif object_type == "branch":
-                        # Branch operation - check if it's the default branch being deleted
-                        is_main_branch = (metadata.get("name") == default_branch or metadata.get("isDefault", False))
-                
-                # Apply unified approval logic
-                if operation_category == "reversible":
-                    # Группа A: Reversible operations
-                    if is_main_branch:
-                        # Main branch → ALWAYS requires approval + revert window after execution
-                        need_approval = True
-                        all_reasons.append("github:main_branch_protection")
-                        # Add revert window for post-approval execution
-                        revert_window_hours = 24  # 24 hours to revert after approval execution
-                    else:
-                        # Non-main branch → Execute immediately + revert option (2 hours)
-                        need_approval = False
-                        revert_window_hours = 2
-                        
-                elif operation_category == "irreversible":
-                    # Группа B: Irreversible operations → ALWAYS require approval
-                    need_approval = True
+                if object_type in reversible_operations:
+                    is_reversible = True
+                    all_reasons.append("github:reversible_operation")
+                elif operation_type in irreversible_operations:
+                    is_reversible = False
                     all_reasons.append("github:irreversible_operation")
-                    # No revert option for irreversible operations
+                
+                # Add main branch protection reason if applicable
+                default_branch = metadata.get("default_branch", "main")
+                is_main_branch = False
+                
+                # Check target_id for branch specification (repo#branch format)
+                if "#" in req.target_id and "→" not in req.target_id:  # Not a merge
+                    _, branch_name = req.target_id.split("#", 1)
+                    is_main_branch = (branch_name == default_branch)
+                elif object_type == "repository":
+                    # Whole repo operation affects main branch
+                    is_main_branch = True
+                elif object_type == "branch":
+                    # Branch operation - check if it's the default branch
+                    is_main_branch = (metadata.get("name") == default_branch or metadata.get("isDefault", False))
+                
+                if is_main_branch:
+                    all_reasons.append("github:main_branch_protection")
 
             # 5) Persist the change request
             change_id = new_change_id()
-            expires_dt_obj = expiry(120)  # 2 hours timeout for all approvals
+            expires_dt_obj = expiry(120)  # 2 hours timeout for polling (kept for backwards compatibility)
             created_at_str = db.iso_z(expiry(0))
             expires_at_str = db.iso_z(expires_dt_obj)
             ttl_seconds = int(expires_dt_obj.timestamp() - datetime.now(timezone.utc).timestamp())
@@ -250,52 +237,9 @@ async def build_dryrun(req: DryRunArchiveRequest, notion_version: str | None = N
             storage.save_change(change_id, change_data, ttl_seconds)
 
             # 6) If no approval required but has revert_window - execute immediately and notify with revert option
-            if not need_approval and revert_window_hours is not None:
-                # Execute the action immediately
-                try:
-                    # For GitHub branch deletions, use delete_branch() instead of archive()
-                    if req.provider == "github" and item_type == "branch":
-                        revert_sha = await provider_instance.delete_branch(req.target_id, req.token)
-                        change_data["revert_token"] = revert_sha  # Store SHA for revert
-                        # Store in summary_json for revert (storage will serialize to JSON automatically)
-                        change_data["summary_json"] = {"github_restore_sha": revert_sha}
-                    else:
-                        await provider_instance.archive(req.target_id, req.token)
-                    
-                    # Update status to executed
-                    change_data["status"] = "executed"
-                    change_data["executed_at"] = db.iso_z(datetime.now(timezone.utc))
-                    storage.save_change(change_id, change_data, ttl_seconds)
-                    
-                    # Send notification with Revert button
-                    # SKIP notification for GitHub operations - webhook will handle it!
-                    # This prevents duplicate Slack messages (CLI API call + GitHub webhook)
-                    if req.provider != "github":
-                        import asyncio
-                        from ..notify import notifier
-                        # Use API_BASE_URL for API endpoints
-                        api_base = os.environ.get("API_BASE_URL") or os.environ.get("RAILWAY_PUBLIC_DOMAIN", "http://localhost:8500")
-                        if api_base and not api_base.startswith("http"):
-                            api_base = f"https://{api_base}"
-                        revert_url = f"{api_base}/webhooks/github/revert/{change_id}"
-                        change_record = storage.get_change(change_id)
-                        if change_record:
-                            asyncio.create_task(
-                                notifier.publish("executed_with_revert", change_record, 
-                                               extras={"revert_url": revert_url, 
-                                                      "revert_window_hours": revert_window_hours,
-                                                      "item_type": item_type,  # Pass item type for proper message
-                                                      "metadata": metadata,  # Pass metadata for operation type detection
-                                                      "meta": {"latency_ms": 0, "provider_version": "unknown"}}, 
-                                               api_key=api_key)
-                            )
-                except Exception as e:
-                    # If execution fails, update status and re-raise
-                    change_data["status"] = "failed"
-                    change_data["error"] = str(e)
-                    storage.save_change(change_id, change_data, ttl_seconds)
-                    raise
-
+            # 6) ALL operations require approval in MVP - NO auto-execute
+            # (Old auto-execute logic removed - everything goes through approval flow)
+            
             # 7) Approval URL and notification for approval-required changes
             approve_url = None
             if need_approval:
