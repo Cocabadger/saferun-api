@@ -197,13 +197,6 @@ async def approve_operation(change_id: str) -> ApprovalActionResponse:
         api_key = rec.get("api_key")
         
         # Parse metadata if it's a string
-        if isinstance(metadata, str):
-            import json
-            try:
-                metadata = json.loads(metadata)
-            except Exception:
-                metadata = {}
-        
         try:
             # Execute based on provider
             if provider == "github":

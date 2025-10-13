@@ -277,7 +277,7 @@ async def create_pending_operation(
         
         # Send notification via notifier.publish
         await notifier.publish(
-            event="dry_run",
+            event="dry_run",  # Use dry_run event to show approval buttons in Slack
             change=change_record,
             extras=extras,
             api_key=api_key
