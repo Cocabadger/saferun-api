@@ -268,7 +268,7 @@ async def create_pending_operation(
             "reason": reason
         },
         "metadata": {
-            "object": metadata.get("object", "repository") if metadata else "repository",
+            **(metadata or {}),  # Include ALL metadata fields (ref, sha, branch, etc.)
             "owner": owner,
             "repo": repo,
             "operation_type": operation_type
