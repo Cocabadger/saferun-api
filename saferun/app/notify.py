@@ -103,18 +103,20 @@ class Notifier:
                     repository_name = target_id
             
             # Determine operation display text based on operation_type or object_type
-            if operation_type == "delete_repo":
+            # Check full operation_type first (github_force_push, github_pr_merge, etc.)
+            if operation_type == "delete_repo" or operation_type == "github_repo_delete":
                 operation_display = "Repository DELETE (PERMANENT)"
-            elif operation_type == "force_push":
-                operation_display = "Force Push"
-            elif object_type == "merge":
+            elif operation_type == "github_force_push" or operation_type == "force_push":
+                branch_name = metadata.get("name") or metadata.get("branch", "branch")
+                operation_display = f"Force Push: {branch_name}"
+            elif operation_type == "github_pr_merge" or object_type == "merge":
                 # Check if merging to main/default
                 if metadata.get("isTargetDefault"):
                     operation_display = "Merge to Main Branch"
                 else:
                     target_branch = metadata.get("target_branch", "branch")
                     operation_display = f"Merge to {target_branch}"
-            elif object_type == "branch":
+            elif operation_type == "github_branch_delete" or (object_type == "branch" and operation_type != "github_force_push"):
                 if metadata.get("isDefault"):
                     operation_display = "Delete Main Branch"
                 else:
@@ -210,13 +212,22 @@ class Notifier:
                 
                 operation_type = metadata.get("operation_type")
                 
-                # Determine success message
-                if item_type == "branch":
+                # Determine success message based on operation_type
+                if operation_type == "github_force_push":
+                    success_msg = "*Force push executed successfully.*"
+                elif operation_type == "github_branch_delete":
                     success_msg = "*Branch deleted successfully.*"
+                elif operation_type == "github_pr_merge":
+                    success_msg = "*Pull request merged successfully.*"
                 elif operation_type == "github_repo_archive":
                     success_msg = "*Repository archived successfully.*"
                 elif operation_type == "github_repo_unarchive":
                     success_msg = "*Repository unarchived successfully.*"
+                elif operation_type == "github_repo_delete":
+                    success_msg = "*Repository deleted successfully. (PERMANENT)*"
+                elif item_type == "branch":
+                    # Fallback for branch operations
+                    success_msg = "*Branch operation completed successfully.*"
                 elif item_type == "repo":
                     success_msg = "*Repository operation completed successfully.*"
                 else:
@@ -326,11 +337,12 @@ class Notifier:
                 elif "/" in target_id:
                     repository_name = target_id
             
-            # Determine operation display text
+            # Determine operation display text - check operation_type first!
+            op_type = metadata.get("operation_type", "")
+            
             if object_type == "repository":
                 # Check operation_type to distinguish between archive, unarchive and delete
-                op_type = metadata.get("operation_type", "")
-                if op_type == "delete_repo":
+                if op_type == "delete_repo" or op_type == "github_repo_delete":
                     operation_display = "🔴 Repository Deletion (PERMANENT)"
                 elif op_type == "github_repo_unarchive":
                     operation_display = "Unarchive Repository"
@@ -340,8 +352,15 @@ class Notifier:
                     operation_display = "Repository Operation"
             elif object_type == "branch":
                 branch_name = metadata.get("name") or metadata.get("branch", "branch")
-                operation_display = f"Delete Branch: {branch_name}"
-            elif object_type == "merge":
+                # Check operation_type to distinguish between delete and force push
+                if op_type == "github_force_push":
+                    operation_display = f"Force Push: {branch_name}"
+                elif op_type == "github_branch_delete":
+                    operation_display = f"Delete Branch: {branch_name}"
+                else:
+                    # Fallback - check if it looks like delete
+                    operation_display = f"Branch Operation: {branch_name}"
+            elif object_type == "merge" or op_type == "github_pr_merge":
                 if metadata.get("isTargetDefault"):
                     operation_display = "Merge to Main Branch"
                 else:
@@ -415,13 +434,29 @@ class Notifier:
 
         # For executed_with_revert, show revert instructions
         if event_type == "executed_with_revert" and revert_url:
-            # Success message based on operation
-            if "Archive" in operation_display:
+            # Success message based on operation_type (not display text!)
+            op_type = metadata.get("operation_type", "")
+            
+            if op_type == "github_repo_archive":
                 success_msg = "*Repository archived successfully.*"
-            elif "Delete Branch" in operation_display:
+            elif op_type == "github_repo_unarchive":
+                success_msg = "*Repository unarchived successfully.*"
+            elif op_type == "github_branch_delete":
                 success_msg = "*Branch deleted successfully.*"
+            elif op_type == "github_force_push":
+                success_msg = "*Force push executed successfully.*"
+            elif op_type == "github_pr_merge":
+                success_msg = "*Pull request merged successfully.*"
+            elif op_type == "github_repo_delete":
+                success_msg = "*Repository deleted successfully. (PERMANENT)*"
             else:
-                success_msg = "*Operation completed successfully.*"
+                # Fallback - check display text
+                if "Archive" in operation_display:
+                    success_msg = "*Repository archived successfully.*"
+                elif "Unarchive" in operation_display:
+                    success_msg = "*Repository unarchived successfully.*"
+                else:
+                    success_msg = "*Operation completed successfully.*"
             
             blocks.append({
                 "type": "section",
