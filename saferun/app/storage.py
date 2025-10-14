@@ -41,6 +41,10 @@ class Storage(ABC):
         pass
 
     @abstractmethod
+    def update_summary_json(self, change_id: str, summary_json: dict) -> None:
+        pass
+
+    @abstractmethod
     def run_gc(self) -> None:
         pass
 
@@ -80,6 +84,9 @@ class SqliteStorage(Storage):
 
     def set_revert_token(self, change_id: str, token: str) -> None:
         db.set_revert_token(change_id, token)
+
+    def update_summary_json(self, change_id: str, summary_json: dict) -> None:
+        db.update_summary_json(change_id, summary_json)
 
     def set_change_approved(self, change_id: str, approved: bool) -> None:
         # Persist requires_approval flip (toggle to False once approved)
@@ -153,6 +160,10 @@ class RedisStorage(Storage):
 
     def set_revert_token(self, change_id: str, token: str) -> None:
         self._update_change_field(change_id, "revert_token", token)
+    
+    def update_summary_json(self, change_id: str, summary_json: dict) -> None:
+        self._update_change_field(change_id, "summary_json", summary_json)
+    
     def set_change_approved(self, change_id: str, approved: bool) -> None:
         # For Redis we rewrite the whole record similar to other helpers
         change = self.get_change(change_id)

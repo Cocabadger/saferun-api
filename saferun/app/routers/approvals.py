@@ -285,6 +285,10 @@ async def approve_operation(change_id: str) -> ApprovalActionResponse:
             rec["executed_at"] = db_module.iso_z(datetime.now(timezone.utc))
             storage.set_change_status(change_id, "executed")
             
+            # Update summary_json in database if revert_action was added
+            if rec.get("summary_json") and "revert_action" in rec["summary_json"]:
+                storage.update_summary_json(change_id, rec["summary_json"])
+            
             # Send Slack notification with revert instructions
             from ..notify import notifier
             

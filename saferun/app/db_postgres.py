@@ -311,6 +311,12 @@ def set_revert_token(change_id: str, token: str):
     """Set revert token for change."""
     exec("UPDATE changes SET revert_token=%s WHERE change_id=%s", (token, change_id))
 
+def update_summary_json(change_id: str, summary_json: dict):
+    """Update summary_json for change."""
+    import json
+    summary_json_str = json.dumps(summary_json) if isinstance(summary_json, dict) else summary_json
+    exec("UPDATE changes SET summary_json=%s WHERE change_id=%s", (summary_json_str, change_id))
+
 # Tokens
 def insert_token(token: str, kind: str, ref: str, expires_at: str):
     """Insert token."""
