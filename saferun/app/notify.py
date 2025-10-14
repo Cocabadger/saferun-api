@@ -194,12 +194,31 @@ class Notifier:
         # Add buttons based on event type
         if change_id:
             if event_type == "executed_with_revert":
-                # Determine success message based on item type
+                # Determine success message based on operation type and item type
                 item_type = payload.get("item_type", "repository")
+                
+                # Get metadata to determine actual operation
+                metadata = payload.get("metadata", {})
+                if not metadata:
+                    extras = payload.get("extras", {})
+                    metadata = extras.get("metadata", {})
+                if isinstance(metadata, str):
+                    try:
+                        metadata = json.loads(metadata)
+                    except Exception:
+                        metadata = {}
+                
+                operation_type = metadata.get("operation_type")
+                
+                # Determine success message
                 if item_type == "branch":
                     success_msg = "*Branch deleted successfully.*"
-                elif item_type == "repo":
+                elif operation_type == "github_repo_archive":
                     success_msg = "*Repository archived successfully.*"
+                elif operation_type == "github_repo_unarchive":
+                    success_msg = "*Repository unarchived successfully.*"
+                elif item_type == "repo":
+                    success_msg = "*Repository operation completed successfully.*"
                 else:
                     success_msg = "*Operation completed successfully.*"
                 
