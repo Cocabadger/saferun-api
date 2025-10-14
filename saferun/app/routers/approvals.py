@@ -132,6 +132,8 @@ async def approve_operation(change_id: str) -> ApprovalActionResponse:
     Approve a pending operation.
     For CLI/SDK operations: sets requires_approval to False so they can proceed.
     For API operations with revert_window: executes immediately and sends notification.
+    
+    VERSION: 2025-10-14-v2 - UNARCHIVE FIX APPLIED
     """
     from datetime import datetime, timezone
     
@@ -229,12 +231,18 @@ async def approve_operation(change_id: str) -> ApprovalActionResponse:
                     owner, repo = parts[0], parts[1].split("#")[0] if "#" in parts[1] else parts[1]
                 
                 # Execute based on operation_type or object_type
-                # FIXED: Use correct method for each operation type
-                if operation_type == "github_repo_archive" or (object_type == "repository" and "archive" in str(summary_json)):
+                # FIXED: Check operation_type FIRST to avoid substring matching issues
+                if operation_type == "github_repo_archive":
                     # Archive repository
                     await GitHubProvider.archive(target_id, token)
-                elif operation_type == "github_repo_unarchive" or (object_type == "repository" and "unarchive" in str(summary_json)):
-                    # Unarchive repository - CRITICAL FIX: must call unarchive(), not archive()
+                elif operation_type == "github_repo_unarchive":
+                    # Unarchive repository
+                    await GitHubProvider.unarchive(target_id, token)
+                elif object_type == "repository" and "archive" in str(summary_json) and "unarchive" not in str(summary_json):
+                    # Fallback for archive (webhook)
+                    await GitHubProvider.archive(target_id, token)
+                elif object_type == "repository" and "unarchive" in str(summary_json):
+                    # Fallback for unarchive (webhook)
                     await GitHubProvider.unarchive(target_id, token)
                 elif object_type == "branch":
                     # Delete branch (stores SHA for revert)
