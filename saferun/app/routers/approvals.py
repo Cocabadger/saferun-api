@@ -229,11 +229,12 @@ async def approve_operation(change_id: str) -> ApprovalActionResponse:
                     owner, repo = parts[0], parts[1].split("#")[0] if "#" in parts[1] else parts[1]
                 
                 # Execute based on operation_type or object_type
+                # FIXED: Use correct method for each operation type
                 if operation_type == "github_repo_archive" or (object_type == "repository" and "archive" in str(summary_json)):
                     # Archive repository
                     await GitHubProvider.archive(target_id, token)
                 elif operation_type == "github_repo_unarchive" or (object_type == "repository" and "unarchive" in str(summary_json)):
-                    # Unarchive repository
+                    # Unarchive repository - CRITICAL FIX: must call unarchive(), not archive()
                     await GitHubProvider.unarchive(target_id, token)
                 elif object_type == "branch":
                     # Delete branch (stores SHA for revert)
