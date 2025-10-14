@@ -333,7 +333,7 @@ async def archive_repository(
         api_key=api_key,
         token=req.token,
         reason=req.reason,
-        metadata={"object": "repository", "operation": "archive"}
+        metadata={"object": "repository", "operation": "archive", "operation_type": "github_repo_archive"}
     )
     
     # Return response
@@ -371,7 +371,7 @@ async def unarchive_repository(
         api_key=api_key,
         token=req.token,
         reason=req.reason,
-        metadata={"object": "repository", "operation": "unarchive"}
+        metadata={"object": "repository", "operation": "unarchive", "operation_type": "github_repo_unarchive"}
     )
     
     # Return response
