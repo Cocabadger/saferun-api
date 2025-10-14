@@ -254,6 +254,14 @@ async def approve_operation(change_id: str) -> ApprovalActionResponse:
                             "repo": repo
                         }
                     }
+                elif operation_type == "github_repo_delete":
+                    # Delete repository (PERMANENT - NO REVERT)
+                    await GitHubProvider.delete_repository(target_id, token)
+                    rec["summary_json"] = {
+                        "deleted": True,
+                        "permanent": True,
+                        "revertable": False
+                    }
                 elif object_type == "repository" and "archive" in str(summary_json) and "unarchive" not in str(summary_json):
                     # Fallback for archive (webhook)
                     await GitHubProvider.archive(target_id, token)
@@ -275,10 +283,72 @@ async def approve_operation(change_id: str) -> ApprovalActionResponse:
                         }
                     }
                 elif object_type == "branch":
-                    # Delete branch (stores SHA for revert)
-                    revert_sha = await GitHubProvider.delete_branch(target_id, token)
-                    rec["revert_token"] = revert_sha
-                    rec["summary_json"] = {"github_restore_sha": revert_sha}
+                    # Check if it's force push or delete
+                    if operation_type == "github_force_push":
+                        # Force push operation
+                        metadata_dict = metadata if isinstance(metadata, dict) else {}
+                        ref = metadata_dict.get("ref")
+                        sha = metadata_dict.get("sha")
+                        
+                        if not ref or not sha:
+                            raise HTTPException(
+                                status_code=400,
+                                detail="Force push requires 'ref' and 'sha' in metadata"
+                            )
+                        
+                        # Execute force push
+                        result = await GitHubProvider.force_push(
+                            f"{owner}/{repo}#{ref.replace('refs/heads/', '')}",
+                            token,
+                            sha
+                        )
+                        
+                        # Store previous SHA for revert
+                        rec["revert_token"] = result.get("previous_sha")
+                        rec["summary_json"] = {
+                            "github_restore_sha": result.get("previous_sha"),
+                            "new_sha": sha,
+                            "branch": ref.replace('refs/heads/', '')
+                        }
+                    else:
+                        # Delete branch (stores SHA for revert)
+                        revert_sha = await GitHubProvider.delete_branch(target_id, token)
+                        rec["revert_token"] = revert_sha
+                        rec["summary_json"] = {"github_restore_sha": revert_sha}
+                
+                elif object_type == "pull_request":
+                    # Merge pull request
+                    metadata_dict = metadata if isinstance(metadata, dict) else {}
+                    pr_number = metadata_dict.get("pr_number")
+                    merge_method = metadata_dict.get("merge_method", "merge")
+                    commit_title = metadata_dict.get("commit_title")
+                    commit_message = metadata_dict.get("commit_message")
+                    
+                    if not pr_number:
+                        raise HTTPException(
+                            status_code=400,
+                            detail="Pull request merge requires 'pr_number' in metadata"
+                        )
+                    
+                    # Execute merge
+                    result = await GitHubProvider.merge_pull_request(
+                        owner,
+                        repo,
+                        pr_number,
+                        token,
+                        commit_title=commit_title,
+                        commit_message=commit_message,
+                        merge_method=merge_method
+                    )
+                    
+                    # Store merge SHA for revert
+                    rec["revert_token"] = result.get("sha")
+                    rec["summary_json"] = {
+                        "merge_sha": result.get("sha"),
+                        "pr_number": pr_number,
+                        "base_branch": result.get("base_branch"),
+                        "merged": result.get("merged")
+                    }
             
             # Update status to executed
             rec["status"] = "executed"

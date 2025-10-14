@@ -376,3 +376,67 @@ class GitHubProvider(Provider):
             "is_main_branch": is_main_branch,
         }
 
+    @staticmethod
+    async def merge_pull_request(
+        owner: str,
+        repo: str,
+        pr_number: int,
+        token: str,
+        commit_title: str = None,
+        commit_message: str = None,
+        merge_method: str = "merge"
+    ) -> dict:
+        """
+        Merge a pull request (IRREVERSIBLE operation).
+        
+        Args:
+            owner: Repository owner
+            repo: Repository name
+            pr_number: Pull request number
+            token: GitHub token
+            commit_title: Optional custom merge commit title
+            commit_message: Optional custom merge commit message
+            merge_method: Merge method (merge, squash, or rebase)
+        
+        Returns:
+            dict with merge details including sha and merged status
+        """
+        # Get PR details to check target branch
+        pr_data = await GitHubProvider._request(
+            "GET",
+            f"/repos/{owner}/{repo}/pulls/{pr_number}",
+            token
+        )
+        
+        base_branch = pr_data.get("base", {}).get("ref")
+        
+        # Get repo to check if merging to default branch
+        repo_data = await GitHubProvider._get_repo(owner, repo, token)
+        is_main_branch = repo_data.get("default_branch") == base_branch
+        
+        # Prepare merge payload
+        payload = {"merge_method": merge_method}
+        if commit_title:
+            payload["commit_title"] = commit_title
+        if commit_message:
+            payload["commit_message"] = commit_message
+        
+        # Execute merge
+        result = await GitHubProvider._request(
+            "PUT",
+            f"/repos/{owner}/{repo}/pulls/{pr_number}/merge",
+            token,
+            json_payload=payload
+        )
+        
+        return {
+            "ok": True,
+            "sha": result.get("sha"),
+            "merged": result.get("merged", True),
+            "message": result.get("message"),
+            "pr_number": pr_number,
+            "base_branch": base_branch,
+            "is_main_branch": is_main_branch
+        }
+
+
