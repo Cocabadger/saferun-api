@@ -233,11 +233,22 @@ async def create_pending_operation(
     change_id = str(uuid.uuid4())
     expires_at = datetime.now() + timedelta(hours=24)
     
+    # Determine human-readable title from operation_type
+    title_map = {
+        "github_repo_archive": "Archive Repository",
+        "github_repo_unarchive": "Unarchive Repository",
+        "github_repo_delete": "Delete Repository (PERMANENT)",
+        "github_branch_delete": "Delete Branch",
+        "github_pr_merge": "Merge Pull Request",
+        "github_force_push": "Force Push"
+    }
+    title = title_map.get(operation_type, operation_type.replace('_', ' ').title())
+    
     change_record = {
         "change_id": change_id,
         "target_id": target_id,
         "provider": "github",
-        "title": f"{operation_type.replace('_', ' ').title()}",
+        "title": title,
         "status": "pending",
         "risk_score": risk_score,
         "requires_approval": True,
