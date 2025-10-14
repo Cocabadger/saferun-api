@@ -328,12 +328,16 @@ class Notifier:
             
             # Determine operation display text
             if object_type == "repository":
-                # Check operation_type to distinguish between archive and delete
+                # Check operation_type to distinguish between archive, unarchive and delete
                 op_type = metadata.get("operation_type", "")
                 if op_type == "delete_repo":
                     operation_display = "🔴 Repository Deletion (PERMANENT)"
-                else:
+                elif op_type == "github_repo_unarchive":
+                    operation_display = "Unarchive Repository"
+                elif op_type == "github_repo_archive":
                     operation_display = "Archive Repository"
+                else:
+                    operation_display = "Repository Operation"
             elif object_type == "branch":
                 branch_name = metadata.get("name") or metadata.get("branch", "branch")
                 operation_display = f"Delete Branch: {branch_name}"
