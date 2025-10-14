@@ -235,15 +235,45 @@ async def approve_operation(change_id: str) -> ApprovalActionResponse:
                 if operation_type == "github_repo_archive":
                     # Archive repository
                     await GitHubProvider.archive(target_id, token)
+                    # Add revert_action for unarchive
+                    rec["summary_json"] = {
+                        "revert_action": {
+                            "type": "repository_unarchive",
+                            "owner": owner,
+                            "repo": repo
+                        }
+                    }
                 elif operation_type == "github_repo_unarchive":
                     # Unarchive repository
                     await GitHubProvider.unarchive(target_id, token)
+                    # Add revert_action for archive
+                    rec["summary_json"] = {
+                        "revert_action": {
+                            "type": "repository_archive",
+                            "owner": owner,
+                            "repo": repo
+                        }
+                    }
                 elif object_type == "repository" and "archive" in str(summary_json) and "unarchive" not in str(summary_json):
                     # Fallback for archive (webhook)
                     await GitHubProvider.archive(target_id, token)
+                    rec["summary_json"] = {
+                        "revert_action": {
+                            "type": "repository_unarchive",
+                            "owner": owner,
+                            "repo": repo
+                        }
+                    }
                 elif object_type == "repository" and "unarchive" in str(summary_json):
                     # Fallback for unarchive (webhook)
                     await GitHubProvider.unarchive(target_id, token)
+                    rec["summary_json"] = {
+                        "revert_action": {
+                            "type": "repository_archive",
+                            "owner": owner,
+                            "repo": repo
+                        }
+                    }
                 elif object_type == "branch":
                     # Delete branch (stores SHA for revert)
                     revert_sha = await GitHubProvider.delete_branch(target_id, token)

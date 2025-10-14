@@ -391,6 +391,14 @@ async def revert_github_action(
         )
         success = True
     
+    elif revert_action["type"] == "repository_archive":
+        from saferun.app.providers.github_provider import GitHubProvider
+        await GitHubProvider.archive(
+            target_id=f"{revert_action['owner']}/{revert_action['repo']}",
+            token=github_token
+        )
+        success = True
+    
     if success:
         # Update change status
         db.exec(
