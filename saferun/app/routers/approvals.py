@@ -349,11 +349,11 @@ async def approve_operation(change_id: str) -> ApprovalActionResponse:
                         merge_method=merge_method
                     )
                     
-                    # Get base branch and parent SHA for revert
+                    # Get base branch and merge SHA for revert
                     base_branch = result.get("base_branch") or metadata_dict.get("base_branch", "main")
                     merge_sha = result.get("sha")
                     
-                    # Get parent SHA (commit before merge) for revert
+                    # Get parent SHA (commit before merge) for display purposes
                     try:
                         commit_data = await GitHubProvider._request(
                             "GET",
@@ -376,7 +376,8 @@ async def approve_operation(change_id: str) -> ApprovalActionResponse:
                             "owner": owner,
                             "repo": repo,
                             "branch": base_branch,
-                            "before_sha": parent_sha or "unknown"
+                            "merge_commit_sha": merge_sha,  # For create_revert_commit function
+                            "before_sha": parent_sha or "unknown"  # For notification display
                         }
                     }
             
