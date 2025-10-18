@@ -468,13 +468,15 @@ class Notifier:
             
             # Add revert instructions with curl command
             revert_operation = "Repository Unarchive" if "Archive" in operation_display else "Branch Restore"
-            curl_command = f"curl -X POST '{revert_url}' -H 'Content-Type: application/json' -d '{{\"github_token\": \"YOUR_TOKEN\"}}'"
+            
+            # Create proper curl command with API key requirement
+            curl_command = f"curl -X POST '{revert_url}' \\\n  -H 'x-api-key: YOUR_SAFERUN_API_KEY' \\\n  -H 'Content-Type: application/json' \\\n  -d '{{\"github_token\": \"YOUR_GITHUB_TOKEN\"}}'"
             
             blocks.append({
                 "type": "section",
                 "text": {
                     "type": "mrkdwn",
-                    "text": f"*🔄 Revert Available:* {revert_operation}\n\n```{curl_command}```"
+                    "text": f"*:arrows_counterclockwise: Revert Available:* {revert_operation}\n\n```{curl_command}```\n\n:warning: *Important:* Use the same SafeRun API key from your original request"
                 }
             })
         elif approve_url:

@@ -514,6 +514,30 @@ async def force_push_branch(
           }'
         ```
     """
+    # Validate SHA format (must be full 40-character hash)
+    if not req.sha or len(req.sha) != 40:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "error": "Invalid SHA format",
+                "message": "SHA must be exactly 40 characters (full commit hash)",
+                "hint": "Use 'git rev-parse HEAD' or 'git rev-parse <short-sha>' to get full SHA",
+                "received_length": len(req.sha) if req.sha else 0,
+                "example": "git rev-parse abc123  # Returns full 40-char SHA"
+            }
+        )
+    
+    # Validate SHA contains only hexadecimal characters
+    if not all(c in '0123456789abcdef' for c in req.sha.lower()):
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "error": "Invalid SHA characters",
+                "message": "SHA must contain only hexadecimal characters (0-9, a-f)",
+                "received": req.sha
+            }
+        )
+    
     # Extract branch name from ref (refs/heads/main -> main)
     branch = req.ref.replace("refs/heads/", "")
     
