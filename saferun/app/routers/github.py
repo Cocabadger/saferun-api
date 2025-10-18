@@ -199,35 +199,41 @@ async def create_pending_operation(
     api_key: str,
     token: str,
     reason: Optional[str] = None,
-    metadata: Optional[Dict[str, Any]] = None
+    metadata: Optional[Dict[str, Any]] = None,
+    risk_score: Optional[float] = None
 ) -> tuple[str, float]:
     """
     Helper function to create a pending operation.
+    
+    Args:
+        risk_score: Optional pre-calculated risk score. If provided, overrides default calculation.
     
     Returns: (change_id, risk_score)
     """
     from .. import db_postgres as db
     from ..notify import notifier
     
-    # 1. Calculate risk score
+    # 1. Calculate risk score (use provided or calculate default)
     target_id = f"{owner}/{repo}"
     if metadata and metadata.get("branch"):
         target_id = f"{owner}/{repo}#{metadata['branch']}"
     
-    # Determine risk score based on operation type
-    risk_score = 8.0  # Default for archive
-    if operation_type == "github_repo_archive":
-        risk_score = 8.0
-    elif operation_type == "github_repo_unarchive":
-        risk_score = 6.0
-    elif operation_type == "github_repo_delete":
-        risk_score = 10.0
-    elif operation_type == "github_branch_delete":
-        risk_score = 7.0 if "main" in target_id or "master" in target_id else 4.0
-    elif operation_type == "github_pr_merge":
-        risk_score = 6.0
-    elif operation_type == "github_force_push":
-        risk_score = 9.0 if "main" in target_id or "master" in target_id else 7.0
+    # Use provided risk_score if available, otherwise calculate default
+    if risk_score is None:
+        # Determine risk score based on operation type
+        risk_score = 8.0  # Default for archive
+        if operation_type == "github_repo_archive":
+            risk_score = 8.0
+        elif operation_type == "github_repo_unarchive":
+            risk_score = 6.0
+        elif operation_type == "github_repo_delete":
+            risk_score = 10.0
+        elif operation_type == "github_branch_delete":
+            risk_score = 7.0 if "main" in target_id or "master" in target_id else 4.0
+        elif operation_type == "github_pr_merge":
+            risk_score = 6.0
+        elif operation_type == "github_force_push":
+            risk_score = 9.0 if "main" in target_id or "master" in target_id else 7.0
     
     # 2. Create pending operation in database
     change_id = str(uuid.uuid4())
@@ -265,13 +271,15 @@ async def create_pending_operation(
             "operation": operation_type,
             "operation_type": operation_type,
             "token_hash": hashlib.sha256(token.encode()).hexdigest()[:16],
-            "reason": reason
+            "reason": reason,
+            "initiated_via": "api"  # Mark as API-initiated to prevent webhook duplicates
         },
         "metadata": {
             **(metadata or {}),  # Include ALL metadata fields (ref, sha, branch, etc.)
             "owner": owner,
             "repo": repo,
-            "operation_type": operation_type
+            "operation_type": operation_type,
+            "initiated_via": "api"  # Mark as API-initiated
         }
     }
     
@@ -650,7 +658,7 @@ async def merge_pull_request(
     if not has_reviews:
         risk_score += 2.0  # No reviews
     
-    # Create pending operation
+    # Create pending operation with calculated risk score
     change_id, _ = await create_pending_operation(
         operation_type="github_pr_merge",
         owner=owner,
@@ -658,6 +666,7 @@ async def merge_pull_request(
         api_key=api_key,
         token=req.token,
         reason=req.reason,
+        risk_score=risk_score,  # Pass calculated risk score
         metadata={
             "object": "pull_request",
             "operation": "merge",

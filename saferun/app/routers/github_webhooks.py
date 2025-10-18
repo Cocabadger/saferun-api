@@ -149,6 +149,32 @@ async def github_webhook_event(
     elif event_type == "pull_request" and payload.get("action") == "closed" and payload.get("pull_request", {}).get("merged"):
         action_type = "github_merge"
     
+    # Check if this event was initiated via API (to prevent duplicate notifications)
+    # Look for recent pending/executed operations with same repo/branch in last 5 minutes
+    repo_full_name = payload.get("repository", {}).get("full_name", "")
+    ref_name = payload.get("ref", "").replace("refs/heads/", "") or payload.get("pull_request", {}).get("base", {}).get("ref", "")
+    
+    if repo_full_name and action_type in ["github_merge", "github_force_push"]:
+        # Check for recent API-initiated operations
+        check_time = (datetime.now() - timedelta(minutes=5)).isoformat()
+        recent_api_op = db.fetchone(
+            """SELECT change_id, status FROM changes 
+               WHERE target_id LIKE %s 
+               AND summary_json->>'initiated_via' = 'api'
+               AND summary_json->>'operation_type' = %s
+               AND created_at > %s
+               AND status IN ('pending', 'approved', 'executed')
+               ORDER BY created_at DESC
+               LIMIT 1""",
+            (f"%{repo_full_name}%", action_type.replace("github_", "github_pr_") if action_type == "github_merge" else action_type, check_time)
+        )
+        
+        if recent_api_op:
+            # This webhook event corresponds to an API-initiated operation
+            # Skip creating duplicate notification
+            print(f"⏭️  Skipping webhook notification - API-initiated operation detected: {recent_api_op['change_id']}")
+            return {"status": "skipped", "reason": "api_initiated", "api_change_id": recent_api_op['change_id']}
+    
     # Generate unique change ID
     change_id = str(uuid.uuid4())
     
@@ -437,9 +463,10 @@ async def revert_github_action(
                     
                     # Build message blocks based on operation type
                     if revert_type == "merge_revert":
-                        # Special message for merge revert with counter-commit info
+                        # Special message for merge revert with force update info
+                        before_sha = revert_action.get('before_sha', 'unknown')[:7]
                         slack_message = {
-                            "text": f"✅ {revert_type_label} - Counter-Commit Created",
+                            "text": f"✅ {revert_type_label} - Branch Force Updated",
                             "blocks": [
                                 {
                                     "type": "header",
@@ -463,11 +490,12 @@ async def revert_github_action(
                                     "text": {
                                         "type": "mrkdwn",
                                         "text": (
-                                            "*✅ Counter-commit created*\n"
-                                            "The merge has been reverted by creating a new commit that undoes the changes.\n\n"
-                                            "*⚠️ Note:*\n"
-                                            "• Original merge commit remains in Git history\n"
-                                            "• Code changes have been undone in the current branch state\n"
+                                            "*✅ Branch force-updated to pre-merge state*\n"
+                                            f"Branch `{revert_action.get('branch')}` reset to commit `{before_sha}` (state before merge).\n\n"
+                                            "*⚠️ Important:*\n"
+                                            "• Merge commit has been REMOVED from history (destructive operation)\n"
+                                            "• Anyone who pulled the merge will have diverged history\n"
+                                            "• Team members may need to reset their local branches\n"
                                             "• This does NOT prevent future unauthorized merges\n\n"
                                             "*🛡️ Recommendation:*\n"
                                             f"Enable Branch Protection to prevent future unauthorized merges:\n"

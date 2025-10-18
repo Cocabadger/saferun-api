@@ -769,9 +769,10 @@ def format_slack_message(action, user_email: str, source: str = "github_webhook"
             
             warning_text = (
                 f"*⚠️ Limited Revert Available:*\n"
-                f"{revert_type} (creates counter-commit)\n\n"
-                f"*⚠️ Limitations:*\n"
-                f"• Original merge remains in Git history\n"
+                f"{revert_type} (force-updates branch to pre-merge state)\n\n"
+                f"*⚠️ Limitations & Consequences:*\n"
+                f"• Merge commit will be REMOVED from history (destructive)\n"
+                f"• Team members who pulled the merge will have diverged history\n"
                 f"• Temporal window existed - code may have been deployed\n"
                 f"• Does NOT prevent future unauthorized merges\n\n"
                 f"*To revert changes (via curl):*\n"
