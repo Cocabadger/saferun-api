@@ -304,11 +304,19 @@ async def approve_operation(change_id: str) -> ApprovalActionResponse:
                         )
                         
                         # Store previous SHA for revert
+                        branch_name = ref.replace('refs/heads/', '')
                         rec["revert_token"] = result.get("previous_sha")
                         rec["summary_json"] = {
                             "github_restore_sha": result.get("previous_sha"),
                             "new_sha": sha,
-                            "branch": ref.replace('refs/heads/', '')
+                            "branch": branch_name,
+                            "revert_action": {
+                                "type": "force_push_revert",
+                                "owner": owner,
+                                "repo": repo,
+                                "branch": branch_name,
+                                "before_sha": result.get("previous_sha")
+                            }
                         }
                     else:
                         # Delete branch (stores SHA for revert)
