@@ -349,13 +349,35 @@ async def approve_operation(change_id: str) -> ApprovalActionResponse:
                         merge_method=merge_method
                     )
                     
+                    # Get base branch and parent SHA for revert
+                    base_branch = result.get("base_branch") or metadata_dict.get("base_branch", "main")
+                    merge_sha = result.get("sha")
+                    
+                    # Get parent SHA (commit before merge) for revert
+                    try:
+                        commit_data = await GitHubProvider._request(
+                            "GET",
+                            f"/repos/{owner}/{repo}/commits/{merge_sha}",
+                            token
+                        )
+                        parent_sha = commit_data.get("parents", [{}])[0].get("sha") if commit_data.get("parents") else None
+                    except:
+                        parent_sha = None
+                    
                     # Store merge SHA for revert
-                    rec["revert_token"] = result.get("sha")
+                    rec["revert_token"] = merge_sha
                     rec["summary_json"] = {
-                        "merge_sha": result.get("sha"),
+                        "merge_sha": merge_sha,
                         "pr_number": pr_number,
-                        "base_branch": result.get("base_branch"),
-                        "merged": result.get("merged")
+                        "base_branch": base_branch,
+                        "merged": result.get("merged"),
+                        "revert_action": {
+                            "type": "merge_revert",
+                            "owner": owner,
+                            "repo": repo,
+                            "branch": base_branch,
+                            "before_sha": parent_sha or "unknown"
+                        }
                     }
             
             # Update status to executed
