@@ -775,7 +775,8 @@ def format_slack_message(action, user_email: str, source: str = "github_webhook"
                 f"• Temporal window existed - code may have been deployed\n"
                 f"• Does NOT prevent future unauthorized merges\n\n"
                 f"*To revert changes (via curl):*\n"
-                f"```curl -X POST '{revert_url}' \\\n  -H 'Content-Type: application/json' \\\n  -d '{{\"github_token\": \"ghp_YOUR_TOKEN\"}}'```"
+                f"```curl -X POST '{revert_url}' \\\n  -H 'x-api-key: YOUR_SAFERUN_API_KEY' \\\n  -H 'Content-Type: application/json' \\\n  -d '{{\"github_token\": \"YOUR_GITHUB_TOKEN\"}}'```\n\n"
+                f":warning: *Important:* Use the same SafeRun API key from your original request"
             )
             
             if branch_protection_url:
@@ -802,7 +803,7 @@ def format_slack_message(action, user_email: str, source: str = "github_webhook"
                 "type": "section",
                 "text": {
                     "type": "mrkdwn",
-                    "text": f"*🔄 Revert Available:*\n{revert_type}\n\n*To revert (via curl):*\n```curl -X POST '{revert_url}' \\\n  -H 'Content-Type: application/json' \\\n  -d '{{\"github_token\": \"ghp_YOUR_TOKEN\"}}'```"
+                    "text": f"*:arrows_counterclockwise: Revert Available:*\n{revert_type}\n\n```curl -X POST '{revert_url}' \\\n  -H 'x-api-key: YOUR_SAFERUN_API_KEY' \\\n  -H 'Content-Type: application/json' \\\n  -d '{{\"github_token\": \"YOUR_GITHUB_TOKEN\"}}'```\n\n:warning: *Important:* Use the same SafeRun API key from your original request"
                 }
             })
     
