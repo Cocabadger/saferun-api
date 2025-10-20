@@ -256,12 +256,38 @@ async def approve_operation(change_id: str) -> ApprovalActionResponse:
                     }
                 elif operation_type == "github_repo_delete":
                     # Delete repository (PERMANENT - NO REVERT)
-                    await GitHubProvider.delete_repository(target_id, token)
-                    rec["summary_json"] = {
-                        "deleted": True,
-                        "permanent": True,
-                        "revertable": False
-                    }
+                    try:
+                        await GitHubProvider.delete_repository(target_id, token)
+                        rec["summary_json"] = {
+                            "deleted": True,
+                            "permanent": True,
+                            "revertable": False
+                        }
+                    except Exception as e:
+                        # Handle error (403 Forbidden, 404 Not Found, etc.)
+                        error_msg = str(e)
+                        rec["status"] = "failed"
+                        rec["summary_json"] = {
+                            "deleted": False,
+                            "error": error_msg,
+                            "error_type": "permission_denied" if "403" in error_msg or "delete_repo" in error_msg.lower() else "unknown"
+                        }
+                        storage.set_change_status(change_id, "failed")
+                        
+                        # Send error notification to Slack
+                        from ..notify import notifier
+                        asyncio.create_task(
+                            notifier.publish(
+                                "failed",
+                                rec,
+                                extras={
+                                    "error_message": error_msg,
+                                    "suggestion": "GitHub token requires 'delete_repo' scope for repository deletion" if "403" in error_msg else None
+                                },
+                                api_key=api_key
+                            )
+                        )
+                        raise HTTPException(status_code=403, detail=f"Repository deletion failed: {error_msg}")
                 elif object_type == "repository" and "archive" in str(summary_json) and "unarchive" not in str(summary_json):
                     # Fallback for archive (webhook)
                     await GitHubProvider.archive(target_id, token)

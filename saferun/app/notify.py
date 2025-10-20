@@ -147,6 +147,8 @@ class Notifier:
         # Different header based on event type
         if event_type == "executed_with_revert":
             header_text = "✅ Action Executed"
+        elif event_type == "failed":
+            header_text = "❌ Operation Failed"
         else:
             header_text = "🛡️ SafeRun Approval Required"
 
@@ -252,6 +254,22 @@ class Notifier:
                             "value": change_id
                         }
                     ]
+                })
+            elif event_type == "failed":
+                # Show error details for failed operations
+                error_message = payload.get("extras", {}).get("error_message", "Unknown error")
+                suggestion = payload.get("extras", {}).get("suggestion")
+                
+                error_text = f"*Error:* {error_message}"
+                if suggestion:
+                    error_text += f"\n\n*💡 Suggestion:*\n{suggestion}"
+                
+                blocks.append({
+                    "type": "section",
+                    "text": {
+                        "type": "mrkdwn",
+                        "text": error_text
+                    }
                 })
             else:
                 # Show Approve/Reject buttons for approval-required events
@@ -582,6 +600,7 @@ class Notifier:
             "reverted": ":rewind: [SafeRun] Reverted",
             "expired": ":hourglass_flowing_sand: [SafeRun] Expired",
             "executed_with_revert": ":white_check_mark: [SafeRun] Action Executed (revert available)",
+            "failed": ":x: [SafeRun] Operation Failed",
         }
         text = text_map.get(event, f"[SafeRun] {event}")
 
