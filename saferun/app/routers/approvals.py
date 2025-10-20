@@ -276,18 +276,18 @@ async def approve_operation(change_id: str) -> ApprovalActionResponse:
                         
                         # Send error notification to Slack
                         from ..notify import notifier
-                        asyncio.create_task(
-                            notifier.publish(
-                                "failed",
-                                rec,
-                                extras={
-                                    "error_message": error_msg,
-                                    "suggestion": "GitHub token requires 'delete_repo' scope for repository deletion" if "403" in error_msg else None
-                                },
-                                api_key=api_key
-                            )
+                        await notifier.publish(
+                            "failed",
+                            rec,
+                            extras={
+                                "error_message": error_msg,
+                                "suggestion": "GitHub token requires 'delete_repo' scope for repository deletion" if "403" in error_msg else None
+                            },
+                            api_key=api_key
                         )
-                        raise HTTPException(status_code=403, detail=f"Repository deletion failed: {error_msg}")
+                        # Don't raise exception - we're inside Slack interaction handler
+                        # Just return and let the notification inform the user
+                        return
                 elif object_type == "repository" and "archive" in str(summary_json) and "unarchive" not in str(summary_json):
                     # Fallback for archive (webhook)
                     await GitHubProvider.archive(target_id, token)
