@@ -195,38 +195,39 @@ async def approve_operation(change_id: str) -> ApprovalActionResponse:
         provider = rec.get("provider")
         target_id = rec.get("target_id")
         token = rec.get("token")
-        metadata = rec.get("metadata")
         api_key = rec.get("api_key")
+        
+        # Parse summary_json (it's stored as JSON string in database)
+        summary_json = rec.get("summary_json", {})
+        if isinstance(summary_json, str):
+            import json
+            try:
+                summary_json = json.loads(summary_json)
+            except Exception:
+                summary_json = {}
+        
+        # Ensure summary_json is a dict
+        if not isinstance(summary_json, dict):
+            summary_json = {}
+        
+        # Get metadata from summary_json (not from rec, as there's no metadata column)
+        metadata = summary_json.get("metadata", {})
+        if isinstance(metadata, str):
+            try:
+                metadata = json.loads(metadata)
+            except Exception:
+                metadata = {}
+        
+        # Ensure metadata is a dict
+        if not isinstance(metadata, dict):
+            metadata = {}
         
         try:
             # Execute based on provider
             if provider == "github":
                 from ..providers.github_provider import GitHubProvider
                 
-                # Get summary_json for operation_type
-                summary_json = rec.get("summary_json", {})
-                if isinstance(summary_json, str):
-                    import json
-                    try:
-                        summary_json = json.loads(summary_json)
-                    except Exception:
-                        summary_json = {}
-                
-                # Parse metadata if it's a string
-                if isinstance(metadata, str):
-                    try:
-                        metadata = json.loads(metadata)
-                    except Exception:
-                        metadata = {}
-                
-                # Parse summary_json if it's a string
-                if isinstance(summary_json, str):
-                    try:
-                        summary_json = json.loads(summary_json)
-                    except Exception:
-                        summary_json = {}
-                
-                operation_type = summary_json.get("operation_type") or metadata.get("operation_type") if metadata else None
+                operation_type = summary_json.get("operation_type") or metadata.get("operation_type")
                 
                 # Determine operation type from metadata
                 object_type = metadata.get("object") if metadata else None
