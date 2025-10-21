@@ -293,9 +293,14 @@ async def approve_operation(change_id: str) -> ApprovalActionResponse:
                             },
                             api_key=api_key
                         )
-                        # Don't raise exception - we're inside Slack interaction handler
-                        # Just return and let the notification inform the user
-                        return
+                        
+                        # Return response with failed status
+                        return ApprovalActionResponse(
+                            change_id=change_id,
+                            status="failed",
+                            approved=False,
+                            message=f"Operation failed: {error_msg}"
+                        )
                 elif object_type == "repository" and "archive" in str(summary_json) and "unarchive" not in str(summary_json):
                     # Fallback for archive (webhook)
                     await GitHubProvider.archive(target_id, token)
