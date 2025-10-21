@@ -281,6 +281,8 @@ async def approve_operation(change_id: str) -> ApprovalActionResponse:
                             "error_type": "permission_denied" if "403" in error_msg or "delete_repo" in error_msg.lower() else "unknown"
                         }
                         storage.set_change_status(change_id, "failed")
+                        # Save updated record with error details
+                        storage.upsert_change(rec)
                         
                         # Send error notification to Slack
                         from ..notify import notifier
