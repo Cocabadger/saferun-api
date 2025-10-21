@@ -219,6 +219,13 @@ async def approve_operation(change_id: str) -> ApprovalActionResponse:
                     except Exception:
                         metadata = {}
                 
+                # Parse summary_json if it's a string
+                if isinstance(summary_json, str):
+                    try:
+                        summary_json = json.loads(summary_json)
+                    except Exception:
+                        summary_json = {}
+                
                 operation_type = summary_json.get("operation_type") or metadata.get("operation_type") if metadata else None
                 
                 # Determine operation type from metadata
