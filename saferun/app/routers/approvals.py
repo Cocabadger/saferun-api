@@ -262,7 +262,7 @@ async def approve_operation(change_id: str) -> ApprovalActionResponse:
                             "repo": repo
                         }
                     }
-                elif operation_type == "github_repo_delete":
+                elif operation_type == "github_repo_delete" or operation_type == "delete_repo":
                     # Delete repository (PERMANENT - NO REVERT)
                     try:
                         await GitHubProvider.delete_repository(target_id, token)
