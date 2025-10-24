@@ -301,9 +301,25 @@ class Notifier:
 
         headers = {"Authorization": f"Bearer {bot_token}"}
 
+        # Check if we should update an existing message or create a new one
+        existing_message_ts = None
+        if change_id:
+            from . import db_adapter as db
+            existing_message_ts = db.get_slack_message_ts(change_id)
+
+        if existing_message_ts:
+            # UPDATE existing message
+            body["ts"] = existing_message_ts
+            api_url = "https://slack.com/api/chat.update"
+            logger.info(f"[SLACK] Updating existing message {existing_message_ts} for change {change_id}")
+        else:
+            # CREATE new message
+            api_url = "https://slack.com/api/chat.postMessage"
+            logger.info(f"[SLACK] Creating new message for change {change_id}")
+
         async def do():
             resp = await self.client.post(
-                "https://slack.com/api/chat.postMessage",
+                api_url,
                 json=body,
                 headers=headers
             )
@@ -313,7 +329,16 @@ class Notifier:
                 error_msg = result.get("error", "unknown_error")
                 logger.error(f"[SLACK ERROR] API returned: {error_msg}, full response: {result}")
                 raise Exception(f"Slack API error: {error_msg}")
-            logger.info(f"[SLACK SUCCESS] Message sent to {channel}")
+            
+            # Save message timestamp for future updates (only for new messages)
+            if change_id and not existing_message_ts:
+                message_ts = result.get("ts")
+                if message_ts:
+                    from . import db_adapter as db
+                    db.set_slack_message_ts(change_id, message_ts)
+                    logger.info(f"[SLACK] Saved message_ts={message_ts} for change {change_id}")
+            
+            logger.info(f"[SLACK SUCCESS] Message {'updated' if existing_message_ts else 'sent'} to {channel}")
             return resp
         await self._retry(do)
 

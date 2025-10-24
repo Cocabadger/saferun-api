@@ -149,6 +149,19 @@ def init_db():
     END $$;
     """)
 
+    # Migration: Add slack_message_ts column to changes table (for message updates)
+    cur.execute("""
+    DO $$
+    BEGIN
+        IF NOT EXISTS (
+            SELECT 1 FROM information_schema.columns 
+            WHERE table_name='changes' AND column_name='slack_message_ts'
+        ) THEN
+            ALTER TABLE changes ADD COLUMN slack_message_ts TEXT;
+        END IF;
+    END $$;
+    """)
+
     # Migration: Add revert_window columns to changes table
     cur.execute("""
     DO $$
@@ -317,6 +330,16 @@ def update_summary_json(change_id: str, summary_json: dict):
     import json
     summary_json_str = json.dumps(summary_json) if isinstance(summary_json, dict) else summary_json
     exec("UPDATE changes SET summary_json=%s WHERE change_id=%s", (summary_json_str, change_id))
+
+def set_slack_message_ts(change_id: str, message_ts: str):
+    """Set Slack message timestamp for change (to enable message updates)."""
+    exec("UPDATE changes SET slack_message_ts=%s WHERE change_id=%s", (message_ts, change_id))
+
+def get_slack_message_ts(change_id: str) -> Optional[str]:
+    """Get Slack message timestamp for change."""
+    row = fetchone("SELECT slack_message_ts FROM changes WHERE change_id=%s", (change_id,))
+    return row.get("slack_message_ts") if row else None
+
 
 # Tokens
 def insert_token(token: str, kind: str, ref: str, expires_at: str):
