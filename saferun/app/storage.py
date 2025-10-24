@@ -185,14 +185,22 @@ storage: Storage = None
 def get_storage() -> Storage:
     global storage
     if storage is None:
-        backend = os.getenv("SR_STORAGE_BACKEND", "sqlite").lower()
+        # Auto-detect from DATABASE_URL (same logic as db_adapter.py)
+        db_url = os.getenv("DATABASE_URL", "")
+        backend = os.getenv("SR_STORAGE_BACKEND", "").lower()
+        
         if backend == "redis":
+            # Explicit redis backend
             redis_url = os.getenv("SR_REDIS_URL")
             if not redis_url:
                 raise ValueError("SR_REDIS_URL must be set for Redis storage backend")
             storage = RedisStorage(url=redis_url)
+        elif db_url.startswith("postgres"):
+            # Auto-detect PostgreSQL from DATABASE_URL
+            # SqliteStorage works with both SQLite and PostgreSQL via db_adapter
+            storage = SqliteStorage()
         else:
-            # Use SR_SQLITE_PATH if provided, update db path accordingly
+            # Default SQLite
             sqlite_path = os.getenv("SR_SQLITE_PATH")
             if sqlite_path:
                 db.reload_db_path(sqlite_path)
