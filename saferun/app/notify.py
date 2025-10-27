@@ -272,19 +272,20 @@ class Notifier:
                     }
                 })
             else:
-                # Show Approve/Reject buttons that link to web UI
+                # Show Approve/Reject buttons that link to web UI approval page
                 landing_url = os.environ.get("LANDING_URL", "https://saferun-landing.vercel.app")
+                approval_page_url = f"{landing_url}?change_id={change_id}"
                 
-                # Add "Approval URL" section with link
+                # Add single "Approval URL" section with direct link to approval page
                 blocks.append({
                     "type": "section",
                     "text": {
                         "type": "mrkdwn",
-                        "text": f"*Approval URL:*\n<{landing_url}|View Details>"
+                        "text": f"*Approval URL:*\n<{approval_page_url}|View Details>"
                     }
                 })
                 
-                # Add Approve/Reject buttons with URLs (not action_id)
+                # Add Approve/Reject buttons linking to approval page (with change_id)
                 blocks.append({
                     "type": "actions",
                     "elements": [
@@ -292,13 +293,13 @@ class Notifier:
                             "type": "button",
                             "text": {"type": "plain_text", "text": "✅ Approve"},
                             "style": "primary",
-                            "url": f"{landing_url}"  # Opens web UI
+                            "url": approval_page_url
                         },
                         {
                             "type": "button",
                             "text": {"type": "plain_text", "text": "❌ Reject"},
                             "style": "danger",
-                            "url": f"{landing_url}"  # Opens web UI
+                            "url": approval_page_url
                         }
                     ]
                 })
