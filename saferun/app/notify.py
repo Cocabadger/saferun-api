@@ -185,7 +185,7 @@ class Notifier:
             }
         ]
 
-        # Add approve URL for web view (only for dry_run events)
+        # Add approve URL for web view (only for dry_run events, not approval_required)
         if approve_url and event_type == "dry_run":
             blocks.append({
                 "type": "section",
@@ -197,7 +197,39 @@ class Notifier:
 
         # Add buttons based on event type
         if change_id:
-            if event_type == "executed_with_revert":
+            if event_type == "approval_required":
+                # Show Approve/Reject buttons that link to web UI approval page
+                landing_url = os.environ.get("LANDING_URL", "https://saferun-landing.vercel.app")
+                approval_page_url = f"{landing_url}?change_id={change_id}"
+                
+                # Add single "Approval URL" section with direct link to approval page
+                blocks.append({
+                    "type": "section",
+                    "text": {
+                        "type": "mrkdwn",
+                        "text": f"*Approval URL:*\n<{approval_page_url}|View Details>"
+                    }
+                })
+                
+                # Add Approve/Reject buttons linking to approval page (with change_id)
+                blocks.append({
+                    "type": "actions",
+                    "elements": [
+                        {
+                            "type": "button",
+                            "text": {"type": "plain_text", "text": "✅ Approve"},
+                            "style": "primary",
+                            "url": approval_page_url
+                        },
+                        {
+                            "type": "button",
+                            "text": {"type": "plain_text", "text": "❌ Reject"},
+                            "style": "danger",
+                            "url": approval_page_url
+                        }
+                    ]
+                })
+            elif event_type == "executed_with_revert":
                 # Determine success message based on operation type and item type
                 item_type = payload.get("item_type", "repository")
                 
@@ -270,38 +302,6 @@ class Notifier:
                         "type": "mrkdwn",
                         "text": error_text
                     }
-                })
-            else:
-                # Show Approve/Reject buttons that link to web UI approval page
-                landing_url = os.environ.get("LANDING_URL", "https://saferun-landing.vercel.app")
-                approval_page_url = f"{landing_url}?change_id={change_id}"
-                
-                # Add single "Approval URL" section with direct link to approval page
-                blocks.append({
-                    "type": "section",
-                    "text": {
-                        "type": "mrkdwn",
-                        "text": f"*Approval URL:*\n<{approval_page_url}|View Details>"
-                    }
-                })
-                
-                # Add Approve/Reject buttons linking to approval page (with change_id)
-                blocks.append({
-                    "type": "actions",
-                    "elements": [
-                        {
-                            "type": "button",
-                            "text": {"type": "plain_text", "text": "✅ Approve"},
-                            "style": "primary",
-                            "url": approval_page_url
-                        },
-                        {
-                            "type": "button",
-                            "text": {"type": "plain_text", "text": "❌ Reject"},
-                            "style": "danger",
-                            "url": approval_page_url
-                        }
-                    ]
                 })
 
         body = {
