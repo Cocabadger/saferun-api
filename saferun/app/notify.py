@@ -273,24 +273,14 @@ class Notifier:
                 })
             else:
                 # Show Approve/Reject buttons for approval-required events
+                # Use URLs to redirect to web UI instead of handling in Slack
+                landing_url = os.environ.get("LANDING_URL", "https://saferun-landing.vercel.app")
                 blocks.append({
-                    "type": "actions",
-                    "elements": [
-                        {
-                            "type": "button",
-                            "text": {"type": "plain_text", "text": "✅ Approve"},
-                            "style": "primary",
-                            "action_id": "approve_change",
-                            "value": change_id
-                        },
-                        {
-                            "type": "button",
-                            "text": {"type": "plain_text", "text": "❌ Reject"},
-                            "style": "danger",
-                            "action_id": "reject_change",
-                            "value": change_id
-                        }
-                    ]
+                    "type": "section",
+                    "text": {
+                        "type": "mrkdwn",
+                        "text": f":globe_with_meridians: *View in Dashboard*\n<{landing_url}/approve/{change_id}|Review and approve this operation>"
+                    }
                 })
 
         body = {
