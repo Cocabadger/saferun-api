@@ -297,12 +297,10 @@ async def approve_operation(change_id: str) -> ApprovalActionResponse:
                             api_key=api_key
                         )
                         
-                        # Return response with failed status
-                        return ApprovalActionResponse(
-                            change_id=change_id,
-                            status="failed",
-                            approved=False,
-                            message=f"Operation failed: {error_msg}"
+                        # CRITICAL: Raise exception to prevent code execution after error
+                        raise HTTPException(
+                            status_code=403 if "403" in error_msg else 500,
+                            detail=f"Operation failed: {error_msg}"
                         )
                 elif object_type == "repository" and "archive" in str(summary_json) and "unarchive" not in str(summary_json):
                     # Fallback for archive (webhook)
