@@ -200,7 +200,7 @@ class Notifier:
             if event_type == "approval_required":
                 # Show Approve/Reject buttons that link to web UI approval page
                 landing_url = os.environ.get("LANDING_URL", "https://saferun-landing.vercel.app")
-                approval_page_url = f"{landing_url}?change_id={change_id}"
+                approval_page_url = f"{landing_url}/approve/{change_id}"
                 
                 # Add single "Approval URL" section with direct link to approval page
                 blocks.append({
