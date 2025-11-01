@@ -275,7 +275,12 @@ async def approve_operation(change_id: str) -> ApprovalActionResponse:
                         # Handle error (403 Forbidden, 404 Not Found, etc.)
                         error_msg = str(e)
                         rec["status"] = "failed"
+                        
+                        # Preserve existing summary_json fields (operation_type, owner, repo, reason, etc.)
+                        existing_summary = summary_json if isinstance(summary_json, dict) else {}
+                        
                         error_summary = {
+                            **existing_summary,  # ✅ Preserve all existing fields!
                             "deleted": False,
                             "error": error_msg,
                             "error_type": "permission_denied" if "403" in error_msg or "delete_repo" in error_msg.lower() else "unknown"
