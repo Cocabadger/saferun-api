@@ -198,9 +198,11 @@ class Notifier:
         # Add buttons based on event type
         if change_id:
             if event_type == "approval_required":
-                # Show Approve/Reject buttons that link to web UI approval page
-                landing_url = os.environ.get("LANDING_URL", "https://saferun-landing.vercel.app")
-                approval_page_url = f"{landing_url}/approve/{change_id}"
+                # Show Approve/Reject buttons that link to API approval endpoint
+                api_base = os.environ.get("APP_BASE_URL") or os.environ.get("RAILWAY_PUBLIC_DOMAIN", "https://saferun-api.up.railway.app")
+                if api_base and not api_base.startswith("http"):
+                    api_base = f"https://{api_base}"
+                approval_page_url = f"{api_base}/approvals/{change_id}"
                 
                 # Add single "Approval URL" section with direct link to approval page
                 blocks.append({
