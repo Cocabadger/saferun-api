@@ -168,7 +168,7 @@ async def approve_operation(change_id: str) -> ApprovalActionResponse:
                 detail="Operation expired after revert window. No action taken for security."
             )
 
-    if current_status in {"applied", "cancelled", "rejected", "expired"}:
+    if current_status in {"applied", "cancelled", "rejected", "expired", "failed"}:
         raise HTTPException(
             status_code=409,
             detail=f"Cannot approve: operation already {current_status}"
