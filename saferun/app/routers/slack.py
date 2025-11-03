@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Request, HTTPException
+from fastapi import APIRouter, Request, HTTPException, BackgroundTasks
 from fastapi.responses import JSONResponse
 import json, hmac, hashlib, os
 import logging
@@ -25,7 +25,7 @@ def verify_slack_signature(request_body: bytes, timestamp: str, signature: str) 
     return hmac.compare_digest(expected_signature, signature)
 
 @router.post("/interactions")
-async def handle_slack_interaction(request: Request):
+async def handle_slack_interaction(request: Request, background_tasks: BackgroundTasks):
     """Handle Slack interactive button clicks and URL verification"""
 
     # Get raw body and headers
@@ -95,60 +95,36 @@ async def handle_slack_interaction(request: Request):
         success = await reject_change(change_id, user_name)
         message = "❌ Change rejected!" if success else "Failed to reject"
     elif action_id == "revert_change":
-        success, revert_info = await revert_change(change_id, user_name)
-        message = "🔄 Change reverted!" if success else "❌ Failed to revert (time expired or already reverted)"
+        # For revert - schedule background task and return immediately
+        background_tasks.add_task(
+            execute_revert_in_background,
+            change_id=change_id,
+            user_name=user_name,
+            response_url=response_url
+        )
+        # Return immediate acknowledgment to Slack (prevents 500 error)
+        return JSONResponse({"ok": True})
     else:
         return JSONResponse({"ok": True})
 
-    # Update message using response_url
+    # Update message using response_url (for approve/reject only - revert handled in background)
     if response_url:
         import httpx
         
-        # Build enhanced message for successful revert
-        if action_id == "revert_change" and success and revert_info:
-            provider = revert_info.get("provider", "unknown")
-            target_id = revert_info.get("target_id", "")
-            operation = revert_info.get("operation", "Operation")
-            
-            # Generate verification link for GitHub
-            verification_link = ""
-            if provider == "github" and "#" in target_id:
-                repo, branch = target_id.split("#", 1)
-                if "→" not in branch:  # Branch restore (not merge)
-                    verification_link = f"\n\n*Verify on GitHub:*\n<https://github.com/{repo}/tree/{branch}|View restored branch>"
-            
-            update_payload = {
-                "replace_original": True,
-                "text": f"✅ Action Reverted",
-                "blocks": [
-                    {
-                        "type": "header",
-                        "text": {"type": "plain_text", "text": "✅ Action Reverted"}
-                    },
-                    {
-                        "type": "section",
-                        "text": {
-                            "type": "mrkdwn",
-                            "text": f"*{operation} reverted successfully!*\n\n*Actioned by:* @{user_name}\n*Change ID:* `{change_id}`\n*Provider:* {provider}{verification_link}"
-                        }
+        # Default message for approve/reject
+        update_payload = {
+            "replace_original": True,
+            "text": f"{message} (by @{user_name})",
+            "blocks": [
+                {
+                    "type": "section",
+                    "text": {
+                        "type": "mrkdwn",
+                        "text": f"*{message}*\nActioned by: @{user_name}\nChange ID: `{change_id}`"
                     }
-                ]
-            }
-        else:
-            # Default message for approve/reject/failed revert
-            update_payload = {
-                "replace_original": True,
-                "text": f"{message} (by @{user_name})",
-                "blocks": [
-                    {
-                        "type": "section",
-                        "text": {
-                            "type": "mrkdwn",
-                            "text": f"*{message}*\nActioned by: @{user_name}\nChange ID: `{change_id}`"
-                        }
-                    }
-                ]
-            }
+                }
+            ]
+        }
         
         async with httpx.AsyncClient() as client:
             await client.post(response_url, json=update_payload)
@@ -438,3 +414,91 @@ async def handle_modal_submission(payload: dict) -> JSONResponse:
             }
         })
 
+
+async def execute_revert_in_background(change_id: str, user_name: str, response_url: str):
+    """
+    Execute revert operation in background and update Slack message via response_url.
+    This prevents Slack 500 error by allowing immediate acknowledgment.
+    """
+    import httpx
+    
+    try:
+        # Execute the revert operation (this may take 5-30 seconds)
+        success, revert_info = await revert_change(change_id, user_name)
+        
+        if success and revert_info:
+            # Build success message
+            provider = revert_info.get("provider", "unknown")
+            target_id = revert_info.get("target_id", "")
+            operation = revert_info.get("operation", "Operation")
+            
+            # Generate verification link for GitHub
+            verification_link = ""
+            if provider == "github" and "#" in target_id:
+                repo, branch = target_id.split("#", 1)
+                if "→" not in branch:  # Branch restore (not merge)
+                    verification_link = f"\n\n*Verify on GitHub:*\n<https://github.com/{repo}/tree/{branch}|View restored branch>"
+            
+            update_payload = {
+                "replace_original": True,
+                "text": f"✅ Action Reverted",
+                "blocks": [
+                    {
+                        "type": "header",
+                        "text": {"type": "plain_text", "text": "✅ Action Reverted"}
+                    },
+                    {
+                        "type": "section",
+                        "text": {
+                            "type": "mrkdwn",
+                            "text": f"*{operation} reverted successfully!*\n\n*Actioned by:* @{user_name}\n*Change ID:* `{change_id}`\n*Provider:* {provider}{verification_link}"
+                        }
+                    }
+                ]
+            }
+        else:
+            # Revert failed (window expired or other error)
+            update_payload = {
+                "replace_original": True,
+                "text": f"❌ Revert Failed",
+                "blocks": [
+                    {
+                        "type": "section",
+                        "text": {
+                            "type": "mrkdwn",
+                            "text": f"*❌ Failed to revert*\n\nRevert window may have expired or operation already reverted.\n\nActioned by: @{user_name}\nChange ID: `{change_id}`"
+                        }
+                    }
+                ]
+            }
+        
+        # Send update to Slack
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            response = await client.post(response_url, json=update_payload)
+            if response.status_code != 200:
+                logger.error(f"Failed to update Slack message: {response.text}")
+            
+    except Exception as e:
+        logger.error(f"Background revert task failed: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        
+        # Try to send error message to Slack
+        try:
+            error_payload = {
+                "replace_original": True,
+                "text": f"❌ Revert Error",
+                "blocks": [
+                    {
+                        "type": "section",
+                        "text": {
+                            "type": "mrkdwn",
+                            "text": f"*❌ Revert operation failed*\n\nError: {str(e)}\n\nActioned by: @{user_name}\nChange ID: `{change_id}`"
+                        }
+                    }
+                ]
+            }
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                await client.post(response_url, json=error_payload)
+        except:
+            pass  # If we can't even send error message, just log it
