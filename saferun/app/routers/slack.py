@@ -198,6 +198,9 @@ async def revert_change(change_id: str, user: str) -> tuple[bool, dict]:
         # Handle both datetime objects (from DB) and ISO strings (from API)
         if isinstance(revert_expires, datetime):
             expires_dt = revert_expires
+            # Ensure timezone-aware for comparison
+            if expires_dt.tzinfo is None:
+                expires_dt = expires_dt.replace(tzinfo=timezone.utc)
         else:
             expires_dt = datetime.fromisoformat(revert_expires.replace("Z", "+00:00"))
         if datetime.now(timezone.utc) > expires_dt:
