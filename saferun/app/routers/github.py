@@ -173,6 +173,16 @@ async def get_change_status(change_id: str, api_key: str = Depends(verify_api_ke
         except Exception:
             metadata = None
     
+    # Convert datetime objects to ISO strings for Pydantic validation
+    revert_expires_at = change.get("revert_expires_at")
+    if revert_expires_at and not isinstance(revert_expires_at, str):
+        # Convert datetime to ISO string
+        revert_expires_at = revert_expires_at.isoformat()
+    
+    executed_at = change.get("executed_at")
+    if executed_at and not isinstance(executed_at, str):
+        executed_at = executed_at.isoformat()
+    
     return ChangeStatusResponse(
         change_id=change_id,
         status=change.get("status", "pending"),
@@ -181,8 +191,8 @@ async def get_change_status(change_id: str, api_key: str = Depends(verify_api_ke
         title=change.get("title"),
         risk_score=change.get("risk_score"),
         requires_approval=change.get("requires_approval"),
-        executed_at=change.get("executed_at"),
-        revert_expires_at=change.get("revert_expires_at"),
+        executed_at=executed_at,
+        revert_expires_at=revert_expires_at,
         error=change.get("error"),
         metadata=metadata
     )
