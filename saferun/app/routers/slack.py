@@ -195,7 +195,11 @@ async def revert_change(change_id: str, user: str) -> tuple[bool, dict]:
     from datetime import datetime, timezone
     revert_expires = change.get("revert_expires_at")
     if revert_expires:
-        expires_dt = datetime.fromisoformat(revert_expires.replace("Z", "+00:00"))
+        # Handle both datetime objects (from DB) and ISO strings (from API)
+        if isinstance(revert_expires, datetime):
+            expires_dt = revert_expires
+        else:
+            expires_dt = datetime.fromisoformat(revert_expires.replace("Z", "+00:00"))
         if datetime.now(timezone.utc) > expires_dt:
             return False, {}  # Revert window expired
 
