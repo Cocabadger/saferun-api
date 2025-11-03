@@ -139,6 +139,7 @@ async def dry_run_github_merge(req: GitHubMergeDryRunRequest, api_key: str = Dep
 class ChangeStatusResponse(BaseModel):
     change_id: str
     status: str  # pending, approved, executed, rejected, failed
+    approved: bool  # True if status is approved or executed
     provider: Optional[str] = None
     target_id: Optional[str] = None
     title: Optional[str] = None
@@ -183,9 +184,14 @@ async def get_change_status(change_id: str, api_key: str = Depends(verify_api_ke
     if executed_at and not isinstance(executed_at, str):
         executed_at = executed_at.isoformat()
     
+    # Calculate approved field based on status
+    status = change.get("status", "pending")
+    approved = status in ["approved", "executed"]
+    
     return ChangeStatusResponse(
         change_id=change_id,
-        status=change.get("status", "pending"),
+        status=status,
+        approved=approved,
         provider=change.get("provider"),
         target_id=change.get("target_id"),
         title=change.get("title"),
