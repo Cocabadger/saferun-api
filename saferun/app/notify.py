@@ -315,20 +315,22 @@ class Notifier:
         headers = {"Authorization": f"Bearer {bot_token}"}
 
         # Check if we should update an existing message or create a new one
+        # For "failed" and "executed_with_revert" events, ALWAYS create new message (don't update)
+        # because the message structure is completely different (no approval buttons, different content)
         existing_message_ts = None
-        if change_id:
+        if change_id and event_type not in ["failed", "executed_with_revert"]:
             from . import db_adapter as db
             existing_message_ts = db.get_slack_message_ts(change_id)
 
         if existing_message_ts:
-            # UPDATE existing message
+            # UPDATE existing message (only for approval_required events)
             body["ts"] = existing_message_ts
             api_url = "https://slack.com/api/chat.update"
             logger.info(f"[SLACK] Updating existing message {existing_message_ts} for change {change_id}")
         else:
             # CREATE new message
             api_url = "https://slack.com/api/chat.postMessage"
-            logger.info(f"[SLACK] Creating new message for change {change_id}")
+            logger.info(f"[SLACK] Creating new message for change {change_id} (event: {event_type})")
 
         async def do():
             resp = await self.client.post(
