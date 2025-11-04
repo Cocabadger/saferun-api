@@ -282,7 +282,7 @@ class Notifier:
                     "elements": [
                         {
                             "type": "button",
-                            "text": {"type": "plain_text", "text": "🔄 Revert Archive"},
+                            "text": {"type": "plain_text", "text": "🔄 Revert Action"},
                             "style": "danger",
                             "action_id": "revert_change",
                             "value": change_id
