@@ -344,6 +344,23 @@ async def revert_github_action(
     if not change:
         raise HTTPException(status_code=404, detail="Change not found")
     
+    # ✅ BUG #16 FIX: Check if operation can be reverted
+    current_status = change.get("status", "pending")
+    
+    # Only allow revert for executed/applied operations
+    if current_status not in {"executed", "applied"}:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Cannot revert: operation is {current_status}. Only executed operations can be reverted."
+        )
+    
+    # Check if already reverted
+    if current_status == "reverted":
+        raise HTTPException(
+            status_code=409,
+            detail="Operation already reverted"
+        )
+    
     # SECURITY: Verify user owns this change (multi-user isolation)
     # For old records (api_key=NULL), allow revert (backward compatibility)
     # For new records, verify ownership via API key from GitHub token or request header
