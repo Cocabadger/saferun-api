@@ -148,7 +148,8 @@ def get_git_operation_status(change_id: str) -> GitOperationStatusResponse:
 
     requires_approval = bool(rec.get("requires_approval"))
     status = rec.get("status", "pending")
-    approved = not requires_approval and status in {"pending", "approved", "applied"}
+    # Operation is approved if status is approved or executed
+    approved = status in ["approved", "executed", "applied"]
 
     # Parse JSON strings if needed (Postgres returns TEXT fields as strings)
     import json

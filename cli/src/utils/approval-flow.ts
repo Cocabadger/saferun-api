@@ -212,14 +212,24 @@ export class ApprovalFlow {
         try {
           const status = await this.client.getApprovalStatus(result.changeId);
 
-          if (status.approved) {
-            spinner.succeed(chalk.green('✓ SafeRun approval granted'));
-            this.metrics?.track('approval_granted', { change_id: result.changeId }).catch(() => undefined);
+          // Check final success statuses first
+          if (status.status === 'executed' || status.status === 'applied') {
+            spinner.succeed(chalk.green('✓ Operation executed successfully'));
+            this.metrics?.track('operation_executed', { change_id: result.changeId }).catch(() => undefined);
             return ApprovalOutcome.Approved;
           }
 
-          if (status.rejected) {
-            spinner.fail(chalk.red('✗ SafeRun approval rejected'));
+          if (status.status === 'reverted') {
+            spinner.warn(chalk.yellow('↩ Operation was reverted'));
+            return ApprovalOutcome.Approved;
+          }
+
+          // Check failure statuses
+          if (status.rejected || ['failed', 'rejected', 'cancelled'].includes(status.status || '')) {
+            const message = status.status === 'failed'
+              ? '✗ Operation failed during execution'
+              : '✗ SafeRun approval rejected';
+            spinner.fail(chalk.red(message));
             return ApprovalOutcome.Cancelled;
           }
 
@@ -227,6 +237,15 @@ export class ApprovalFlow {
             spinner.fail(chalk.red('✗ Approval expired'));
             return ApprovalOutcome.Cancelled;
           }
+
+          // Fallback: if approved=true but no execution status yet, treat as approved
+          // (for backward compatibility with endpoints that don't set 'executed' status)
+          if (status.approved && !status.pending) {
+            spinner.succeed(chalk.green('✓ SafeRun approval granted'));
+            return ApprovalOutcome.Approved;
+          }
+
+          // Still pending - continue polling
         } catch (error) {
           // Continue polling on transient errors
           if (error instanceof Error && !error.message.includes('404')) {
