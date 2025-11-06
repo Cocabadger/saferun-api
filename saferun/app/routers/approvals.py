@@ -183,9 +183,23 @@ async def approve_operation(change_id: str) -> ApprovalActionResponse:
     storage.set_change_status(change_id, "approved")
     db.insert_audit(change_id, "approved", {"approved_via": "web_dashboard"})
 
+    # Parse metadata to check operation source
+    metadata = rec.get("metadata", {})
+    if isinstance(metadata, str):
+        import json
+        try:
+            metadata = json.loads(metadata)
+        except:
+            metadata = {}
+    
     # Check if this is an API operation with revert_window (needs immediate execution)
+    # CLI operations are executed locally by client, so skip server-side execution
     revert_window_hours = rec.get("revert_window")
-    if revert_window_hours is not None:
+    initiated_via = metadata.get("initiated_via")
+    
+    # Only execute and notify for API operations (initiated_via="api")
+    # CLI operations: approve only, no execution, no Slack notification
+    if revert_window_hours is not None and initiated_via == "api":
         # Execute the operation immediately
         import asyncio
         import os
