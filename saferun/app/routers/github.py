@@ -9,6 +9,13 @@ from ..models.contracts import (
     GitHubRepoDeleteDryRunRequest,
     GitHubForcePushDryRunRequest,
     GitHubMergeDryRunRequest,
+    GitHubRepoTransferDryRunRequest,
+    GitHubSecretCreateDryRunRequest,
+    GitHubSecretDeleteDryRunRequest,
+    GitHubWorkflowUpdateDryRunRequest,
+    GitHubBranchProtectionUpdateDryRunRequest,
+    GitHubBranchProtectionDeleteDryRunRequest,
+    GitHubRepoVisibilityChangeDryRunRequest,
     ArchiveRepositoryRequest,
     UnarchiveRepositoryRequest,
     DeleteBranchRequest,
@@ -800,6 +807,182 @@ async def delete_repository(
         warning="⚠️ This operation is PERMANENT and IRREVERSIBLE. Repository and all data will be deleted forever.",
         message="Repository delete request created. Check Slack for CRITICAL WARNING."
     )
+
+
+# Additional 7 Critical GitHub Operations
+
+@router.post("/v1/dry-run/github.repo.transfer", response_model=DryRunArchiveResponse)
+async def dry_run_github_repo_transfer(req: GitHubRepoTransferDryRunRequest, api_key: str = Depends(verify_api_key)) -> DryRunArchiveResponse:
+    """Transfer repository to new owner - IRREVERSIBLE operation"""
+    owner, repo = req.target_id.split("/") if "/" in req.target_id else (None, req.target_id)
+    
+    generic_req = DryRunArchiveRequest(
+        token=req.token,
+        target_id=req.target_id,
+        provider="github",
+        reason=req.reason or f"Transfer {req.target_id} to {req.new_owner}",
+        policy=req.policy,
+        webhook_url=req.webhook_url,
+        metadata={
+            "object": "repository",
+            "operation_type": "github.repo.transfer",
+            "owner": owner,
+            "repo": repo,
+            "new_owner": req.new_owner,
+            "team_ids": req.team_ids
+        }
+    )
+    return await build_dryrun(generic_req, api_key=api_key)
+
+
+@router.post("/v1/dry-run/github.actions.secret.create", response_model=DryRunArchiveResponse)
+async def dry_run_github_secret_create(req: GitHubSecretCreateDryRunRequest, api_key: str = Depends(verify_api_key)) -> DryRunArchiveResponse:
+    """Create or update GitHub Actions secret"""
+    owner, repo = req.target_id.split("/") if "/" in req.target_id else (None, req.target_id)
+    
+    generic_req = DryRunArchiveRequest(
+        token=req.token,
+        target_id=req.target_id,
+        provider="github",
+        reason=req.reason or f"Create/update secret {req.secret_name}",
+        policy=req.policy,
+        webhook_url=req.webhook_url,
+        metadata={
+            "object": "secret",
+            "operation_type": "github.actions.secret.create",
+            "owner": owner,
+            "repo": repo,
+            "secret_name": req.secret_name,
+            "encrypted_value": req.encrypted_value
+        }
+    )
+    return await build_dryrun(generic_req, api_key=api_key)
+
+
+@router.post("/v1/dry-run/github.actions.secret.delete", response_model=DryRunArchiveResponse)
+async def dry_run_github_secret_delete(req: GitHubSecretDeleteDryRunRequest, api_key: str = Depends(verify_api_key)) -> DryRunArchiveResponse:
+    """Delete GitHub Actions secret - IRREVERSIBLE"""
+    owner, repo = req.target_id.split("/") if "/" in req.target_id else (None, req.target_id)
+    
+    generic_req = DryRunArchiveRequest(
+        token=req.token,
+        target_id=req.target_id,
+        provider="github",
+        reason=req.reason or f"Delete secret {req.secret_name}",
+        policy=req.policy,
+        webhook_url=req.webhook_url,
+        metadata={
+            "object": "secret",
+            "operation_type": "github.actions.secret.delete",
+            "owner": owner,
+            "repo": repo,
+            "secret_name": req.secret_name
+        }
+    )
+    return await build_dryrun(generic_req, api_key=api_key)
+
+
+@router.post("/v1/dry-run/github.workflow.update", response_model=DryRunArchiveResponse)
+async def dry_run_github_workflow_update(req: GitHubWorkflowUpdateDryRunRequest, api_key: str = Depends(verify_api_key)) -> DryRunArchiveResponse:
+    """Update workflow file in .github/workflows/"""
+    owner, repo = req.target_id.split("/") if "/" in req.target_id else (None, req.target_id)
+    
+    generic_req = DryRunArchiveRequest(
+        token=req.token,
+        target_id=req.target_id,
+        provider="github",
+        reason=req.reason or f"Update workflow {req.path}",
+        policy=req.policy,
+        webhook_url=req.webhook_url,
+        metadata={
+            "object": "workflow",
+            "operation_type": "github.workflow.update",
+            "owner": owner,
+            "repo": repo,
+            "path": req.path,
+            "content": req.content,
+            "message": req.message,
+            "branch": req.branch,
+            "sha": req.sha
+        }
+    )
+    return await build_dryrun(generic_req, api_key=api_key)
+
+
+@router.post("/v1/dry-run/github.branch_protection.update", response_model=DryRunArchiveResponse)
+async def dry_run_github_branch_protection_update(req: GitHubBranchProtectionUpdateDryRunRequest, api_key: str = Depends(verify_api_key)) -> DryRunArchiveResponse:
+    """Update branch protection rules"""
+    owner, repo = req.target_id.split("/") if "/" in req.target_id else (None, req.target_id)
+    
+    generic_req = DryRunArchiveRequest(
+        token=req.token,
+        target_id=req.target_id,
+        provider="github",
+        reason=req.reason or f"Update branch protection for {req.branch}",
+        policy=req.policy,
+        webhook_url=req.webhook_url,
+        metadata={
+            "object": "branch_protection",
+            "operation_type": "github.branch_protection.update",
+            "owner": owner,
+            "repo": repo,
+            "branch": req.branch,
+            "required_reviews": req.required_reviews,
+            "dismiss_stale_reviews": req.dismiss_stale_reviews,
+            "require_code_owner_reviews": req.require_code_owner_reviews,
+            "required_status_checks": req.required_status_checks,
+            "enforce_admins": req.enforce_admins,
+            "restrictions": req.restrictions
+        }
+    )
+    return await build_dryrun(generic_req, api_key=api_key)
+
+
+@router.post("/v1/dry-run/github.branch_protection.delete", response_model=DryRunArchiveResponse)
+async def dry_run_github_branch_protection_delete(req: GitHubBranchProtectionDeleteDryRunRequest, api_key: str = Depends(verify_api_key)) -> DryRunArchiveResponse:
+    """Delete branch protection rules"""
+    owner, repo = req.target_id.split("/") if "/" in req.target_id else (None, req.target_id)
+    
+    generic_req = DryRunArchiveRequest(
+        token=req.token,
+        target_id=req.target_id,
+        provider="github",
+        reason=req.reason or f"Delete branch protection for {req.branch}",
+        policy=req.policy,
+        webhook_url=req.webhook_url,
+        metadata={
+            "object": "branch_protection",
+            "operation_type": "github.branch_protection.delete",
+            "owner": owner,
+            "repo": repo,
+            "branch": req.branch
+        }
+    )
+    return await build_dryrun(generic_req, api_key=api_key)
+
+
+@router.post("/v1/dry-run/github.repo.visibility.change", response_model=DryRunArchiveResponse)
+async def dry_run_github_repo_visibility_change(req: GitHubRepoVisibilityChangeDryRunRequest, api_key: str = Depends(verify_api_key)) -> DryRunArchiveResponse:
+    """Change repository visibility (private ↔ public)"""
+    owner, repo = req.target_id.split("/") if "/" in req.target_id else (None, req.target_id)
+    
+    generic_req = DryRunArchiveRequest(
+        token=req.token,
+        target_id=req.target_id,
+        provider="github",
+        reason=req.reason or f"Change visibility to {'private' if req.private else 'public'}",
+        policy=req.policy,
+        webhook_url=req.webhook_url,
+        metadata={
+            "object": "repository",
+            "operation_type": "github.repo.visibility.change",
+            "owner": owner,
+            "repo": repo,
+            "private": req.private
+        }
+    )
+    return await build_dryrun(generic_req, api_key=api_key)
+
 
 
 

@@ -1,5 +1,5 @@
 from pydantic import BaseModel, Field
-from typing import List, Literal, Optional, Dict
+from typing import List, Literal, Optional, Dict, Any
 from datetime import datetime, timedelta, timezone
 import uuid
 from saferun import __version__ as SR_VERSION
@@ -65,6 +65,83 @@ class GitHubMergeDryRunRequest(BaseModel):
     target_id: str  # "org/repo" format
     source_branch: str
     target_branch: str
+    reason: Optional[str] = None
+    policy: Optional[Dict] = None
+    webhook_url: Optional[str] = None
+
+
+# Additional 7 Critical GitHub Operations
+
+class GitHubRepoTransferDryRunRequest(BaseModel):
+    token: str
+    target_id: str  # "org/repo" format
+    new_owner: str  # Username or organization to transfer to
+    team_ids: Optional[List[int]] = None  # For org transfers
+    reason: Optional[str] = None
+    policy: Optional[Dict] = None
+    webhook_url: Optional[str] = None
+
+
+class GitHubSecretCreateDryRunRequest(BaseModel):
+    token: str
+    target_id: str  # "org/repo" format
+    secret_name: str
+    encrypted_value: str  # Must be encrypted with repo's public key
+    reason: Optional[str] = None
+    policy: Optional[Dict] = None
+    webhook_url: Optional[str] = None
+
+
+class GitHubSecretDeleteDryRunRequest(BaseModel):
+    token: str
+    target_id: str  # "org/repo" format
+    secret_name: str
+    reason: Optional[str] = None
+    policy: Optional[Dict] = None
+    webhook_url: Optional[str] = None
+
+
+class GitHubWorkflowUpdateDryRunRequest(BaseModel):
+    token: str
+    target_id: str  # "org/repo" format
+    path: str  # Must be in .github/workflows/
+    content: str  # YAML workflow content
+    message: str  # Commit message
+    branch: Optional[str] = None
+    sha: Optional[str] = None  # Current file SHA (for updates)
+    reason: Optional[str] = None
+    policy: Optional[Dict] = None
+    webhook_url: Optional[str] = None
+
+
+class GitHubBranchProtectionUpdateDryRunRequest(BaseModel):
+    token: str
+    target_id: str  # "org/repo" format
+    branch: str
+    required_reviews: Optional[int] = None
+    dismiss_stale_reviews: Optional[bool] = None
+    require_code_owner_reviews: Optional[bool] = None
+    required_status_checks: Optional[List[str]] = None
+    enforce_admins: Optional[bool] = None
+    restrictions: Optional[Dict[str, Any]] = None
+    reason: Optional[str] = None
+    policy: Optional[Dict] = None
+    webhook_url: Optional[str] = None
+
+
+class GitHubBranchProtectionDeleteDryRunRequest(BaseModel):
+    token: str
+    target_id: str  # "org/repo" format
+    branch: str
+    reason: Optional[str] = None
+    policy: Optional[Dict] = None
+    webhook_url: Optional[str] = None
+
+
+class GitHubRepoVisibilityChangeDryRunRequest(BaseModel):
+    token: str
+    target_id: str  # "org/repo" format
+    private: bool  # True = make private, False = make public
     reason: Optional[str] = None
     policy: Optional[Dict] = None
     webhook_url: Optional[str] = None

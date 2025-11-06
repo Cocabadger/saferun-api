@@ -439,4 +439,352 @@ class GitHubProvider(Provider):
             "is_main_branch": is_main_branch
         }
 
+    # Additional 7 Critical GitHub Operations
+
+    @staticmethod
+    async def transfer_repository(owner: str, repo: str, new_owner: str, token: str, team_ids: List[int] = None) -> Dict[str, Any]:
+        """
+        Transfer repository to a new owner.
+        WARNING: This operation is IRREVERSIBLE - you will lose access immediately.
+        
+        Args:
+            owner: Current repository owner
+            repo: Repository name
+            new_owner: Username or organization to transfer to
+            token: GitHub token with admin permissions
+            team_ids: Optional list of team IDs (for org transfers)
+        
+        Returns:
+            {"ok": True, "revertable": False}
+        """
+        payload = {"new_owner": new_owner}
+        if team_ids:
+            payload["team_ids"] = team_ids
+        
+        await GitHubProvider._request(
+            "POST",
+            f"/repos/{owner}/{repo}/transfer",
+            token,
+            json_payload=payload
+        )
+        
+        return {
+            "ok": True,
+            "revertable": False,  # ❌ CANNOT BE REVERTED
+            "warning": "Repository transferred. Original owner lost access permanently."
+        }
+
+    @staticmethod
+    async def create_or_update_secret(owner: str, repo: str, secret_name: str, encrypted_value: str, token: str) -> Dict[str, Any]:
+        """
+        Create or update a GitHub Actions secret.
+        
+        Args:
+            owner: Repository owner
+            repo: Repository name
+            secret_name: Name of the secret (e.g., AWS_ACCESS_KEY_ID)
+            encrypted_value: Encrypted secret value (use GitHub's public key)
+            token: GitHub token with admin permissions
+        
+        Returns:
+            {"ok": True, "revertable": bool, "previous_secret": bool}
+        """
+        # Check if secret already exists
+        existing_secret = None
+        try:
+            existing_secret = await GitHubProvider._request(
+                "GET",
+                f"/repos/{owner}/{repo}/actions/secrets/{secret_name}",
+                token
+            )
+        except RuntimeError:
+            # Secret doesn't exist yet
+            pass
+        
+        # Create or update the secret
+        await GitHubProvider._request(
+            "PUT",
+            f"/repos/{owner}/{repo}/actions/secrets/{secret_name}",
+            token,
+            json_payload={"encrypted_value": encrypted_value}
+        )
+        
+        return {
+            "ok": True,
+            "revertable": existing_secret is not None,
+            "previous_secret": existing_secret is not None,
+            "warning": "Secret value cannot be recovered once overwritten." if existing_secret else None
+        }
+
+    @staticmethod
+    async def delete_secret(owner: str, repo: str, secret_name: str, token: str) -> Dict[str, Any]:
+        """
+        Delete a GitHub Actions secret.
+        WARNING: Secret value cannot be recovered after deletion.
+        
+        Args:
+            owner: Repository owner
+            repo: Repository name
+            secret_name: Name of the secret to delete
+            token: GitHub token with admin permissions
+        
+        Returns:
+            {"ok": True, "revertable": False}
+        """
+        await GitHubProvider._request(
+            "DELETE",
+            f"/repos/{owner}/{repo}/actions/secrets/{secret_name}",
+            token
+        )
+        
+        return {
+            "ok": True,
+            "revertable": False,  # ❌ Cannot recover the secret value
+            "warning": "Secret deleted permanently. Value cannot be recovered."
+        }
+
+    @staticmethod
+    async def update_workflow_file(owner: str, repo: str, path: str, content: str, message: str, token: str, branch: str = None, sha: str = None) -> Dict[str, Any]:
+        """
+        Update or create a workflow file in .github/workflows/.
+        
+        Args:
+            owner: Repository owner
+            repo: Repository name
+            path: Path to workflow file (must be in .github/workflows/)
+            content: New file content (YAML)
+            message: Commit message
+            token: GitHub token with write permissions
+            branch: Target branch (default: repo's default branch)
+            sha: Current file SHA (required for updates, not for new files)
+        
+        Returns:
+            {"ok": True, "revertable": bool, "previous_sha": str}
+        """
+        # Validate path is in .github/workflows/
+        if not path.startswith(".github/workflows/"):
+            raise RuntimeError("Workflow files must be in .github/workflows/ directory")
+        
+        if not (path.endswith(".yml") or path.endswith(".yaml")):
+            raise RuntimeError("Workflow files must have .yml or .yaml extension")
+        
+        # Get current file info if it exists
+        existing_file = None
+        try:
+            existing_file = await GitHubProvider._request(
+                "GET",
+                f"/repos/{owner}/{repo}/contents/{path}",
+                token,
+                params={"ref": branch} if branch else None
+            )
+        except RuntimeError:
+            # File doesn't exist yet
+            pass
+        
+        # Prepare payload
+        import base64
+        payload = {
+            "message": message,
+            "content": base64.b64encode(content.encode('utf-8')).decode('ascii')
+        }
+        
+        if branch:
+            payload["branch"] = branch
+        
+        if sha:
+            payload["sha"] = sha
+        elif existing_file:
+            payload["sha"] = existing_file.get("sha")
+        
+        # Update or create the file
+        result = await GitHubProvider._request(
+            "PUT",
+            f"/repos/{owner}/{repo}/contents/{path}",
+            token,
+            json_payload=payload
+        )
+        
+        return {
+            "ok": True,
+            "revertable": existing_file is not None,
+            "previous_sha": existing_file.get("sha") if existing_file else None,
+            "new_sha": result.get("content", {}).get("sha")
+        }
+
+    @staticmethod
+    async def update_branch_protection(
+        owner: str,
+        repo: str,
+        branch: str,
+        token: str,
+        required_reviews: int = None,
+        dismiss_stale_reviews: bool = None,
+        require_code_owner_reviews: bool = None,
+        required_status_checks: List[str] = None,
+        enforce_admins: bool = None,
+        restrictions: Dict[str, Any] = None
+    ) -> Dict[str, Any]:
+        """
+        Update branch protection rules.
+        
+        Args:
+            owner: Repository owner
+            repo: Repository name
+            branch: Branch name (e.g., "main")
+            token: GitHub token with admin permissions
+            required_reviews: Number of required approving reviews
+            dismiss_stale_reviews: Dismiss stale reviews on new commits
+            require_code_owner_reviews: Require code owner reviews
+            required_status_checks: List of required status check contexts
+            enforce_admins: Enforce rules for admins
+            restrictions: Push restrictions (users/teams with push access)
+        
+        Returns:
+            {"ok": True, "revertable": True, "previous_settings": dict}
+        """
+        # Get current protection settings
+        previous_settings = None
+        try:
+            previous_settings = await GitHubProvider._request(
+                "GET",
+                f"/repos/{owner}/{repo}/branches/{branch}/protection",
+                token
+            )
+        except RuntimeError:
+            # No protection exists yet
+            pass
+        
+        # Build protection payload
+        payload = {}
+        
+        if required_reviews is not None or dismiss_stale_reviews is not None or require_code_owner_reviews is not None:
+            payload["required_pull_request_reviews"] = {}
+            if required_reviews is not None:
+                payload["required_pull_request_reviews"]["required_approving_review_count"] = required_reviews
+            if dismiss_stale_reviews is not None:
+                payload["required_pull_request_reviews"]["dismiss_stale_reviews"] = dismiss_stale_reviews
+            if require_code_owner_reviews is not None:
+                payload["required_pull_request_reviews"]["require_code_owner_reviews"] = require_code_owner_reviews
+        
+        if required_status_checks is not None:
+            payload["required_status_checks"] = {
+                "strict": True,
+                "contexts": required_status_checks
+            }
+        else:
+            payload["required_status_checks"] = None
+        
+        if enforce_admins is not None:
+            payload["enforce_admins"] = enforce_admins
+        else:
+            payload["enforce_admins"] = None
+        
+        if restrictions is not None:
+            payload["restrictions"] = restrictions
+        else:
+            payload["restrictions"] = None
+        
+        # Update protection
+        await GitHubProvider._request(
+            "PUT",
+            f"/repos/{owner}/{repo}/branches/{branch}/protection",
+            token,
+            json_payload=payload
+        )
+        
+        return {
+            "ok": True,
+            "revertable": True,
+            "previous_settings": previous_settings
+        }
+
+    @staticmethod
+    async def delete_branch_protection(owner: str, repo: str, branch: str, token: str) -> Dict[str, Any]:
+        """
+        Delete branch protection rules.
+        
+        Args:
+            owner: Repository owner
+            repo: Repository name
+            branch: Branch name
+            token: GitHub token with admin permissions
+        
+        Returns:
+            {"ok": True, "revertable": True, "previous_settings": dict}
+        """
+        # Get current protection settings before deleting
+        previous_settings = None
+        try:
+            previous_settings = await GitHubProvider._request(
+                "GET",
+                f"/repos/{owner}/{repo}/branches/{branch}/protection",
+                token
+            )
+        except RuntimeError:
+            # No protection exists
+            pass
+        
+        # Delete protection
+        await GitHubProvider._request(
+            "DELETE",
+            f"/repos/{owner}/{repo}/branches/{branch}/protection",
+            token
+        )
+        
+        return {
+            "ok": True,
+            "revertable": previous_settings is not None,
+            "previous_settings": previous_settings,
+            "revert_action": {
+                "type": "restore_branch_protection",
+                "owner": owner,
+                "repo": repo,
+                "branch": branch,
+                "settings": previous_settings
+            } if previous_settings else None
+        }
+
+    @staticmethod
+    async def change_repository_visibility(owner: str, repo: str, private: bool, token: str) -> Dict[str, Any]:
+        """
+        Change repository visibility (private ↔ public).
+        WARNING: Making repo public is irreversible - code may be cloned/indexed.
+        
+        Args:
+            owner: Repository owner
+            repo: Repository name
+            private: True for private, False for public
+            token: GitHub token with admin permissions
+        
+        Returns:
+            {"ok": True, "revertable": bool, "warning": str}
+        """
+        # Get current visibility
+        repo_data = await GitHubProvider._request(
+            "GET",
+            f"/repos/{owner}/{repo}",
+            token
+        )
+        
+        was_private = repo_data.get("private", True)
+        
+        # Update visibility
+        await GitHubProvider._request(
+            "PATCH",
+            f"/repos/{owner}/{repo}",
+            token,
+            json_payload={"private": private}
+        )
+        
+        # Determine revertability
+        going_public = was_private and not private
+        
+        return {
+            "ok": True,
+            "revertable": not going_public,  # Can revert private→public, but not public→private
+            "previous_visibility": "private" if was_private else "public",
+            "new_visibility": "private" if private else "public",
+            "warning": "Repository is now public. Code may have been cloned or indexed." if going_public else None
+        }
+
 

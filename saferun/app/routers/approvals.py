@@ -449,6 +449,221 @@ async def approve_operation(
                             "before_sha": parent_sha or "unknown"  # For notification display
                         }
                     }
+                
+                # Additional 7 Critical GitHub Operations
+                
+                elif operation_type in ["github_repo_transfer", "github.repo.transfer"]:
+                    # Repository Transfer - IRREVERSIBLE
+                    owner = metadata.get("owner")
+                    repo = metadata.get("repo")
+                    new_owner = metadata.get("new_owner")
+                    team_ids = metadata.get("team_ids")
+                    
+                    if not all([owner, repo, new_owner]):
+                        raise HTTPException(
+                            status_code=400,
+                            detail="Repository transfer requires owner, repo, and new_owner in metadata"
+                        )
+                    
+                    result = await GitHubProvider.transfer_repository(
+                        owner=owner,
+                        repo=repo,
+                        new_owner=new_owner,
+                        token=token,
+                        team_ids=team_ids
+                    )
+                    
+                    rec["summary_json"] = result
+                    # NO revert_token - operation is IRREVERSIBLE
+                
+                elif operation_type in ["github_secret_create", "github.actions.secret.create", "github_secret_update", "github.actions.secret.update"]:
+                    # Create/Update Secret
+                    owner = metadata.get("owner")
+                    repo = metadata.get("repo")
+                    secret_name = metadata.get("secret_name")
+                    encrypted_value = metadata.get("encrypted_value")
+                    
+                    if not all([owner, repo, secret_name, encrypted_value]):
+                        raise HTTPException(
+                            status_code=400,
+                            detail="Secret creation requires owner, repo, secret_name, and encrypted_value in metadata"
+                        )
+                    
+                    result = await GitHubProvider.create_or_update_secret(
+                        owner=owner,
+                        repo=repo,
+                        secret_name=secret_name,
+                        encrypted_value=encrypted_value,
+                        token=token
+                    )
+                    
+                    rec["summary_json"] = result
+                    if result.get("previous_secret"):
+                        # Cannot recover value, but can delete the new one
+                        rec["revert_token"] = "secret_exists"
+                        rec["summary_json"]["revert_action"] = {
+                            "type": "delete_secret",
+                            "owner": owner,
+                            "repo": repo,
+                            "secret_name": secret_name
+                        }
+                
+                elif operation_type in ["github_secret_delete", "github.actions.secret.delete"]:
+                    # Delete Secret - IRREVERSIBLE
+                    owner = metadata.get("owner")
+                    repo = metadata.get("repo")
+                    secret_name = metadata.get("secret_name")
+                    
+                    if not all([owner, repo, secret_name]):
+                        raise HTTPException(
+                            status_code=400,
+                            detail="Secret deletion requires owner, repo, and secret_name in metadata"
+                        )
+                    
+                    result = await GitHubProvider.delete_secret(
+                        owner=owner,
+                        repo=repo,
+                        secret_name=secret_name,
+                        token=token
+                    )
+                    
+                    rec["summary_json"] = result
+                    # NO revert_token - secret value cannot be recovered
+                
+                elif operation_type in ["github_workflow_update", "github.workflow.update"]:
+                    # Update Workflow File
+                    owner = metadata.get("owner")
+                    repo = metadata.get("repo")
+                    path = metadata.get("path")
+                    content = metadata.get("content")
+                    message = metadata.get("message") or "Update workflow via SafeRun"
+                    branch = metadata.get("branch")
+                    sha = metadata.get("sha")
+                    
+                    if not all([owner, repo, path, content]):
+                        raise HTTPException(
+                            status_code=400,
+                            detail="Workflow update requires owner, repo, path, and content in metadata"
+                        )
+                    
+                    result = await GitHubProvider.update_workflow_file(
+                        owner=owner,
+                        repo=repo,
+                        path=path,
+                        content=content,
+                        message=message,
+                        token=token,
+                        branch=branch,
+                        sha=sha
+                    )
+                    
+                    rec["summary_json"] = result
+                    if result.get("previous_sha"):
+                        rec["revert_token"] = result.get("previous_sha")
+                        rec["summary_json"]["revert_action"] = {
+                            "type": "restore_workflow_file",
+                            "owner": owner,
+                            "repo": repo,
+                            "path": path,
+                            "sha": result.get("previous_sha")
+                        }
+                
+                elif operation_type in ["github_branch_protection_update", "github.branch_protection.update"]:
+                    # Update Branch Protection
+                    owner = metadata.get("owner")
+                    repo = metadata.get("repo")
+                    branch = metadata.get("branch")
+                    required_reviews = metadata.get("required_reviews")
+                    dismiss_stale_reviews = metadata.get("dismiss_stale_reviews")
+                    require_code_owner_reviews = metadata.get("require_code_owner_reviews")
+                    required_status_checks = metadata.get("required_status_checks")
+                    enforce_admins = metadata.get("enforce_admins")
+                    restrictions = metadata.get("restrictions")
+                    
+                    if not all([owner, repo, branch]):
+                        raise HTTPException(
+                            status_code=400,
+                            detail="Branch protection update requires owner, repo, and branch in metadata"
+                        )
+                    
+                    result = await GitHubProvider.update_branch_protection(
+                        owner=owner,
+                        repo=repo,
+                        branch=branch,
+                        token=token,
+                        required_reviews=required_reviews,
+                        dismiss_stale_reviews=dismiss_stale_reviews,
+                        require_code_owner_reviews=require_code_owner_reviews,
+                        required_status_checks=required_status_checks,
+                        enforce_admins=enforce_admins,
+                        restrictions=restrictions
+                    )
+                    
+                    rec["summary_json"] = result
+                    if result.get("previous_settings"):
+                        import json
+                        rec["revert_token"] = json.dumps(result["previous_settings"])
+                        rec["summary_json"]["revert_action"] = {
+                            "type": "restore_branch_protection",
+                            "owner": owner,
+                            "repo": repo,
+                            "branch": branch,
+                            "settings": result["previous_settings"]
+                        }
+                
+                elif operation_type in ["github_branch_protection_delete", "github.branch_protection.delete"]:
+                    # Delete Branch Protection
+                    owner = metadata.get("owner")
+                    repo = metadata.get("repo")
+                    branch = metadata.get("branch")
+                    
+                    if not all([owner, repo, branch]):
+                        raise HTTPException(
+                            status_code=400,
+                            detail="Branch protection deletion requires owner, repo, and branch in metadata"
+                        )
+                    
+                    result = await GitHubProvider.delete_branch_protection(
+                        owner=owner,
+                        repo=repo,
+                        branch=branch,
+                        token=token
+                    )
+                    
+                    rec["summary_json"] = result
+                    if result.get("previous_settings"):
+                        import json
+                        rec["revert_token"] = json.dumps(result["previous_settings"])
+                        rec["summary_json"]["revert_action"] = result.get("revert_action")
+                
+                elif operation_type in ["github_repo_visibility_change", "github.repo.visibility.change"]:
+                    # Change Repository Visibility
+                    owner = metadata.get("owner")
+                    repo = metadata.get("repo")
+                    private = metadata.get("private")
+                    
+                    if not all([owner, repo]) or private is None:
+                        raise HTTPException(
+                            status_code=400,
+                            detail="Visibility change requires owner, repo, and private (boolean) in metadata"
+                        )
+                    
+                    result = await GitHubProvider.change_repository_visibility(
+                        owner=owner,
+                        repo=repo,
+                        private=private,
+                        token=token
+                    )
+                    
+                    rec["summary_json"] = result
+                    if result.get("revertable"):
+                        rec["revert_token"] = "can_revert"
+                        rec["summary_json"]["revert_action"] = {
+                            "type": "restore_visibility",
+                            "owner": owner,
+                            "repo": repo,
+                            "private": not private  # Toggle back
+                        }
             
             # Update status to executed
             rec["status"] = "executed"

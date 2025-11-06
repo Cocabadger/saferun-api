@@ -427,6 +427,112 @@ async def revert_github_action(
         )
         success = True
     
+    # Additional 7 Critical GitHub Operations
+    
+    elif revert_action["type"] == "restore_secret":
+        # Restore previous secret value (by deleting new one)
+        # Note: Cannot restore actual value unless we encrypted and stored it
+        from saferun.app.providers.github_provider import GitHubProvider
+        await GitHubProvider.delete_secret(
+            owner=revert_action["owner"],
+            repo=revert_action["repo"],
+            secret_name=revert_action["secret_name"],
+            token=github_token
+        )
+        success = True
+    
+    elif revert_action["type"] == "delete_secret":
+        # Delete newly created secret (revert creation)
+        from saferun.app.providers.github_provider import GitHubProvider
+        await GitHubProvider.delete_secret(
+            owner=revert_action["owner"],
+            repo=revert_action["repo"],
+            secret_name=revert_action["secret_name"],
+            token=github_token
+        )
+        success = True
+    
+    elif revert_action["type"] == "restore_workflow_file":
+        # Restore previous version of workflow file
+        from saferun.app.providers.github_provider import GitHubProvider
+        
+        previous_sha = revert_action.get("sha")
+        if not previous_sha:
+            raise HTTPException(
+                status_code=400,
+                detail="Cannot revert: previous file SHA not available"
+            )
+        
+        # Get previous file content using the SHA
+        prev_file = await GitHubProvider._request(
+            "GET",
+            f"/repos/{revert_action['owner']}/{revert_action['repo']}/contents/{revert_action['path']}",
+            github_token,
+            params={"ref": previous_sha}
+        )
+        
+        # Restore previous version
+        import base64
+        previous_content = base64.b64decode(prev_file.get("content", "")).decode('utf-8')
+        
+        await GitHubProvider.update_workflow_file(
+            owner=revert_action["owner"],
+            repo=revert_action["repo"],
+            path=revert_action["path"],
+            content=previous_content,
+            message="Revert workflow changes via SafeRun",
+            token=github_token
+        )
+        success = True
+    
+    elif revert_action["type"] == "restore_branch_protection":
+        # Restore previous branch protection settings
+        from saferun.app.providers.github_provider import GitHubProvider
+        
+        previous_settings = revert_action.get("settings")
+        if not previous_settings:
+            raise HTTPException(
+                status_code=400,
+                detail="Cannot revert: previous protection settings not available"
+            )
+        
+        # Extract settings from previous_settings JSON
+        required_pull_request_reviews = previous_settings.get("required_pull_request_reviews", {})
+        required_status_checks = previous_settings.get("required_status_checks", {})
+        
+        required_reviews = required_pull_request_reviews.get("required_approving_review_count")
+        dismiss_stale_reviews = required_pull_request_reviews.get("dismiss_stale_reviews")
+        require_code_owner_reviews = required_pull_request_reviews.get("require_code_owner_reviews")
+        
+        status_checks_list = required_status_checks.get("contexts", []) if required_status_checks else None
+        enforce_admins = previous_settings.get("enforce_admins", {}).get("enabled")
+        
+        # Restore protection using previous settings
+        await GitHubProvider.update_branch_protection(
+            owner=revert_action["owner"],
+            repo=revert_action["repo"],
+            branch=revert_action["branch"],
+            token=github_token,
+            required_reviews=required_reviews,
+            dismiss_stale_reviews=dismiss_stale_reviews,
+            require_code_owner_reviews=require_code_owner_reviews,
+            required_status_checks=status_checks_list,
+            enforce_admins=enforce_admins
+        )
+        success = True
+    
+    elif revert_action["type"] == "restore_visibility":
+        # Restore previous repository visibility
+        from saferun.app.providers.github_provider import GitHubProvider
+        
+        await GitHubProvider.change_repository_visibility(
+            owner=revert_action["owner"],
+            repo=revert_action["repo"],
+            private=revert_action["private"],
+            token=github_token
+        )
+        success = True
+    
     if success:
         # Update change status
         db.exec(
