@@ -1,11 +1,14 @@
 """GitHub App webhook endpoints"""
-from fastapi import APIRouter, Request, HTTPException, Header
+from fastapi import APIRouter, Request, HTTPException, Header, Depends
 import json
 import uuid
 from typing import Optional
 from datetime import datetime, timezone, timedelta
 
 from .. import db_adapter as db
+from .. import storage as storage_manager
+from ..routers.auth import verify_api_key
+from ..routers.auth_helpers import verify_change_ownership
 from ..services.github import (
     verify_webhook_signature,
     calculate_github_risk_score,
@@ -321,7 +324,8 @@ async def github_webhook_event(
 @router.post("/revert/{change_id}")
 async def revert_github_action(
     change_id: str,
-    request: Request
+    request: Request,
+    api_key: str = Depends(verify_api_key)
 ):
     """
     Revert a GitHub action (force push, delete, merge)
@@ -329,7 +333,12 @@ async def revert_github_action(
     Requires:
     - change_id: SafeRun change ID to revert
     - github_token: GitHub token with write permissions (JSON body: {"github_token": "ghp_XXX"})
+    - X-API-Key header: User's API key (for ownership verification)
     """
+    # Verify ownership FIRST (before accessing change data)
+    storage = storage_manager.get_storage()
+    change = verify_change_ownership(change_id, api_key, storage)
+    
     # Parse JSON body
     try:
         body = await request.json()
@@ -338,11 +347,6 @@ async def revert_github_action(
             raise HTTPException(status_code=400, detail="github_token required in request body")
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Invalid JSON body: {str(e)}")
-    
-    change = db.fetchone("SELECT * FROM changes WHERE change_id=%s", (change_id,))
-    
-    if not change:
-        raise HTTPException(status_code=404, detail="Change not found")
     
     # ✅ BUG #16 FIX: Check if operation can be reverted
     current_status = change.get("status", "pending")
@@ -360,25 +364,6 @@ async def revert_github_action(
             status_code=409,
             detail="Operation already reverted"
         )
-    
-    # SECURITY: Verify user owns this change (multi-user isolation)
-    # For old records (api_key=NULL), allow revert (backward compatibility)
-    # For new records, verify ownership via API key from GitHub token or request header
-    change_api_key = change.get("api_key")
-    if change_api_key:
-        # Get user's API key from request header (if available)
-        request_api_key = request.headers.get("X-API-Key")
-        
-        # TODO: Alternatively, could derive api_key from github_token by looking up installations
-        # For now, if api_key is set but doesn't match, reject (prevents cross-user reverts)
-        if request_api_key and request_api_key != change_api_key:
-            raise HTTPException(
-                status_code=403, 
-                detail="Forbidden: You don't have permission to revert this change"
-            )
-        elif not request_api_key:
-            print(f"⚠️ Revert attempted without API key for change with api_key={change_api_key[:10]}...")
-            # Allow for now (backward compat), but log warning
     
     summary_json = change.get("summary_json") or "{}"
     try:
@@ -453,6 +438,7 @@ async def revert_github_action(
         db.insert_audit(change_id, "reverted", {"revert_type": revert_action["type"]})
         
         # Send Slack notification for successful revert
+        change_api_key = change.get("api_key")
         if change_api_key:
             try:
                 notif_row = db.fetchone(

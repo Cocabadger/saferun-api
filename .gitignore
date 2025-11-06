@@ -6,6 +6,7 @@ __pycache__/
 *.so
 *.egg-info/
 .venv/
+venv/
 
 # OS/Editor
 .DS_Store

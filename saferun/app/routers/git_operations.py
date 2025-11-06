@@ -7,6 +7,8 @@ from ..models.contracts import (
     GitOperationStatusResponse,
 )
 from ..routers.auth import verify_api_key
+from ..routers.auth_helpers import verify_change_ownership
+from .. import storage as storage_manager
 from ..services.git_operations import (
     build_git_operation_dryrun,
     confirm_git_operation,
@@ -22,7 +24,13 @@ async def dry_run_git_operation(req: GitOperationDryRunRequest, api_key: str = D
 
 
 @router.get("/v1/git/operations/{change_id}", response_model=GitOperationStatusResponse)
-async def git_operation_status(change_id: str) -> GitOperationStatusResponse:
+async def git_operation_status(
+    change_id: str,
+    api_key: str = Depends(verify_api_key)
+) -> GitOperationStatusResponse:
+    storage = storage_manager.get_storage()
+    verify_change_ownership(change_id, api_key, storage)
+    
     try:
         return get_git_operation_status(change_id)
     except ValueError as exc:
@@ -30,7 +38,13 @@ async def git_operation_status(change_id: str) -> GitOperationStatusResponse:
 
 
 @router.post("/v1/git/operations/confirm", response_model=GitOperationStatusResponse)
-async def git_operation_confirm(body: GitOperationConfirmRequest) -> GitOperationStatusResponse:
+async def git_operation_confirm(
+    body: GitOperationConfirmRequest,
+    api_key: str = Depends(verify_api_key)
+) -> GitOperationStatusResponse:
+    storage = storage_manager.get_storage()
+    verify_change_ownership(body.change_id, api_key, storage)
+    
     try:
         return confirm_git_operation(body.change_id, body.status, body.metadata)
     except ValueError as exc:

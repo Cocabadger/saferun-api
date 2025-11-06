@@ -1,10 +1,12 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends
 from typing import Dict, Optional
 from pydantic import BaseModel
 
 from .. import storage as storage_manager
 from .. import db_adapter as db
 from ..models.contracts import GitOperationStatusResponse
+from .auth import verify_api_key
+from .auth_helpers import verify_change_ownership
 
 router = APIRouter(tags=["Approvals"], prefix="/api")
 
@@ -34,18 +36,21 @@ class ApprovalActionResponse(BaseModel):
 
 
 @router.get("/approvals/{change_id}", response_model=ApprovalDetailResponse)
-async def get_approval_details(change_id: str) -> ApprovalDetailResponse:
+async def get_approval_details(
+    change_id: str,
+    api_key: str = Depends(verify_api_key)
+) -> ApprovalDetailResponse:
     """
     Get detailed information about a pending approval request.
     Used by the web dashboard to display operation details.
+    Requires authentication - users can only see their own operations.
     """
     from datetime import datetime, timezone
     
     storage = storage_manager.get_storage()
-    rec = storage.get_change(change_id)
-
-    if not rec:
-        raise HTTPException(status_code=404, detail="Approval request not found")
+    
+    # Verify ownership - returns 404 if not found or unauthorized
+    rec = verify_change_ownership(change_id, api_key, storage)
 
     requires_approval = bool(rec.get("requires_approval"))
     status = rec.get("status", "pending")
@@ -127,21 +132,24 @@ async def get_approval_details(change_id: str) -> ApprovalDetailResponse:
 
 
 @router.post("/approvals/{change_id}/approve", response_model=ApprovalActionResponse)
-async def approve_operation(change_id: str) -> ApprovalActionResponse:
+async def approve_operation(
+    change_id: str,
+    api_key: str = Depends(verify_api_key)
+) -> ApprovalActionResponse:
     """
     Approve a pending operation.
     For CLI/SDK operations: sets requires_approval to False so they can proceed.
     For API operations with revert_window: executes immediately and sends notification.
+    Requires authentication - users can only approve their own operations.
     
-    VERSION: 2025-10-14-v2 - UNARCHIVE FIX APPLIED
+    VERSION: 2025-11-06-v3 - AUTH FIX APPLIED
     """
     from datetime import datetime, timezone
     
     storage = storage_manager.get_storage()
-    rec = storage.get_change(change_id)
-
-    if not rec:
-        raise HTTPException(status_code=404, detail="Approval request not found")
+    
+    # Verify ownership - returns 404 if not found or unauthorized
+    rec = verify_change_ownership(change_id, api_key, storage)
 
     current_status = rec.get("status", "pending")
     
@@ -494,18 +502,21 @@ async def approve_operation(change_id: str) -> ApprovalActionResponse:
 
 
 @router.post("/approvals/{change_id}/reject", response_model=ApprovalActionResponse)
-async def reject_operation(change_id: str) -> ApprovalActionResponse:
+async def reject_operation(
+    change_id: str,
+    api_key: str = Depends(verify_api_key)
+) -> ApprovalActionResponse:
     """
     Reject a pending operation.
     Sets status to rejected so the CLI will abort.
+    Requires authentication - users can only reject their own operations.
     """
     from datetime import datetime, timezone
     
     storage = storage_manager.get_storage()
-    rec = storage.get_change(change_id)
-
-    if not rec:
-        raise HTTPException(status_code=404, detail="Approval request not found")
+    
+    # Verify ownership - returns 404 if not found or unauthorized
+    rec = verify_change_ownership(change_id, api_key, storage)
 
     current_status = rec.get("status", "pending")
     
