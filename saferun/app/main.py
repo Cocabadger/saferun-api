@@ -19,6 +19,10 @@ from saferun import __version__ as SR_VERSION
 from . import storage as storage_manager
 from . import db_adapter as db
 from .services.expiry_checker import expiry_checker_loop
+from . import crypto
+import logging
+
+logger = logging.getLogger(__name__)
 
 DATABASE_URL = os.getenv("DATABASE_URL")
 
@@ -36,6 +40,24 @@ async def lifespan(app: FastAPI):
                 os.makedirs(sqlite_dir, exist_ok=True)
 
     db.init_db()
+    
+    # Validate encryption key and migrate tokens
+    try:
+        crypto.get_encryption_key()
+        logger.info("✅ Encryption key validated")
+    except ValueError as e:
+        logger.error(f"❌ CRITICAL: {e}")
+        logger.error("Set SR_ENCRYPTION_KEY environment variable")
+        # Don't exit - allow startup but log prominently
+    
+    # Run token migration (idempotent)
+    try:
+        migrated_count = db.migrate_tokens_to_encrypted()
+        if migrated_count > 0:
+            logger.info(f"✅ Migrated {migrated_count} tokens to encrypted format")
+    except Exception as e:
+        logger.error(f"Token migration failed: {e}")
+    
     storage = storage_manager.get_storage()
     storage.run_gc()
     

@@ -4,6 +4,7 @@ import os
 import asyncio
 from datetime import datetime, timedelta, timezone
 from .notify import notifier
+from . import crypto
 
 DB_PATH = os.getenv("SR_SQLITE_PATH", os.getenv("SAFERUN_DB", "data/saferun.db"))
 
@@ -194,6 +195,62 @@ def iso_z(dt: datetime) -> str:
 
 # --- Functions that remain in SQLite backend ---
 
+def migrate_tokens_to_encrypted():
+    """
+    Migrate existing plaintext tokens to encrypted format.
+    Safe to run multiple times (idempotent).
+    Returns number of tokens migrated.
+    """
+    con = _conn()
+    cur = con.cursor()
+    
+    # Migrate changes.token
+    cur.execute("SELECT change_id, token FROM changes WHERE token IS NOT NULL AND token != ''")
+    rows = cur.fetchall()
+    
+    migrated_count = 0
+    for row in rows:
+        change_id = row[0]
+        token = row[1]
+        
+        # Skip if already encrypted
+        if crypto.is_encrypted(token):
+            continue
+        
+        # Encrypt and update
+        try:
+            encrypted = crypto.encrypt_token(token)
+            cur.execute("UPDATE changes SET token = ? WHERE change_id = ?", (encrypted, change_id))
+            migrated_count += 1
+        except Exception as e:
+            print(f"Warning: Failed to encrypt token for change {change_id}: {e}")
+    
+    # Migrate changes.revert_token
+    cur.execute("SELECT change_id, revert_token FROM changes WHERE revert_token IS NOT NULL AND revert_token != ''")
+    rows = cur.fetchall()
+    
+    for row in rows:
+        change_id = row[0]
+        token = row[1]
+        
+        # Skip if already encrypted
+        if crypto.is_encrypted(token):
+            continue
+        
+        # Encrypt and update
+        try:
+            encrypted = crypto.encrypt_token(token)
+            cur.execute("UPDATE changes SET revert_token = ? WHERE change_id = ?", (encrypted, change_id))
+            migrated_count += 1
+        except Exception as e:
+            print(f"Warning: Failed to encrypt revert_token for change {change_id}: {e}")
+    
+    con.commit()
+    con.close()
+    
+    return migrated_count
+
+
 def get_setting(key: str, default: str = None) -> str | None:
     row = fetchone("SELECT value FROM settings WHERE key=?", (key,))
     return row["value"] if row else default
@@ -213,6 +270,13 @@ def upsert_change(change: dict):
                    policy_json, summary_json
     Back-compat: also writes page_id = target_id if the column exists.
     """
+    # Encrypt sensitive tokens before storing
+    if change.get("token"):
+        change["token"] = crypto.encrypt_token(change["token"])
+    
+    if change.get("revert_token"):
+        change["revert_token"] = crypto.encrypt_token(change["revert_token"])
+    
     con = _conn()
     has_page_id = _column_exists(con, "changes", "page_id")
 
@@ -295,16 +359,55 @@ def upsert_change(change: dict):
     con.commit()
 
 def get_change(change_id: str):
-    return fetchone("SELECT * FROM changes WHERE change_id=?", (change_id,))
+    rec = fetchone("SELECT * FROM changes WHERE change_id=?", (change_id,))
+    
+    # Decrypt tokens after retrieving
+    if rec and rec.get("token"):
+        rec["token"] = crypto.decrypt_token(rec["token"])
+    
+    if rec and rec.get("revert_token"):
+        rec["revert_token"] = crypto.decrypt_token(rec["revert_token"])
+    
+    return rec
 
 def get_by_revert_token(token: str):
-    return fetchone("SELECT * FROM changes WHERE revert_token=?", (token,))
+    """
+    Find change by revert token.
+    Note: Encrypted tokens require scanning all records (migration will improve this)
+    """
+    # Try direct lookup first (for backward compat with plaintext)
+    rec = fetchone("SELECT * FROM changes WHERE revert_token=?", (token,))
+    
+    if rec:
+        # Decrypt if encrypted
+        if rec.get("revert_token"):
+            rec["revert_token"] = crypto.decrypt_token(rec["revert_token"])
+        if rec.get("token"):
+            rec["token"] = crypto.decrypt_token(rec["token"])
+        return rec
+    
+    # If not found, token might be plaintext query against encrypted DB
+    # Scan all records (inefficient, but only during migration period)
+    all_recs = fetchall("SELECT * FROM changes WHERE revert_token IS NOT NULL")
+    for rec in all_recs:
+        encrypted_token = rec.get("revert_token")
+        if encrypted_token:
+            decrypted = crypto.decrypt_token(encrypted_token)
+            if decrypted == token:
+                rec["revert_token"] = decrypted
+                if rec.get("token"):
+                    rec["token"] = crypto.decrypt_token(rec["token"])
+                return rec
+    
+    return None
 
 def set_change_status(change_id: str, status: str):
     exec("UPDATE changes SET status=? WHERE change_id=?", (status, change_id))
 
 def set_revert_token(change_id: str, token: str):
-    exec("UPDATE changes SET revert_token=? WHERE change_id=?", (token, change_id))
+    # Encrypt before storing
+    encrypted_token = crypto.encrypt_token(token)
+    exec("UPDATE changes SET revert_token=? WHERE change_id=?", (encrypted_token, change_id))
 
 def update_summary_json(change_id: str, summary_json: dict):
     """Update summary_json for change."""
