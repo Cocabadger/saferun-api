@@ -517,11 +517,6 @@ saferun history --ai-only --since 1d
 
 If you need to bypass SafeRun completely in emergency:
 
-```yaml
-env:
-  SAFERUN_DISABLE: "1"  # Only for emergencies!
-```
-
 ## Troubleshooting
 
 ### CI is being blocked

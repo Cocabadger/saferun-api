@@ -131,12 +131,6 @@ Shows if AI agent is detected and confidence level.
 saferun init --force
 ```
 
-### Temporarily disable SafeRun
-
-```bash
-SAFERUN_DISABLE=1 git push --force origin main
-```
-
 ### Switch to offline mode
 
 If API is unreachable:

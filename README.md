@@ -6,7 +6,7 @@ AI Safety Middleware - Prevent destructive actions by AI agents
 
 **🔴 CRITICAL VULNERABILITIES IDENTIFIED:**
 - **Issue #1:** No secrets detection in pre-commit hook (credential leak risk)
-- **Issue #2:** `SAFERUN_DISABLE=1` bypass vulnerability
+- **Issue #2:** ✅ FIXED - SAFERUN_DISABLE bypass removed (6 November 2025)
 
 **📋 Current Status:**
 - ❌ **NOT READY for production use** (vulnerabilities being fixed)
@@ -15,7 +15,7 @@ AI Safety Middleware - Prevent destructive actions by AI agents
 
 **Defense in Depth (Current):**
 - ✅ GitHub Webhooks: 100% post-facto coverage
-- ⚠️ CLI Protection: 60% effective (bypass exists)
+- ✅ CLI Protection: Secure (bypass removed)
 - ✅ Revert Mechanism: Works for most operations
 
 **For Security Details:** See [SECURITY_VULNERABILITIES.md](./SECURITY_VULNERABILITIES.md)

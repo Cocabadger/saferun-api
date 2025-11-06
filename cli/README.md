@@ -663,11 +663,6 @@ saferun config set api.url https://your-server.com
 
 ### Bypass SafeRun temporarily
 
-**Disable for single operation:**
-```bash
-SAFERUN_DISABLE=1 git push --force origin main
-```
-
 **Disable globally:**
 ```bash
 saferun config set mode lenient

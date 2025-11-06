@@ -2,8 +2,8 @@
 # SafeRun post-checkout hook
 # Protects against dangerous AI agent operations
 
-# Bypass for CI or explicit disable
-if [ "$SAFERUN_DISABLE" = "1" ] || [ "$CI" = "true" ] || [ "$CI" = "1" ]; then
+# Allow bypass for CI environments only
+if [ "$CI" = "true" ] || [ "$CI" = "1" ]; then
   exit 0
 fi
 

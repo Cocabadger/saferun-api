@@ -170,12 +170,6 @@ git push origin staging
 
 **1. Always use SafeRun**
 
-Never disable SafeRun without team approval:
-```bash
-# DON'T DO THIS without permission:
-SAFERUN_DISABLE=1 git push --force
-```
-
 **2. Request approval for protected branches**
 
 If you need to force push to main:

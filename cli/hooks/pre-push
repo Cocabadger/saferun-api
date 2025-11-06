@@ -6,8 +6,8 @@ REMOTE_NAME="$1"
 REMOTE_URL="$2"
 shift 2 >/dev/null 2>&1 || true
 
-# Allow bypass for CI or explicit disable flag
-if [ "$SAFERUN_DISABLE" = "1" ] || [ "$CI" = "true" ] || [ "$CI" = "1" ]; then
+# Allow bypass for CI environments only
+if [ "$CI" = "true" ] || [ "$CI" = "1" ]; then
   exit 0
 fi
 
