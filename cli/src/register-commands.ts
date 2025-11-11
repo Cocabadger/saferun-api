@@ -78,6 +78,19 @@ export function registerCommands(program: Command) {
       await new ConfigCommand().set('mode', mode);
     });
 
+  config
+    .command('slack')
+    .description('Configure Slack notifications')
+    .option('--channel <channel>', 'Slack channel (e.g., #my-team)')
+    .option('--webhook-url <url>', 'Slack webhook URL')
+    .option('--bot-token <token>', 'Slack bot token')
+    .option('--disable', 'Disable Slack notifications')
+    .option('--show', 'Show current Slack configuration')
+    .action(async (options) => {
+      const { ConfigCommand } = await import('./commands/config');
+      await new ConfigCommand().slack(options);
+    });
+
   // saferun allow - whitelist management
   program
     .command('allow')

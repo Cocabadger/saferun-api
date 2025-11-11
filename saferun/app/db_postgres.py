@@ -534,10 +534,25 @@ def get_api_key_by_email(email: str) -> Optional[Dict[str, Any]]:
 # Notification Settings Management
 def get_notification_settings(api_key: str) -> Optional[Dict[str, Any]]:
     """Get notification settings for an API key."""
-    return fetchone(
+    rec = fetchone(
         "SELECT * FROM user_notification_settings WHERE api_key = %s",
         (api_key,)
     )
+
+    if not rec:
+        return None
+
+    # Decrypt secrets before returning (with migration fallback for plain text)
+    if rec.get("slack_webhook_url"):
+        rec["slack_webhook_url"] = crypto.decrypt_token(rec["slack_webhook_url"])
+    if rec.get("slack_bot_token"):
+        rec["slack_bot_token"] = crypto.decrypt_token(rec["slack_bot_token"])
+    if rec.get("webhook_url"):
+        rec["webhook_url"] = crypto.decrypt_token(rec["webhook_url"])
+    if rec.get("webhook_secret"):
+        rec["webhook_secret"] = crypto.decrypt_token(rec["webhook_secret"])
+
+    return rec
 
 def upsert_notification_settings(api_key: str, settings: Dict[str, Any]):
     """Insert or update notification settings."""
@@ -564,14 +579,18 @@ def upsert_notification_settings(api_key: str, settings: Dict[str, Any]):
         updated_at=EXCLUDED.updated_at
     """, (
         api_key,
-        settings.get("slack_webhook_url"),
-        settings.get("slack_bot_token"),
+        # Encrypt Slack webhook URL if provided
+        crypto.encrypt_token(settings.get("slack_webhook_url")) if settings.get("slack_webhook_url") else None,
+        # Encrypt Slack bot token if provided
+        crypto.encrypt_token(settings.get("slack_bot_token")) if settings.get("slack_bot_token") else None,
         settings.get("slack_channel", "#saferun-alerts"),
         int(bool(settings.get("slack_enabled", False))),
         settings.get("email"),
         int(bool(settings.get("email_enabled", True))),
-        settings.get("webhook_url"),
-        settings.get("webhook_secret"),
+        # Encrypt generic webhook URL if provided
+        crypto.encrypt_token(settings.get("webhook_url")) if settings.get("webhook_url") else None,
+        # Encrypt webhook secret if provided
+        crypto.encrypt_token(settings.get("webhook_secret")) if settings.get("webhook_secret") else None,
         int(bool(settings.get("webhook_enabled", False))),
         json.dumps(settings.get("notification_channels", ["email"])),
         now_utc()

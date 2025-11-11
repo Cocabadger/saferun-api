@@ -21,6 +21,54 @@ class NotificationSettingsResponse(NotificationSettings):
     created_at: Optional[str] = None
     updated_at: Optional[str] = None
 
+    class Config:
+        schema_extra = {
+            "example": {
+                "api_key": "sr_abc123...",
+                "slack_webhook_url": "https://hooks.slack.com/services/***",
+                "slack_bot_token": "xoxb-***",
+                "slack_channel": "#my-team",
+                "slack_enabled": True,
+                "webhook_url": "https://example.com/webhook/***",
+                "webhook_secret": "***",
+                "webhook_enabled": False
+            }
+        }
+
+
+def mask_secret(value: Optional[str]) -> Optional[str]:
+    """Mask secret values for safe display in API responses."""
+    if not value:
+        return None
+
+    # Show first 35 chars + *** for Slack webhook URLs
+    if value.startswith("https://hooks.slack.com/"):
+        return value[:35] + "***"
+
+    # Show only prefix for Slack bot tokens
+    if value.startswith("xoxb-"):
+        return "xoxb-***"
+    if value.startswith("xoxp-"):
+        return "xoxp-***"
+    if value.startswith(("xoxa-", "xoxr-")):
+        return value[:6] + "***"
+
+    # Generic masking for other secrets (webhook URLs, secrets)
+    if value.startswith(("https://", "http://")):
+        # Show protocol + domain + ***
+        try:
+            from urllib.parse import urlparse
+            parsed = urlparse(value)
+            return f"{parsed.scheme}://{parsed.netloc}/***"
+        except Exception:
+            return "https://***"
+
+    # Generic secret masking (show first/last 4 chars)
+    if len(value) > 10:
+        return value[:4] + "***" + value[-4:]
+
+    return "***"
+
 @router.get("/notifications", response_model=NotificationSettingsResponse)
 async def get_notification_settings(api_key: str = Depends(verify_api_key)):
     """Get notification settings for the authenticated user."""
@@ -49,6 +97,12 @@ async def get_notification_settings(api_key: str = Depends(verify_api_key)):
         settings["created_at"] = db.iso_z(settings["created_at"])
     if settings.get("updated_at"):
         settings["updated_at"] = db.iso_z(settings["updated_at"])
+
+    # Mask secrets before returning (security: don't expose credentials in API)
+    settings["slack_webhook_url"] = mask_secret(settings.get("slack_webhook_url"))
+    settings["slack_bot_token"] = mask_secret(settings.get("slack_bot_token"))
+    settings["webhook_url"] = mask_secret(settings.get("webhook_url"))
+    settings["webhook_secret"] = mask_secret(settings.get("webhook_secret"))
 
     return NotificationSettingsResponse(**settings)
 
