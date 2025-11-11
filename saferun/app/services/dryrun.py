@@ -205,9 +205,6 @@ async def build_dryrun(req: DryRunArchiveRequest, notion_version: str | None = N
             # 5) Persist the change request
             change_id = new_change_id()
             
-            # 5.1) Create one-time approval token for Slack/Landing page (Phase 1.4 fix)
-            approval_token = db.create_approval_token(change_id)
-            
             expires_dt_obj = expiry(120)  # 2 hours timeout for polling (kept for backwards compatibility)
             created_at_str = db.iso_z(expiry(0))
             expires_at_str = db.iso_z(expires_dt_obj)
@@ -239,6 +236,9 @@ async def build_dryrun(req: DryRunArchiveRequest, notion_version: str | None = N
                 change_data["revert_expires_at"] = db.iso_z(revert_expires)
             
             storage.save_change(change_id, change_data, ttl_seconds)
+            
+            # 5.1) Create one-time approval token AFTER saving change (FK constraint requirement)
+            approval_token = db.create_approval_token(change_id)
 
             # 6) If no approval required but has revert_window - execute immediately and notify with revert option
             # 6) ALL operations require approval in MVP - NO auto-execute
