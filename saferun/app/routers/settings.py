@@ -23,7 +23,7 @@ class NotificationSettingsResponse(NotificationSettings):
 
 @router.get("/notifications", response_model=NotificationSettingsResponse)
 async def get_notification_settings(api_key: str = Depends(verify_api_key)):
-    """Get notification settings for the authenticated user."""
+    """Get notification settings for the authenticated user (secrets masked for security)."""
     settings = db.get_notification_settings(api_key)
 
     if not settings:
@@ -34,6 +34,28 @@ async def get_notification_settings(api_key: str = Depends(verify_api_key)):
             webhook_enabled=False,
             notification_channels=["slack"]
         )
+
+    # ⚠️ SECURITY: Mask sensitive secrets before returning
+    def mask_secret(value: str) -> Optional[str]:
+        """Mask secret values for security - only show if configured."""
+        if not value:
+            return None
+        # Return masked indicator - never expose actual secrets via API
+        if value.startswith("https://hooks.slack.com/"):
+            return "https://hooks.slack.com/services/***"
+        if value.startswith("xoxb-"):
+            return "xoxb-***"
+        return "***"
+    
+    # Mask sensitive fields
+    if settings.get("slack_webhook_url"):
+        settings["slack_webhook_url"] = mask_secret(settings["slack_webhook_url"])
+    
+    if settings.get("slack_bot_token"):
+        settings["slack_bot_token"] = mask_secret(settings["slack_bot_token"])
+    
+    if settings.get("webhook_secret"):
+        settings["webhook_secret"] = mask_secret(settings["webhook_secret"])
 
     # Parse notification_channels JSON string
     import json

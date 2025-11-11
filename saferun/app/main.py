@@ -58,6 +58,14 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.error(f"Token migration failed: {e}")
     
+    # Run notification secrets migration (idempotent)
+    try:
+        secrets_migrated = db.migrate_notification_secrets()
+        if secrets_migrated > 0:
+            logger.info(f"✅ Migrated {secrets_migrated} notification secrets to encrypted format")
+    except Exception as e:
+        logger.error(f"Notification secrets migration failed: {e}")
+    
     storage = storage_manager.get_storage()
     storage.run_gc()
     

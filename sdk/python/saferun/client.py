@@ -160,6 +160,246 @@ class SafeRunClient:
         }
         return self.dry_run("notion_archive_page", payload)
 
+    # Phase 1.4 - Advanced GitHub Operations
+
+    def transfer_repository(
+        self,
+        repo: str,
+        new_owner: str,
+        github_token: str,
+        webhook_url: Optional[str] = None,
+        policy: Optional[Dict[str, Any]] = None,
+    ) -> DryRunResult:
+        """
+        Transfer repository to another owner/organization.
+        
+        Args:
+            repo: Repository in format "owner/repo"
+            new_owner: Target owner username or organization name
+            github_token: GitHub personal access token
+            webhook_url: Optional webhook URL for notifications
+            policy: Optional custom policy rules
+            
+        Returns:
+            DryRunResult with approval details
+        """
+        payload = {
+            "token": github_token,
+            "target_id": repo,
+            "new_owner": new_owner,
+            "webhook_url": webhook_url,
+            "policy": policy,
+        }
+        return self.dry_run("github_transfer_repository", payload)
+
+    def create_or_update_secret(
+        self,
+        repo: str,
+        secret_name: str,
+        secret_value: str,
+        github_token: str,
+        webhook_url: Optional[str] = None,
+        policy: Optional[Dict[str, Any]] = None,
+    ) -> DryRunResult:
+        """
+        Create or update GitHub Actions secret.
+        
+        Args:
+            repo: Repository in format "owner/repo"
+            secret_name: Name of the secret (e.g., "API_KEY")
+            secret_value: Value of the secret
+            github_token: GitHub personal access token
+            webhook_url: Optional webhook URL for notifications
+            policy: Optional custom policy rules
+            
+        Returns:
+            DryRunResult with approval details
+        """
+        payload = {
+            "token": github_token,
+            "target_id": repo,
+            "secret_name": secret_name,
+            "secret_value": secret_value,
+            "webhook_url": webhook_url,
+            "policy": policy,
+        }
+        return self.dry_run("github_create_secret", payload)
+
+    def delete_secret(
+        self,
+        repo: str,
+        secret_name: str,
+        github_token: str,
+        webhook_url: Optional[str] = None,
+        policy: Optional[Dict[str, Any]] = None,
+    ) -> DryRunResult:
+        """
+        Delete GitHub Actions secret.
+        
+        Args:
+            repo: Repository in format "owner/repo"
+            secret_name: Name of the secret to delete
+            github_token: GitHub personal access token
+            webhook_url: Optional webhook URL for notifications
+            policy: Optional custom policy rules
+            
+        Returns:
+            DryRunResult with approval details
+        """
+        payload = {
+            "token": github_token,
+            "target_id": repo,
+            "secret_name": secret_name,
+            "webhook_url": webhook_url,
+            "policy": policy,
+        }
+        return self.dry_run("github_delete_secret", payload)
+
+    def update_workflow_file(
+        self,
+        repo: str,
+        workflow_path: str,
+        content: str,
+        github_token: str,
+        branch: str = "main",
+        commit_message: Optional[str] = None,
+        webhook_url: Optional[str] = None,
+        policy: Optional[Dict[str, Any]] = None,
+    ) -> DryRunResult:
+        """
+        Update GitHub Actions workflow file.
+        
+        Args:
+            repo: Repository in format "owner/repo"
+            workflow_path: Path to workflow file (e.g., ".github/workflows/ci.yml")
+            content: New content for the workflow file
+            github_token: GitHub personal access token
+            branch: Branch to commit to (default: "main")
+            commit_message: Optional commit message
+            webhook_url: Optional webhook URL for notifications
+            policy: Optional custom policy rules
+            
+        Returns:
+            DryRunResult with approval details
+        """
+        payload = {
+            "token": github_token,
+            "target_id": repo,
+            "workflow_path": workflow_path,
+            "content": content,
+            "branch": branch,
+            "commit_message": commit_message or f"Update workflow {workflow_path}",
+            "webhook_url": webhook_url,
+            "policy": policy,
+        }
+        return self.dry_run("github_update_workflow", payload)
+
+    def update_branch_protection(
+        self,
+        repo: str,
+        branch: str,
+        github_token: str,
+        required_reviews: Optional[int] = None,
+        require_code_owner_reviews: Optional[bool] = None,
+        dismiss_stale_reviews: Optional[bool] = None,
+        require_status_checks: Optional[bool] = None,
+        status_checks: Optional[list] = None,
+        enforce_admins: Optional[bool] = None,
+        webhook_url: Optional[str] = None,
+        policy: Optional[Dict[str, Any]] = None,
+    ) -> DryRunResult:
+        """
+        Update branch protection rules.
+        
+        Args:
+            repo: Repository in format "owner/repo"
+            branch: Branch name (e.g., "main")
+            github_token: GitHub personal access token
+            required_reviews: Number of required reviews (0-6)
+            require_code_owner_reviews: Require code owner review
+            dismiss_stale_reviews: Dismiss stale reviews on push
+            require_status_checks: Require status checks to pass
+            status_checks: List of required status check names
+            enforce_admins: Enforce restrictions for admins
+            webhook_url: Optional webhook URL for notifications
+            policy: Optional custom policy rules
+            
+        Returns:
+            DryRunResult with approval details
+        """
+        payload = {
+            "token": github_token,
+            "target_id": f"{repo}#{branch}",
+            "required_reviews": required_reviews,
+            "require_code_owner_reviews": require_code_owner_reviews,
+            "dismiss_stale_reviews": dismiss_stale_reviews,
+            "require_status_checks": require_status_checks,
+            "status_checks": status_checks,
+            "enforce_admins": enforce_admins,
+            "webhook_url": webhook_url,
+            "policy": policy,
+        }
+        return self.dry_run("github_update_branch_protection", payload)
+
+    def delete_branch_protection(
+        self,
+        repo: str,
+        branch: str,
+        github_token: str,
+        webhook_url: Optional[str] = None,
+        policy: Optional[Dict[str, Any]] = None,
+    ) -> DryRunResult:
+        """
+        Delete branch protection rules.
+        
+        Args:
+            repo: Repository in format "owner/repo"
+            branch: Branch name (e.g., "main")
+            github_token: GitHub personal access token
+            webhook_url: Optional webhook URL for notifications
+            policy: Optional custom policy rules
+            
+        Returns:
+            DryRunResult with approval details
+        """
+        payload = {
+            "token": github_token,
+            "target_id": f"{repo}#{branch}",
+            "webhook_url": webhook_url,
+            "policy": policy,
+        }
+        return self.dry_run("github_delete_branch_protection", payload)
+
+    def change_repository_visibility(
+        self,
+        repo: str,
+        private: bool,
+        github_token: str,
+        webhook_url: Optional[str] = None,
+        policy: Optional[Dict[str, Any]] = None,
+    ) -> DryRunResult:
+        """
+        Change repository visibility (public ↔ private).
+        
+        Args:
+            repo: Repository in format "owner/repo"
+            private: True for private, False for public
+            github_token: GitHub personal access token
+            webhook_url: Optional webhook URL for notifications
+            policy: Optional custom policy rules
+            
+        Returns:
+            DryRunResult with approval details
+        """
+        payload = {
+            "token": github_token,
+            "target_id": repo,
+            "private": private,
+            "webhook_url": webhook_url,
+            "policy": policy,
+        }
+        return self.dry_run("github_change_visibility", payload)
+
     def dry_run(self, operation: str, payload: Dict[str, Any]) -> DryRunResult:
         endpoint = DRY_RUN_ENDPOINTS.get(operation)
         if not endpoint:

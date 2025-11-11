@@ -548,16 +548,52 @@ def get_api_key_by_email(email: str) -> Optional[Dict[str, Any]]:
 
 # Notification Settings Management
 def get_notification_settings(api_key: str) -> Optional[Dict[str, Any]]:
-    """Get notification settings for an API key."""
-    return fetchone(
+    """Get notification settings with decryption for sensitive data."""
+    row = fetchone(
         "SELECT * FROM user_notification_settings WHERE api_key = %s",
         (api_key,)
     )
+    
+    if not row:
+        return None
+    
+    # Decrypt sensitive fields (with fallback for legacy plain text)
+    def safe_decrypt(value: str) -> Optional[str]:
+        """Decrypt token, or return as-is if not encrypted (legacy plain text)."""
+        if not value:
+            return None
+        try:
+            # Try to decrypt (will work if already encrypted)
+            return crypto.decrypt_token(value)
+        except Exception:
+            # If decrypt fails, assume it's legacy plain text
+            # This handles backward compatibility during migration
+            return value
+    
+    if row.get("slack_webhook_url"):
+        row["slack_webhook_url"] = safe_decrypt(row["slack_webhook_url"])
+    
+    if row.get("slack_bot_token"):
+        row["slack_bot_token"] = safe_decrypt(row["slack_bot_token"])
+    
+    if row.get("webhook_secret"):
+        row["webhook_secret"] = safe_decrypt(row["webhook_secret"])
+    
+    return row
 
 def upsert_notification_settings(api_key: str, settings: Dict[str, Any]):
-    """Insert or update notification settings."""
+    """Insert or update notification settings with encryption for sensitive data."""
     conn = get_connection()
     cur = conn.cursor()
+
+    # Encrypt sensitive fields before storing
+    slack_webhook = settings.get("slack_webhook_url")
+    slack_bot_token = settings.get("slack_bot_token")
+    webhook_secret = settings.get("webhook_secret")
+    
+    encrypted_slack_webhook = crypto.encrypt_token(slack_webhook) if slack_webhook else None
+    encrypted_bot_token = crypto.encrypt_token(slack_bot_token) if slack_bot_token else None
+    encrypted_webhook_secret = crypto.encrypt_token(webhook_secret) if webhook_secret else None
 
     cur.execute("""
     INSERT INTO user_notification_settings(
@@ -579,14 +615,14 @@ def upsert_notification_settings(api_key: str, settings: Dict[str, Any]):
         updated_at=EXCLUDED.updated_at
     """, (
         api_key,
-        settings.get("slack_webhook_url"),
-        settings.get("slack_bot_token"),
+        encrypted_slack_webhook,   # ← ENCRYPTED
+        encrypted_bot_token,        # ← ENCRYPTED
         settings.get("slack_channel", "#saferun-alerts"),
         int(bool(settings.get("slack_enabled", False))),
         settings.get("email"),
         int(bool(settings.get("email_enabled", True))),
         settings.get("webhook_url"),
-        settings.get("webhook_secret"),
+        encrypted_webhook_secret,   # ← ENCRYPTED
         int(bool(settings.get("webhook_enabled", False))),
         json.dumps(settings.get("notification_channels", ["email"])),
         now_utc()
@@ -598,6 +634,96 @@ def upsert_notification_settings(api_key: str, settings: Dict[str, Any]):
 def delete_notification_settings(api_key: str):
     """Delete notification settings for an API key."""
     exec("DELETE FROM user_notification_settings WHERE api_key = %s", (api_key,))
+
+
+def migrate_notification_secrets() -> int:
+    """
+    Migrate existing plain text secrets to encrypted format.
+    
+    This is idempotent - can be run multiple times safely.
+    Returns: Number of records migrated
+    """
+    conn = get_connection()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    
+    # Get all settings with potential plain text secrets
+    cur.execute("""
+        SELECT api_key, slack_webhook_url, slack_bot_token, webhook_secret
+        FROM user_notification_settings
+        WHERE slack_webhook_url IS NOT NULL 
+           OR slack_bot_token IS NOT NULL
+           OR webhook_secret IS NOT NULL
+    """)
+    
+    rows = cur.fetchall()
+    migrated_count = 0
+    
+    for row in rows:
+        api_key = row["api_key"]
+        needs_update = False
+        updates = {}
+        
+        # Check and encrypt slack_webhook_url if plain text
+        if row.get("slack_webhook_url"):
+            webhook = row["slack_webhook_url"]
+            try:
+                # Try to decrypt - if it works, already encrypted
+                crypto.decrypt_token(webhook)
+            except Exception:
+                # Decrypt failed, so it's plain text - encrypt it
+                updates["slack_webhook_url"] = crypto.encrypt_token(webhook)
+                needs_update = True
+        
+        # Check and encrypt slack_bot_token if plain text
+        if row.get("slack_bot_token"):
+            token = row["slack_bot_token"]
+            try:
+                crypto.decrypt_token(token)
+            except Exception:
+                updates["slack_bot_token"] = crypto.encrypt_token(token)
+                needs_update = True
+        
+        # Check and encrypt webhook_secret if plain text
+        if row.get("webhook_secret"):
+            secret = row["webhook_secret"]
+            try:
+                crypto.decrypt_token(secret)
+            except Exception:
+                updates["webhook_secret"] = crypto.encrypt_token(secret)
+                needs_update = True
+        
+        # Update if any field needs encryption
+        if needs_update:
+            update_fields = []
+            values = []
+            
+            if "slack_webhook_url" in updates:
+                update_fields.append("slack_webhook_url = %s")
+                values.append(updates["slack_webhook_url"])
+            
+            if "slack_bot_token" in updates:
+                update_fields.append("slack_bot_token = %s")
+                values.append(updates["slack_bot_token"])
+            
+            if "webhook_secret" in updates:
+                update_fields.append("webhook_secret = %s")
+                values.append(updates["webhook_secret"])
+            
+            values.append(api_key)
+            
+            cur.execute(f"""
+                UPDATE user_notification_settings
+                SET {', '.join(update_fields)}, updated_at = NOW()
+                WHERE api_key = %s
+            """, values)
+            
+            migrated_count += 1
+    
+    conn.commit()
+    cur.close()
+    conn.close()
+    
+    return migrated_count
 
 
 # =============================================================================
