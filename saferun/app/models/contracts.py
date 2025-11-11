@@ -246,7 +246,7 @@ class DryRunArchiveResponse(BaseModel):
     diff: List[DiffUnit]
     risk_score: float = Field(ge=0.0, le=10.0)  # Changed from 1.0 to 10.0 to support new scoring
     reasons: List[str] = []
-    requires_approval: bool = False
+    requires_approval: bool = Field(False, alias="needsApproval", serialization_alias="needsApproval")
     human_preview: str
     telemetry: Dict
     approve_url: Optional[str] = None
@@ -256,6 +256,10 @@ class DryRunArchiveResponse(BaseModel):
     note: Optional[str] = None
     records_affected: Optional[int] = None
     expires_at: datetime
+    
+    model_config = {
+        "populate_by_name": True  # Allow both requires_approval and needsApproval
+    }
 
 
 def new_change_id() -> str:
