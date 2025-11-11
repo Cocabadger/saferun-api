@@ -310,9 +310,14 @@ export class SafeRunClient {
   }
 
   private parseDryRun(data: any): DryRunResult {
+    // Support both camelCase (needsApproval) and snake_case (requires_approval) for backwards compatibility
+    const needsApproval = data?.needsApproval !== undefined 
+      ? Boolean(data.needsApproval) 
+      : Boolean(data?.requires_approval);
+    
     return new DryRunResult(
       data?.change_id ?? "",
-      Boolean(data?.requires_approval),
+      needsApproval,
       data?.approve_url ?? undefined,
       data?.reject_url ?? undefined,
       Number(data?.risk_score ?? 0),
