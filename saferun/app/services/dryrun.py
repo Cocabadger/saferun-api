@@ -204,6 +204,10 @@ async def build_dryrun(req: DryRunArchiveRequest, notion_version: str | None = N
 
             # 5) Persist the change request
             change_id = new_change_id()
+            
+            # 5.1) Create one-time approval token for Slack/Landing page (Phase 1.4 fix)
+            approval_token = db.create_approval_token(change_id)
+            
             expires_dt_obj = expiry(120)  # 2 hours timeout for polling (kept for backwards compatibility)
             created_at_str = db.iso_z(expiry(0))
             expires_at_str = db.iso_z(expires_dt_obj)
@@ -244,7 +248,8 @@ async def build_dryrun(req: DryRunArchiveRequest, notion_version: str | None = N
             approve_url = None
             if need_approval:
                 base = os.environ.get("APP_BASE_URL", "http://localhost:8500")
-                approve_url = f"{base}/approvals/{change_id}"
+                # Include approval token in URL (Phase 1.4 fix: auth for Landing page)
+                approve_url = f"{base}/approvals/{change_id}?token={approval_token}"
 
                 # publish notification (use saferun namespace import)
                 import asyncio

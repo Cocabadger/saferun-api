@@ -124,6 +124,21 @@ def init_db():
     );
     """)
 
+    # Create approval tokens table (Phase 1.4 fix: Approval flow auth)
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS approval_tokens(
+        token TEXT PRIMARY KEY,
+        change_id TEXT NOT NULL,
+        created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+        used BOOLEAN DEFAULT FALSE,
+        used_at TIMESTAMP,
+        FOREIGN KEY (change_id) REFERENCES changes(change_id) ON DELETE CASCADE
+    );
+    
+    CREATE INDEX IF NOT EXISTS idx_approval_tokens_change_id
+    ON approval_tokens(change_id);
+    """)
+
     # Migration: Add metadata column if not exists (for existing deployments)
     cur.execute("""
     DO $$
@@ -583,3 +598,70 @@ def upsert_notification_settings(api_key: str, settings: Dict[str, Any]):
 def delete_notification_settings(api_key: str):
     """Delete notification settings for an API key."""
     exec("DELETE FROM user_notification_settings WHERE api_key = %s", (api_key,))
+
+
+# =============================================================================
+# Phase 1.4 Fix: Approval Token Functions (for Slack/Landing page auth)
+# =============================================================================
+
+def create_approval_token(change_id: str) -> str:
+    """
+    Create one-time approval token for change_id.
+    Used by Slack/Landing page for authentication without API key.
+    
+    Returns: 32-byte URL-safe token
+    """
+    import secrets
+    token = secrets.token_urlsafe(32)
+    
+    exec("""
+        INSERT INTO approval_tokens(token, change_id, created_at, used)
+        VALUES (%s, %s, NOW(), FALSE)
+    """, (token, change_id))
+    
+    return token
+
+
+def verify_approval_token(change_id: str, token: str) -> bool:
+    """
+    Verify and consume one-time approval token.
+    
+    Returns: True if token is valid and unused, False otherwise
+    Side effect: Marks token as used if valid
+    """
+    row = fetchone("""
+        SELECT used, change_id FROM approval_tokens
+        WHERE token=%s
+    """, (token,))
+    
+    if not row:
+        return False  # Token doesn't exist
+    
+    if row['used']:
+        return False  # Token already used
+    
+    if row['change_id'] != change_id:
+        return False  # Token belongs to different change_id
+    
+    # Mark as used (one-time token)
+    exec("""
+        UPDATE approval_tokens
+        SET used=TRUE, used_at=NOW()
+        WHERE token=%s
+    """, (token,))
+    
+    return True
+
+
+def get_approval_token_info(token: str) -> Optional[Dict[str, Any]]:
+    """
+    Get approval token info without consuming it.
+    Used by GET endpoint to verify token before showing UI.
+    
+    Returns: Dict with token info or None if invalid
+    """
+    return fetchone("""
+        SELECT token, change_id, created_at, used, used_at
+        FROM approval_tokens
+        WHERE token=%s
+    """, (token,))

@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException, Depends, Query, Header
 from typing import Dict, Optional
 from pydantic import BaseModel
 
@@ -38,19 +38,51 @@ class ApprovalActionResponse(BaseModel):
 @router.get("/approvals/{change_id}", response_model=ApprovalDetailResponse)
 async def get_approval_details(
     change_id: str,
-    api_key: str = Depends(verify_api_key)
+    token: Optional[str] = Query(None),
+    api_key: Optional[str] = Header(None, alias="X-API-Key")
 ) -> ApprovalDetailResponse:
     """
     Get detailed information about a pending approval request.
     Used by the web dashboard to display operation details.
-    Requires authentication - users can only see their own operations.
+    
+    Authentication methods (in priority order):
+    1. Approval token: ?token=... (one-time, from Slack/Landing page)
+    2. API key: X-API-Key header (reusable, from CLI/SDK)
+    
+    Users can only see their own operations (via API key ownership check)
+    or operations they received approval links for (via token).
+    
+    VERSION: 2025-11-11 - Phase 1.4 Fix: Token auth support
     """
     from datetime import datetime, timezone
     
     storage = storage_manager.get_storage()
     
-    # Verify ownership - returns 404 if not found or unauthorized
-    rec = verify_change_ownership(change_id, api_key, storage)
+    # Auth Method 1: Approval token (from Slack/Landing page)
+    if token:
+        # Verify token without consuming it (GET is read-only)
+        token_info = db.get_approval_token_info(token)
+        if not token_info or token_info['used'] or token_info['change_id'] != change_id:
+            raise HTTPException(
+                status_code=404,
+                detail="Invalid or expired approval link"
+            )
+        
+        # Token valid, get change without ownership check
+        rec = storage.get_change(change_id)
+        if not rec:
+            raise HTTPException(status_code=404, detail="Approval request not found")
+    
+    # Auth Method 2: API key (from CLI/SDK)
+    elif api_key:
+        rec = verify_change_ownership(change_id, api_key, storage)
+    
+    # No auth provided
+    else:
+        raise HTTPException(
+            status_code=401,
+            detail="Authentication required. Use ?token=... or X-API-Key header"
+        )
 
     requires_approval = bool(rec.get("requires_approval"))
     status = rec.get("status", "pending")
@@ -134,22 +166,59 @@ async def get_approval_details(
 @router.post("/approvals/{change_id}/approve", response_model=ApprovalActionResponse)
 async def approve_operation(
     change_id: str,
-    api_key: str = Depends(verify_api_key)
+    token: Optional[str] = Query(None),
+    api_key: Optional[str] = Header(None, alias="X-API-Key")
 ) -> ApprovalActionResponse:
     """
     Approve a pending operation.
     For CLI/SDK operations: sets requires_approval to False so they can proceed.
     For API operations with revert_window: executes immediately and sends notification.
-    Requires authentication - users can only approve their own operations.
     
-    VERSION: 2025-11-06-v3 - AUTH FIX APPLIED
+    Authentication methods (in priority order):
+    1. Approval token: ?token=... (one-time, from Slack/Landing page)
+    2. API key: X-API-Key header (reusable, from CLI/SDK)
+    
+    VERSION: 2025-11-11 - Phase 1.4 Fix: Token auth support
     """
     from datetime import datetime, timezone
     
     storage = storage_manager.get_storage()
     
-    # Verify ownership - returns 404 if not found or unauthorized
-    rec = verify_change_ownership(change_id, api_key, storage)
+    # Auth Method 1: Approval token (consume on use)
+    if token:
+        # Verify and consume token (one-time use)
+        if not db.verify_approval_token(change_id, token):
+            raise HTTPException(
+                status_code=403,
+                detail="Invalid, expired, or already used approval token"
+            )
+        
+        # Token valid, get change without ownership check
+        rec = storage.get_change(change_id)
+        if not rec:
+            raise HTTPException(status_code=404, detail="Approval request not found")
+        
+        # Audit log: approved via token
+        db.insert_audit(change_id, "approved", {
+            "approved_via": "approval_token",
+            "token_prefix": token[:8] + "..."  # Log first 8 chars for debugging
+        })
+    
+    # Auth Method 2: API key
+    elif api_key:
+        rec = verify_change_ownership(change_id, api_key, storage)
+        
+        # Audit log: approved via API key
+        db.insert_audit(change_id, "approved", {
+            "approved_via": "api_key"
+        })
+    
+    # No auth provided
+    else:
+        raise HTTPException(
+            status_code=401,
+            detail="Authentication required. Use ?token=... or X-API-Key header"
+        )
 
     current_status = rec.get("status", "pending")
     
@@ -719,19 +788,58 @@ async def approve_operation(
 @router.post("/approvals/{change_id}/reject", response_model=ApprovalActionResponse)
 async def reject_operation(
     change_id: str,
-    api_key: str = Depends(verify_api_key)
+    token: Optional[str] = Query(None),
+    api_key: Optional[str] = Header(None, alias="X-API-Key")
 ) -> ApprovalActionResponse:
     """
     Reject a pending operation.
     Sets status to rejected so the CLI will abort.
-    Requires authentication - users can only reject their own operations.
+    
+    Authentication methods (in priority order):
+    1. Approval token: ?token=... (one-time, from Slack/Landing page)
+    2. API key: X-API-Key header (reusable, from CLI/SDK)
+    
+    VERSION: 2025-11-11 - Phase 1.4 Fix: Token auth support
     """
     from datetime import datetime, timezone
     
     storage = storage_manager.get_storage()
     
-    # Verify ownership - returns 404 if not found or unauthorized
-    rec = verify_change_ownership(change_id, api_key, storage)
+    # Auth Method 1: Approval token (consume on use)
+    if token:
+        # Verify and consume token (one-time use)
+        if not db.verify_approval_token(change_id, token):
+            raise HTTPException(
+                status_code=403,
+                detail="Invalid, expired, or already used approval token"
+            )
+        
+        # Token valid, get change without ownership check
+        rec = storage.get_change(change_id)
+        if not rec:
+            raise HTTPException(status_code=404, detail="Approval request not found")
+        
+        # Audit log: rejected via token
+        db.insert_audit(change_id, "rejected", {
+            "rejected_via": "approval_token",
+            "token_prefix": token[:8] + "..."
+        })
+    
+    # Auth Method 2: API key
+    elif api_key:
+        rec = verify_change_ownership(change_id, api_key, storage)
+        
+        # Audit log: rejected via API key
+        db.insert_audit(change_id, "rejected", {
+            "rejected_via": "api_key"
+        })
+    
+    # No auth provided
+    else:
+        raise HTTPException(
+            status_code=401,
+            detail="Authentication required. Use ?token=... or X-API-Key header"
+        )
 
     current_status = rec.get("status", "pending")
     
