@@ -233,6 +233,7 @@ async def build_dryrun(req: DryRunArchiveRequest, notion_version: str | None = N
             
             change_data = {
                 "change_id": change_id,
+                "api_key": api_key,  # Store API key for user isolation
                 "provider": req.provider,
                 "target_id": req.target_id,
                 "title": title,
