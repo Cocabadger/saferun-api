@@ -2,11 +2,6 @@
 # SafeRun post-checkout hook
 # Protects against dangerous AI agent operations
 
-# Allow bypass for CI environments only
-if [ "$CI" = "true" ] || [ "$CI" = "1" ]; then
-  exit 0
-fi
-
 # Expand PATH to handle edge cases (osascript, minimal shells, etc.)
 export PATH="/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin:$HOME/.nvm/versions/node/current/bin:$HOME/.npm-global/bin:$PATH"
 
