@@ -35,7 +35,7 @@ import hashlib
 router = APIRouter(tags=["GitHub"], dependencies=[Depends(verify_api_key)]) 
 
 @router.post("/v1/dry-run/github.repo.archive", response_model=DryRunArchiveResponse, response_model_by_alias=True)
-async def archive_github_repo(
+async def archive_github_repo(req: GitHubRepoArchiveDryRunRequest, api_key: str = Depends(verify_api_key)) -> DryRunArchiveResponse:
     # Extract owner/repo from target_id for metadata
     owner, repo = req.target_id.split("/") if "/" in req.target_id else (None, req.target_id)
     
@@ -68,7 +68,7 @@ async def dry_run_github_branch(req: GitHubBranchDeleteDryRunRequest, api_key: s
     return await build_dryrun(generic_req, api_key=api_key)
 
 @router.post("/v1/dry-run/github.bulk.close_prs", response_model=DryRunArchiveResponse, response_model_by_alias=True)
-async def bulk_close_prs(
+async def bulk_close_prs(req: GitHubBulkClosePRsDryRunRequest, api_key: str = Depends(verify_api_key)) -> DryRunArchiveResponse:
     owner, repo = req.target_id.split("/") if "/" in req.target_id else (None, req.target_id)
     
     generic_req = DryRunArchiveRequest(
@@ -83,7 +83,7 @@ async def bulk_close_prs(
     return await build_dryrun(generic_req, api_key=api_key)
 
 @router.post("/v1/dry-run/github.repo.delete", response_model=DryRunArchiveResponse, response_model_by_alias=True)
-async def delete_github_repo(
+async def delete_github_repo(req: GitHubRepoDeleteDryRunRequest, api_key: str = Depends(verify_api_key)) -> DryRunArchiveResponse:
     """Delete GitHub repository - IRREVERSIBLE operation, ALWAYS requires approval"""
     owner, repo = req.target_id.split("/") if "/" in req.target_id else (None, req.target_id)
     
@@ -812,7 +812,7 @@ async def delete_repository(
 # Additional 7 Critical GitHub Operations
 
 @router.post("/v1/dry-run/github.repo.transfer", response_model=DryRunArchiveResponse, response_model_by_alias=True)
-async def transfer_github_repo(
+async def transfer_github_repo(req: GitHubRepoTransferDryRunRequest, api_key: str = Depends(verify_api_key)) -> DryRunArchiveResponse:
     """Transfer repository to new owner - IRREVERSIBLE operation"""
     owner, repo = req.target_id.split("/") if "/" in req.target_id else (None, req.target_id)
     
@@ -836,7 +836,7 @@ async def transfer_github_repo(
 
 
 @router.post("/v1/dry-run/github.actions.secret.create", response_model=DryRunArchiveResponse, response_model_by_alias=True)
-async def create_github_actions_secret(
+async def create_github_actions_secret(req: GitHubSecretCreateDryRunRequest, api_key: str = Depends(verify_api_key)) -> DryRunArchiveResponse:
     """Create or update GitHub Actions secret"""
     owner, repo = req.target_id.split("/") if "/" in req.target_id else (None, req.target_id)
     
@@ -860,7 +860,7 @@ async def create_github_actions_secret(
 
 
 @router.post("/v1/dry-run/github.actions.secret.delete", response_model=DryRunArchiveResponse, response_model_by_alias=True)
-async def delete_github_actions_secret(
+async def delete_github_actions_secret(req: GitHubSecretDeleteDryRunRequest, api_key: str = Depends(verify_api_key)) -> DryRunArchiveResponse:
     """Delete GitHub Actions secret - IRREVERSIBLE"""
     owner, repo = req.target_id.split("/") if "/" in req.target_id else (None, req.target_id)
     
@@ -883,7 +883,7 @@ async def delete_github_actions_secret(
 
 
 @router.post("/v1/dry-run/github.workflow.update", response_model=DryRunArchiveResponse, response_model_by_alias=True)
-async def update_github_workflow(
+async def update_github_workflow(req: GitHubWorkflowUpdateDryRunRequest, api_key: str = Depends(verify_api_key)) -> DryRunArchiveResponse:
     """Update workflow file in .github/workflows/"""
     owner, repo = req.target_id.split("/") if "/" in req.target_id else (None, req.target_id)
     
@@ -910,7 +910,7 @@ async def update_github_workflow(
 
 
 @router.post("/v1/dry-run/github.branch_protection.update", response_model=DryRunArchiveResponse, response_model_by_alias=True)
-async def update_github_branch_protection(
+async def update_github_branch_protection(req: GitHubBranchProtectionUpdateDryRunRequest, api_key: str = Depends(verify_api_key)) -> DryRunArchiveResponse:
     """Update branch protection rules"""
     owner, repo = req.target_id.split("/") if "/" in req.target_id else (None, req.target_id)
     
@@ -962,7 +962,7 @@ async def dry_run_github_branch_protection_delete(req: GitHubBranchProtectionDel
 
 
 @router.post("/v1/dry-run/github.repo.visibility.change", response_model=DryRunArchiveResponse, response_model_by_alias=True)
-async def change_github_repo_visibility(
+async def change_github_repo_visibility(req: GitHubRepoVisibilityChangeDryRunRequest, api_key: str = Depends(verify_api_key)) -> DryRunArchiveResponse:
     """Change repository visibility (private ↔ public)"""
     owner, repo = req.target_id.split("/") if "/" in req.target_id else (None, req.target_id)
     

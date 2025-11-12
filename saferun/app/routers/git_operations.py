@@ -19,7 +19,7 @@ router = APIRouter(tags=["Git Operations"], dependencies=[Depends(verify_api_key
 
 
 @router.post("/v1/dry-run/git.operation", response_model=DryRunArchiveResponse, response_model_by_alias=True)
-async def git_operation(
+async def git_operation(req: GitOperationDryRunRequest, api_key: str = Depends(verify_api_key)) -> DryRunArchiveResponse:
     return await build_git_operation_dryrun(req, api_key=api_key)
 
 

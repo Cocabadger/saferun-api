@@ -32,7 +32,7 @@ class DryRunArchiveRequestIn(BaseModel):
 
 
 @router.post("/dry-run/{provider_name}.archive", response_model=DryRunArchiveResponse, response_model_by_alias=True)
-async def archive_operation(
+async def archive_operation(provider_name: str, payload: DryRunArchiveRequestIn, api_key: str = Depends(verify_api_key)):
     # provider_name may include a type suffix like "github.repo"; extract the provider id
     provider_id = provider_name.split(".", 1)[0]
     if not _get_provider(provider_id):
