@@ -18,7 +18,7 @@ export interface ApprovalFlowOptions {
 
 export enum ApprovalOutcome {
   Approved = 'approved',
-  Bypassed = 'bypassed',
+  // SECURITY: Bypassed outcome removed - no bypass mechanism exists
   Cancelled = 'cancelled',
 }
 
@@ -78,9 +78,7 @@ export class ApprovalFlow {
         }
 
         const outcome = await option.action();
-        if (outcome === ApprovalOutcome.Bypassed) {
-          this.metrics?.track('bypass_used', { change_id: result.changeId }).catch(() => undefined);
-        }
+        // SECURITY: Bypass outcome removed
         return outcome;
       }
     } finally {
@@ -159,24 +157,7 @@ export class ApprovalFlow {
     return this.waitForApproval(result);
   }
 
-  private async bypassCode(result: DryRunResult): Promise<ApprovalOutcome> {
-    this.metrics?.track('approval_requested', { method: 'bypass_code' }).catch(() => undefined);
-    if (!this.allowBypass()) {
-      console.log(chalk.red('Bypass codes are disabled in the current SafeRun mode.'));
-      return ApprovalOutcome.Cancelled;
-    }
-    console.log(chalk.yellow('\nEnter a 6-digit bypass code (or leave blank to cancel).'));
-    const code = await this.prompt('Bypass code: ');
-    if (!code.trim()) {
-      return ApprovalOutcome.Cancelled;
-    }
-    if (!this.validateBypassCode(code.trim())) {
-      console.log(chalk.red('Invalid bypass code.'));
-      return ApprovalOutcome.Cancelled;
-    }
-    console.log(chalk.green('Bypass code accepted.'));
-    return ApprovalOutcome.Bypassed;
-  }
+  // SECURITY: bypassCode() method removed - no bypass mechanism exists
 
   private async waitForApproval(result: DryRunResult): Promise<ApprovalOutcome> {
     const approvalUrl = result.approvalUrl ?? 'https://app.saferun.dev';
@@ -344,9 +325,7 @@ export class ApprovalFlow {
       options.push({ key: '2', label: chalk.blue('Request approval via Slack'), action: () => this.slackApproval(result) });
     }
 
-    if (this.allowBypass()) {
-      options.push({ key: '3', label: chalk.cyan('Enter bypass code'), action: () => this.bypassCode(result) });
-    }
+    // SECURITY: "Enter bypass code" option removed
 
     options.push({ key: '4', label: chalk.gray('Wait for auto-approval'), action: () => this.waitForApproval(result) });
     options.push({ key: '5', label: chalk.red('Cancel operation'), action: async () => ApprovalOutcome.Cancelled });
@@ -373,19 +352,7 @@ export class ApprovalFlow {
     return slack;
   }
 
-  private allowBypass(): boolean {
-    if (this.modeSettings?.allow_bypass === false) {
-      return false;
-    }
-    const bypass = this.config?.bypass;
-    if (!bypass) {
-      return true;
-    }
-    if (bypass.temporary_tokens?.enabled === false) {
-      return false;
-    }
-    return true;
-  }
+  // SECURITY: allowBypass() and validateBypassCode() methods removed
 }
 
 function getRiskColor(score: number): (message: string) => string {

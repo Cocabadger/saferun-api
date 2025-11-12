@@ -15,8 +15,8 @@ export interface ModeSettings {
   send_notifications?: boolean;
   collect_metrics?: boolean;
   require_approval?: boolean;
-  allow_bypass?: boolean;
-  bypass_methods?: string[];
+  // SECURITY: allow_bypass and bypass_methods removed.
+  // Protection is now based ONLY on mode selection.
 }
 
 export interface OfflineModeConfig {
@@ -69,23 +69,13 @@ export interface OperationRuleConfig {
   risk_score?: number;
   timeout_action?: 'reject' | 'allow' | 'ask';
   timeout_duration?: number;
-  bypass_roles?: string[];
+  // bypass_roles removed - no bypass mechanism
   exclude_patterns?: string[];
   max_commits_back?: number;
 }
 
-export interface CIEnvironmentConfig {
-  enabled?: boolean;
-  detect_from_env?: string[];
-}
-
-export interface BypassConfig {
-  ci?: boolean;
-  ci_environments?: CIEnvironmentConfig;
-  temporary_tokens?: { enabled?: boolean; duration?: number };
-  role_based?: { enabled?: boolean; admin_teams?: string[] };
-  emergency?: { enabled?: boolean; keyword?: string; notify_slack?: boolean };
-}
+// SECURITY: CIEnvironmentConfig and BypassConfig interfaces removed.
+// Bypass functionality eliminated - protection based solely on mode selection.
 
 export interface ApprovalTimeoutConfig {
   action: 'reject' | 'allow' | 'ask';
@@ -113,7 +103,7 @@ export interface SafeRunConfig {
   github: GithubConfig;
   approval_timeout?: ApprovalTimeoutConfig;
   rules: Record<string, OperationRuleConfig>;
-  bypass?: BypassConfig;
+  // SECURITY: bypass field removed
   notifications?: Record<string, unknown>;
   telemetry?: TelemetryConfig;
   commands?: Record<string, unknown>;
@@ -140,15 +130,12 @@ const DEFAULT_CONFIG: SafeRunConfig = {
       description: 'Require approval for risky actions',
       block_operations: true,
       require_approval: true,
-      allow_bypass: true,
-      bypass_methods: ['code', 'env', 'timeout'],
       collect_metrics: true,
     },
     enforce: {
-      description: 'Strict blocking without bypass',
+      description: 'Strict blocking, maximum security',
       block_operations: true,
       require_approval: true,
-      allow_bypass: false,
       collect_metrics: true,
     },
   },
@@ -159,7 +146,7 @@ const DEFAULT_CONFIG: SafeRunConfig = {
     retry_count: 3,
     offline_mode: {
       enabled: true,
-      default_action: 'allow',
+      default_action: 'deny',  // SECURITY: Block critical ops when API unreachable
       cache_duration: 3600,
     },
     fail_mode: 'graceful',
@@ -203,7 +190,7 @@ const DEFAULT_CONFIG: SafeRunConfig = {
       risk_score: 8,
       timeout_action: 'reject',
       timeout_duration: 7200,
-      bypass_roles: ['admin', 'lead'],
+      // bypass_roles removed
     },
     branch_delete: {
       action: 'require_approval',
@@ -226,15 +213,7 @@ const DEFAULT_CONFIG: SafeRunConfig = {
       timeout_duration: 3600,
     },
   },
-  bypass: {
-    ci: true,
-    ci_environments: {
-      enabled: true,
-      detect_from_env: ['CI', 'GITHUB_ACTIONS', 'GITLAB_CI', 'JENKINS_URL', 'CIRCLECI'],
-    },
-    temporary_tokens: { enabled: true, duration: 3600 },
-    emergency: { enabled: true, keyword: 'EMERGENCY', notify_slack: true },
-  },
+  // SECURITY: bypass config removed
   notifications: {
     slack: {
       enabled: process.env.SLACK_ENABLED === 'true',
@@ -250,7 +229,7 @@ const DEFAULT_CONFIG: SafeRunConfig = {
       'operation_allowed',
       'approval_requested',
       'approval_granted',
-      'bypass_used',
+      // 'bypass_used' - removed (bypass functionality eliminated)
       'installation',
       'uninstallation',
     ],

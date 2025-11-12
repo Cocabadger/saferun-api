@@ -127,7 +127,7 @@ export async function interceptBranchDelete(context: InterceptorContext): Promis
 
       const outcome = await flow.requestApproval(dryRun);
       
-      if (outcome !== ApprovalOutcome.Approved && outcome !== ApprovalOutcome.Bypassed) {
+      if (outcome !== ApprovalOutcome.Approved) {
         console.error(chalk.red(`✗ SafeRun blocked deletion of branch '${branchName}' (${outcome})`));
         
         await logOperation(context.gitInfo.repoRoot, {
@@ -145,7 +145,6 @@ export async function interceptBranchDelete(context: InterceptorContext): Promis
       approvals.push({
         branch: branchName,
         changeId: dryRun.changeId,
-        bypassed: outcome === ApprovalOutcome.Bypassed,
       });
 
       console.log(chalk.green(`✓ Branch '${branchName}' approved for deletion`));
@@ -223,5 +222,5 @@ export async function interceptBranchDelete(context: InterceptorContext): Promis
 interface PendingApproval {
   branch: string;
   changeId: string;
-  bypassed: boolean;
+  // bypassed field removed - no bypass mechanism
 }

@@ -79,10 +79,12 @@ export class HookRunner {
         }
       }
 
-      if (this.shouldBypass(config, modeSettings)) {
-        this.debug('Bypassing SafeRun checks due to environment configuration.');
-        return;
-      }
+      // SECURITY: Bypass mechanism removed. Protection is based ONLY on mode:
+      // - 'monitor': Log only
+      // - 'warn': Show warnings but allow
+      // - 'block': Block with approval option
+      // - 'enforce': Strict blocking, no exceptions
+      // No environment variable bypasses to prevent exploitation by malicious code.
 
       const client = createSafeRunClient({ config, cache });
 
@@ -319,7 +321,7 @@ export class HookRunner {
       
       const outcome = await approvalFlow.requestApproval(dryRun);
 
-      if (outcome === ApprovalOutcome.Approved || outcome === ApprovalOutcome.Bypassed) {
+      if (outcome === ApprovalOutcome.Approved) {
         console.log(chalk.green(`✓ ${operationName} approved - proceeding with operation`));
         
         await context.metrics.track('operation_allowed', {
@@ -328,7 +330,7 @@ export class HookRunner {
           branch,
           repo: repoSlug,
           reason: 'approved',
-          bypassed: outcome === ApprovalOutcome.Bypassed,
+          // bypassed field removed - no bypass mechanism
         });
         
         await logOperation(context.gitInfo.repoRoot, {
@@ -336,7 +338,7 @@ export class HookRunner {
           operation: operationType,
           repo: repoSlug,
           branch,
-          bypassed: outcome === ApprovalOutcome.Bypassed,
+          // bypassed field removed
         });
         
         await context.cache.set(cacheKey, 'safe', 300_000);
@@ -567,7 +569,7 @@ export class HookRunner {
         timeoutMs: context.config.approval_timeout?.duration ? context.config.approval_timeout.duration * 1000 : undefined,
       });
       const outcome = await flow.requestApproval(dryRun);
-      if (outcome !== ApprovalOutcome.Approved && outcome !== ApprovalOutcome.Bypassed) {
+      if (outcome !== ApprovalOutcome.Approved) {
         // Try to notify API, but exit regardless of success
         try {
           await context.client.confirmGitOperation({
@@ -599,7 +601,7 @@ export class HookRunner {
       await context.client.confirmGitOperation({
         changeId: dryRun.changeId,
         status: 'applied',
-        metadata: { repo: repoSlug, branch, bypassed: outcome === ApprovalOutcome.Bypassed },
+        metadata: { repo: repoSlug, branch },
       });
       context.metrics.track('operation_allowed', {
         hook: 'pre-commit',
@@ -669,30 +671,6 @@ export class HookRunner {
       to: newRef,
       flag,
     });
-  }
-
-  private shouldBypass(config: SafeRunConfig, modeSettings?: ModeSettings): boolean {
-    const allowBypass = modeSettings?.allow_bypass !== false;
-    if (!allowBypass) {
-      return false;
-    }
-
-    const bypassConfig = config.bypass ?? {};
-    const ciEnabled = bypassConfig.ci !== false && bypassConfig.ci_environments?.enabled !== false;
-    const ciFlags = bypassConfig.ci_environments?.detect_from_env ?? ['CI', 'GITHUB_ACTIONS', 'GITLAB_CI', 'JENKINS_URL', 'CIRCLECI'];
-
-    if (ciEnabled) {
-      if (process.env.CI === 'true' || process.env.CI === '1') {
-        return true;
-      }
-      for (const flag of ciFlags) {
-        if (process.env[flag]) {
-          return true;
-        }
-      }
-    }
-
-    return false;
   }
 
   private handleAPIError(error: Error, config: SafeRunConfig): { shouldBlock: boolean; message: string } {

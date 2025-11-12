@@ -111,7 +111,7 @@ export async function interceptClean(context: InterceptorContext): Promise<numbe
         modeSettings: context.modeSettings,
       });
       const outcome = await flow.requestApproval(dryRun);
-      if (outcome !== ApprovalOutcome.Approved && outcome !== ApprovalOutcome.Bypassed) {
+      if (outcome !== ApprovalOutcome.Approved) {
         await context.client.confirmGitOperation({
           changeId: dryRun.changeId,
           status: 'cancelled',
@@ -134,7 +134,7 @@ export async function interceptClean(context: InterceptorContext): Promise<numbe
       }
       approvals.push({
         changeId: dryRun.changeId,
-        metadata: { repo: repoSlug, bypassed: outcome === ApprovalOutcome.Bypassed },
+        metadata: { repo: repoSlug },
       });
     }
   } catch (error) {

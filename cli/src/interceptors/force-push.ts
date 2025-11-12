@@ -119,7 +119,7 @@ export async function interceptForcePush(context: InterceptorContext): Promise<n
 
     const outcome = await flow.requestApproval(dryRun);
 
-    if (outcome !== ApprovalOutcome.Approved && outcome !== ApprovalOutcome.Bypassed) {
+    if (outcome !== ApprovalOutcome.Approved) {
       console.error(chalk.red(`✗ SafeRun blocked force push to '${params.branch}' (${outcome})`));
 
       await logOperation(context.gitInfo.repoRoot, {
