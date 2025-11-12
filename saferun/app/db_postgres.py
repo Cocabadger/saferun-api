@@ -562,12 +562,17 @@ def get_notification_settings(api_key: str) -> Optional[Dict[str, Any]]:
         """Decrypt token, or return as-is if not encrypted (legacy plain text)."""
         if not value:
             return None
+        
+        # If it's plain text (URLs or tokens with known prefixes), return as-is
+        if value.startswith(('https://', 'http://', 'xoxb-', 'xoxp-', 'xoxe-', 'xoxa-')):
+            return value
+        
+        # Try to decrypt encrypted values
         try:
-            # Try to decrypt (will work if already encrypted)
-            return crypto.decrypt_token(value)
+            decrypted = crypto.decrypt_token(value)
+            return decrypted if decrypted else value  # Fallback to original if decrypt returns None
         except Exception:
             # If decrypt fails, assume it's legacy plain text
-            # This handles backward compatibility during migration
             return value
     
     if row.get("slack_webhook_url"):
@@ -666,29 +671,24 @@ def migrate_notification_secrets() -> int:
         # Check and encrypt slack_webhook_url if plain text
         if row.get("slack_webhook_url"):
             webhook = row["slack_webhook_url"]
-            try:
-                # Try to decrypt - if it works, already encrypted
-                crypto.decrypt_token(webhook)
-            except Exception:
-                # Decrypt failed, so it's plain text - encrypt it
+            # If starts with http(s):// it's plain text - needs encryption
+            if webhook.startswith(('https://', 'http://')):
                 updates["slack_webhook_url"] = crypto.encrypt_token(webhook)
                 needs_update = True
         
         # Check and encrypt slack_bot_token if plain text
         if row.get("slack_bot_token"):
             token = row["slack_bot_token"]
-            try:
-                crypto.decrypt_token(token)
-            except Exception:
+            # If starts with xox prefix it's plain text - needs encryption
+            if token.startswith(('xoxb-', 'xoxp-', 'xoxe-', 'xoxa-')):
                 updates["slack_bot_token"] = crypto.encrypt_token(token)
                 needs_update = True
         
         # Check and encrypt webhook_secret if plain text
         if row.get("webhook_secret"):
             secret = row["webhook_secret"]
-            try:
-                crypto.decrypt_token(secret)
-            except Exception:
+            # If it doesn't look like encrypted data (base64), encrypt it
+            if not (len(secret) > 20 and all(c in 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=' for c in secret)):
                 updates["webhook_secret"] = crypto.encrypt_token(secret)
                 needs_update = True
         
