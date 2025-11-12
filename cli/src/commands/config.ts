@@ -11,6 +11,7 @@ interface SlackConfigOptions {
   botToken?: string;
   disable?: boolean;
   test?: boolean;
+  show?: boolean;
 }
 
 export class ConfigCommand {
@@ -71,6 +72,12 @@ export class ConfigCommand {
     }
 
     console.log(chalk.cyan('\n🔔 SafeRun Slack Configuration\n'));
+
+    // Show current configuration
+    if (options.show) {
+      await this.showSlackConfig(apiKey, config.api.url);
+      return;
+    }
 
     // Test mode - send test notification
     if (options.test) {
@@ -212,6 +219,50 @@ export class ConfigCommand {
       const result = await response.json();
       console.log(chalk.green('✅ ' + result.message));
       console.log(chalk.gray('\n💡 Check your Slack channel for the test message'));
+    } catch (error: any) {
+      console.error(chalk.red(`❌ Error: ${error.message}`));
+      process.exitCode = 1;
+    }
+  }
+
+  private async showSlackConfig(apiKey: string, apiUrl: string): Promise<void> {
+    const url = `${apiUrl}/v1/settings/notifications`;
+
+    try {
+      const response = await fetch(url, {
+        method: 'GET',
+        headers: {
+          'X-API-Key': apiKey,
+        },
+      });
+
+      if (!response.ok) {
+        const error = await response.text();
+        console.error(chalk.red(`❌ Failed to get configuration: ${error}`));
+        process.exitCode = 1;
+        return;
+      }
+
+      const settings = await response.json();
+      
+      console.log(chalk.cyan('📋 Current Slack Configuration:\n'));
+      console.log(`  Status: ${settings.slack_enabled ? chalk.green('✓ Enabled') : chalk.gray('✗ Disabled')}`);
+      console.log(`  Channel: ${chalk.yellow(settings.slack_channel || '#saferun-alerts')}`);
+      
+      if (settings.slack_webhook_url) {
+        console.log(`  Webhook: ${chalk.gray(settings.slack_webhook_url)}`);  // Already masked by API
+      } else {
+        console.log(`  Webhook: ${chalk.gray('Not configured')}`);
+      }
+      
+      if (settings.slack_bot_token) {
+        console.log(`  Bot Token: ${chalk.gray(settings.slack_bot_token)}`);  // Already masked by API
+      } else {
+        console.log(`  Bot Token: ${chalk.gray('Not configured')}`);
+      }
+      
+      console.log(`\n  ${chalk.gray('💡 Use --test to send a test notification')}`);
+      console.log(`  ${chalk.gray('💡 Use --disable to turn off notifications')}`);
     } catch (error: any) {
       console.error(chalk.red(`❌ Error: ${error.message}`));
       process.exitCode = 1;

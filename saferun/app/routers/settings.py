@@ -6,6 +6,19 @@ from .. import db_adapter as db
 
 router = APIRouter(prefix="/v1/settings", tags=["settings"])
 
+def mask_secret(value: str) -> Optional[str]:
+    """Mask secret values for security - only show if configured."""
+    if not value:
+        return None
+    # Return masked indicator - never expose actual secrets via API
+    if value.startswith("https://hooks.slack.com/"):
+        return "https://hooks.slack.com/services/***"
+    if value.startswith("xoxb-"):
+        return "xoxb-***"
+    if value.startswith("http://") or value.startswith("https://"):
+        return "https://***"
+    return "***"
+
 class NotificationSettings(BaseModel):
     slack_webhook_url: Optional[str] = None
     slack_bot_token: Optional[str] = None
@@ -35,24 +48,15 @@ async def get_notification_settings(api_key: str = Depends(verify_api_key)):
             notification_channels=["slack"]
         )
 
-    # ⚠️ SECURITY: Mask sensitive secrets before returning
-    def mask_secret(value: str) -> Optional[str]:
-        """Mask secret values for security - only show if configured."""
-        if not value:
-            return None
-        # Return masked indicator - never expose actual secrets via API
-        if value.startswith("https://hooks.slack.com/"):
-            return "https://hooks.slack.com/services/***"
-        if value.startswith("xoxb-"):
-            return "xoxb-***"
-        return "***"
-    
-    # Mask sensitive fields
+    # ⚠️ SECURITY: Mask sensitive secrets before returning (uses module-level mask_secret)
     if settings.get("slack_webhook_url"):
         settings["slack_webhook_url"] = mask_secret(settings["slack_webhook_url"])
     
     if settings.get("slack_bot_token"):
         settings["slack_bot_token"] = mask_secret(settings["slack_bot_token"])
+    
+    if settings.get("webhook_url"):
+        settings["webhook_url"] = mask_secret(settings["webhook_url"])  # ← ADD: mask generic webhook too
     
     if settings.get("webhook_secret"):
         settings["webhook_secret"] = mask_secret(settings["webhook_secret"])

@@ -86,6 +86,7 @@ export function registerCommands(program: Command) {
     .option('--bot-token <token>', 'Slack bot token (xoxb-...)')
     .option('--disable', 'Disable Slack notifications')
     .option('--test', 'Send test notification')
+    .option('--show', 'Show current Slack configuration')
     .action(async (options: any) => {
       const { ConfigCommand } = await import('./commands/config');
       await new ConfigCommand().slack(options);
