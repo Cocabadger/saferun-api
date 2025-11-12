@@ -161,15 +161,15 @@ async def github_webhook_event(
         # Check for recent API-initiated operations
         check_time = (datetime.now() - timedelta(minutes=5)).isoformat()
         recent_api_op = db.fetchone(
-            """SELECT change_id, status FROM changes 
-               WHERE target_id LIKE %s 
-               AND summary_json->>'initiated_via' = 'api'
-               AND summary_json->>'operation_type' = %s
+            """SELECT change_id, status FROM changes
+               WHERE target_id LIKE %s
+               AND summary_json LIKE %s
+               AND summary_json LIKE %s
                AND created_at > %s
                AND status IN ('pending', 'approved', 'executed')
                ORDER BY created_at DESC
                LIMIT 1""",
-            (f"%{repo_full_name}%", action_type.replace("github_", "github_pr_") if action_type == "github_merge" else action_type, check_time)
+            (f"%{repo_full_name}%", '%"initiated_via":"api"%', f'%"operation_type":"{action_type.replace("github_", "github_pr_") if action_type == "github_merge" else action_type}"%', check_time)
         )
         
         if recent_api_op:

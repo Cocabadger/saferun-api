@@ -562,20 +562,30 @@ def get_notification_settings(api_key: str) -> Optional[Dict[str, Any]]:
         """Decrypt token, or return as-is if not encrypted (legacy plain text)."""
         if not value:
             return None
+
+        # Check if value is already plaintext (not encrypted)
+        # Slack webhook URLs start with https://hooks.slack.com/
+        # Slack bot tokens start with xoxb- or xoxp-
+        if value.startswith(('https://', 'http://', 'xoxb-', 'xoxp-')):
+            return value
+
         try:
             # Try to decrypt (will work if already encrypted)
-            return crypto.decrypt_token(value)
+            decrypted = crypto.decrypt_token(value)
+            if decrypted:
+                return decrypted
+            # If decrypt_token returned None, value is invalid/corrupted
+            return None
         except Exception:
-            # If decrypt fails, assume it's legacy plain text
-            # This handles backward compatibility during migration
-            return value
-    
+            # If decrypt fails completely, return None (don't return corrupted value)
+            return None
+
     if row.get("slack_webhook_url"):
         row["slack_webhook_url"] = safe_decrypt(row["slack_webhook_url"])
-    
+
     if row.get("slack_bot_token"):
         row["slack_bot_token"] = safe_decrypt(row["slack_bot_token"])
-    
+
     if row.get("webhook_secret"):
         row["webhook_secret"] = safe_decrypt(row["webhook_secret"])
     
@@ -639,56 +649,61 @@ def delete_notification_settings(api_key: str):
 def migrate_notification_secrets() -> int:
     """
     Migrate existing plain text secrets to encrypted format.
-    
+
     This is idempotent - can be run multiple times safely.
     Returns: Number of records migrated
     """
     conn = get_connection()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-    
+
     # Get all settings with potential plain text secrets
     cur.execute("""
         SELECT api_key, slack_webhook_url, slack_bot_token, webhook_secret
         FROM user_notification_settings
-        WHERE slack_webhook_url IS NOT NULL 
+        WHERE slack_webhook_url IS NOT NULL
            OR slack_bot_token IS NOT NULL
            OR webhook_secret IS NOT NULL
     """)
-    
+
     rows = cur.fetchall()
     migrated_count = 0
-    
+
+    def is_plain_text_value(value: str) -> bool:
+        """Check if value is plain text (not encrypted)."""
+        if not value:
+            return False
+        # Slack webhook URLs and bot tokens are obviously plain text
+        if value.startswith(('https://', 'http://', 'xoxb-', 'xoxp-')):
+            return True
+        # If it's base64 and looks encrypted (right length), assume encrypted
+        if crypto.is_encrypted(value):
+            return False
+        # Otherwise assume plain text
+        return True
+
     for row in rows:
         api_key = row["api_key"]
         needs_update = False
         updates = {}
-        
+
         # Check and encrypt slack_webhook_url if plain text
         if row.get("slack_webhook_url"):
             webhook = row["slack_webhook_url"]
-            try:
-                # Try to decrypt - if it works, already encrypted
-                crypto.decrypt_token(webhook)
-            except Exception:
-                # Decrypt failed, so it's plain text - encrypt it
+            if is_plain_text_value(webhook):
                 updates["slack_webhook_url"] = crypto.encrypt_token(webhook)
                 needs_update = True
-        
+
         # Check and encrypt slack_bot_token if plain text
         if row.get("slack_bot_token"):
             token = row["slack_bot_token"]
-            try:
-                crypto.decrypt_token(token)
-            except Exception:
+            if is_plain_text_value(token):
                 updates["slack_bot_token"] = crypto.encrypt_token(token)
                 needs_update = True
-        
+
         # Check and encrypt webhook_secret if plain text
         if row.get("webhook_secret"):
             secret = row["webhook_secret"]
-            try:
-                crypto.decrypt_token(secret)
-            except Exception:
+            if is_plain_text_value(secret):
                 updates["webhook_secret"] = crypto.encrypt_token(secret)
                 needs_update = True
         
