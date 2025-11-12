@@ -210,6 +210,27 @@ async def build_dryrun(req: DryRunArchiveRequest, notion_version: str | None = N
             expires_at_str = db.iso_z(expires_dt_obj)
             ttl_seconds = int(expires_dt_obj.timestamp() - datetime.now(timezone.utc).timestamp())
 
+            # Build summary_json for the change record
+            summary_json = {
+                "operation_type": metadata.get("operation_type", "archive"),
+                "provider": req.provider,
+                "target_id": req.target_id,
+                "title": title,
+                "item_type": item_type,
+                "risk_score": risk_score,
+                "reasons": all_reasons,
+                "blocks": blocks,
+                "linked_count": linked_count,
+                "last_edit": last_edit,
+                "reason": req.reason or "",
+            }
+            
+            # Add GitHub-specific fields
+            if req.provider == "github":
+                summary_json["repo_name"] = metadata.get("full_name", "")
+                summary_json["branch_name"] = metadata.get("name", "")
+                summary_json["is_default_branch"] = metadata.get("isDefault", False)
+            
             change_data = {
                 "change_id": change_id,
                 "provider": req.provider,
@@ -225,6 +246,7 @@ async def build_dryrun(req: DryRunArchiveRequest, notion_version: str | None = N
                 "created_at": created_at_str,
                 "webhook_url": req.webhook_url,  # Store webhook URL
                 "metadata": metadata,  # Store metadata for revert logic (object type, etc.)
+                "summary_json": json.dumps(summary_json),  # Add summary_json field
             }
             
             # Add revert_window for non-approval GitHub archives
