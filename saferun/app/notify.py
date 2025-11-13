@@ -194,6 +194,39 @@ class Notifier:
                     "text": f"<{approve_url}|🌐 View in Dashboard>"
                 }
             })
+        
+        # Add expiration info for approval-required operations
+        if event_type in ("dry_run", "approval_required"):
+            expires_at = payload.get("expires_at")
+            if expires_at:
+                from datetime import datetime, timezone
+                # Parse expires_at timestamp
+                if isinstance(expires_at, str):
+                    try:
+                        expires_dt = datetime.fromisoformat(expires_at.replace('Z', '+00:00'))
+                    except ValueError:
+                        expires_dt = None
+                elif hasattr(expires_at, 'timestamp'):
+                    expires_dt = expires_at
+                else:
+                    expires_dt = None
+                
+                if expires_dt:
+                    # Calculate remaining time
+                    now = datetime.now(timezone.utc)
+                    if expires_dt.tzinfo is None:
+                        expires_dt = expires_dt.replace(tzinfo=timezone.utc)
+                    remaining = expires_dt - now
+                    remaining_minutes = int(remaining.total_seconds() / 60)
+                    
+                    if remaining_minutes > 0:
+                        blocks.append({
+                            "type": "section",
+                            "text": {
+                                "type": "mrkdwn",
+                                "text": f"⏰ *Expires in:* {remaining_minutes} minutes"
+                            }
+                        })
 
         # Add buttons based on event type
         if change_id:

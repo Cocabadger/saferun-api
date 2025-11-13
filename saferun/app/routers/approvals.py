@@ -87,7 +87,27 @@ async def get_approval_details(
     requires_approval = bool(rec.get("requires_approval"))
     status = rec.get("status", "pending")
     
-    # Check if operation expired
+    # Check if approval expired (2 hour timeout for pending approvals)
+    expires_at = rec.get("expires_at")
+    if expires_at and status == "pending":
+        # Parse timestamp
+        if isinstance(expires_at, str):
+            expires_dt = datetime.fromisoformat(expires_at.replace('Z', '+00:00'))
+        else:
+            expires_dt = expires_at
+        
+        # Ensure timezone aware
+        if expires_dt.tzinfo is None:
+            expires_dt = expires_dt.replace(tzinfo=timezone.utc)
+        
+        now = datetime.now(timezone.utc)
+        
+        if now > expires_dt:
+            # Auto-expire approval
+            storage.set_change_status(change_id, "expired")
+            status = "expired"
+    
+    # Check if revert window expired (24 hour revert window after execution)
     revert_expires_at = rec.get("revert_expires_at")
     if revert_expires_at and status == "pending":
         # Parse timestamp
@@ -222,7 +242,30 @@ async def approve_operation(
 
     current_status = rec.get("status", "pending")
     
-    # Check if operation expired
+    # Check if approval expired (2 hour timeout for pending approvals)
+    expires_at = rec.get("expires_at")
+    if expires_at and current_status == "pending":
+        # Parse timestamp
+        if isinstance(expires_at, str):
+            expires_dt = datetime.fromisoformat(expires_at.replace('Z', '+00:00'))
+        else:
+            expires_dt = expires_at
+        
+        # Ensure timezone aware
+        if expires_dt.tzinfo is None:
+            expires_dt = expires_dt.replace(tzinfo=timezone.utc)
+        
+        now = datetime.now(timezone.utc)
+        
+        if now > expires_dt:
+            # Operation expired - abort
+            storage.set_change_status(change_id, "expired")
+            raise HTTPException(
+                status_code=410,  # Gone
+                detail="Approval link expired. Please create a new operation."
+            )
+    
+    # Check if revert window expired (24 hour revert window after execution)
     revert_expires_at = rec.get("revert_expires_at")
     if revert_expires_at and current_status == "pending":
         # Parse timestamp
