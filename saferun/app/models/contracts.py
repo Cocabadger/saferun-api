@@ -169,7 +169,7 @@ class GitOperationDryRunRequest(BaseModel):
     reasons: List[str] = []
     policy: Optional[Dict] = None
     webhook_url: Optional[str] = None
-    ttl_minutes: int = Field(default=30, ge=5, le=240)
+    ttl_minutes: int = Field(default=120, ge=5, le=240)  # 2 hours default expiration
 
 
 class GitOperationStatusResponse(BaseModel):

@@ -246,7 +246,7 @@ async def github_webhook_event(
         "title": f"{action_type.replace('github_', '').replace('_', ' ').title()} - {repo_full_name}",
         "status": "pending_review" if risk_score >= 7.0 else "logged",  # Use denormalized for comparison
         "risk_score": normalized_risk_score,  # Store normalized (0-1)
-        "expires_at": iso_z(datetime.now(timezone.utc) + timedelta(hours=24)),
+        "expires_at": iso_z(datetime.now(timezone.utc) + timedelta(hours=2)),  # 2 hours for consistency with CLI
         "created_at": iso_z(datetime.now(timezone.utc)),
         "last_edited_time": iso_z(datetime.now(timezone.utc)),
         "policy_json": {"risk_reasons": reasons},
