@@ -247,7 +247,7 @@ class DryRunArchiveResponse(BaseModel):
     diff: List[DiffUnit]
     risk_score: float = Field(ge=0.0, le=10.0)  # Changed from 1.0 to 10.0 to support new scoring
     reasons: List[str] = []
-    requires_approval: bool = Field(default=True, alias="needsApproval", serialization_alias="needsApproval")
+    needsApproval: bool = Field(default=True, alias="requires_approval")  # Use needsApproval as primary field name
     human_preview: str
     telemetry: Dict
     approve_url: Optional[str] = None
@@ -260,7 +260,6 @@ class DryRunArchiveResponse(BaseModel):
     
     model_config = {
         "populate_by_name": True,  # Allow both requires_approval and needsApproval
-        "by_alias": True  # CRITICAL: Use aliases (needsApproval) in serialization
     }
 
 

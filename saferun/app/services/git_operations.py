@@ -133,7 +133,7 @@ async def build_git_operation_dryrun(req: GitOperationDryRunRequest, api_key: st
         ],
         risk_score=risk_score,
         reasons=req.reasons or [],
-        requires_approval=requires_approval,
+        needsApproval=requires_approval,  # Use needsApproval as primary field
         human_preview=human_preview,
         approve_url=approve_url,
         revert_url=None,
