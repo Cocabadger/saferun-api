@@ -200,13 +200,11 @@ async def github_webhook_event(
             user_row = db.fetchone("SELECT email FROM api_keys WHERE api_key=%s", (user_api_key,))
             if user_row:
                 user_email = user_row.get("email")
-                # Get Slack webhook from notification settings
-                notif_row = db.fetchone(
-                    "SELECT slack_webhook_url, slack_enabled FROM user_notification_settings WHERE api_key=%s", 
-                    (user_api_key,)
-                )
-                if notif_row and notif_row.get("slack_enabled"):
-                    slack_webhook_url = notif_row.get("slack_webhook_url")
+                # Get Slack webhook from notification settings (using db_adapter for proper decryption)
+                from ..db_adapter import get_notification_settings
+                notif_settings = get_notification_settings(user_api_key)
+                if notif_settings and notif_settings.get("slack_enabled"):
+                    slack_webhook_url = notif_settings.get("slack_webhook_url")
     
     if not user_email:
         user_email = sender_login
