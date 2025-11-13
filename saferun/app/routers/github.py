@@ -258,6 +258,9 @@ async def create_pending_operation(
         elif operation_type == "github_force_push":
             risk_score = 9.0 if "main" in target_id or "master" in target_id else 7.0
     
+    # Normalize risk_score to 0-1 range for storage (displayed as 0-10 in UI)
+    normalized_risk_score = min(risk_score / 10.0, 1.0)
+    
     # 2. Create pending operation in database
     change_id = str(uuid.uuid4())
     expires_at = datetime.now() + timedelta(hours=24)
@@ -279,7 +282,7 @@ async def create_pending_operation(
         "provider": "github",
         "title": title,
         "status": "pending",
-        "risk_score": risk_score,
+        "risk_score": normalized_risk_score,  # Store normalized (0-1)
         "requires_approval": True,
         "api_key": api_key,
         "token": token,  # Store token for approval execution
@@ -802,7 +805,7 @@ async def delete_repository(
         requires_approval=True,
         revert_window_hours=24,
         expires_at=expires_at.isoformat(),
-        risk_score=10.0,
+        risk_score=1.0,  # Normalized: 10.0/10 = 1.0
         revertable=False,  # CANNOT BE REVERTED
         warning="⚠️ This operation is PERMANENT and IRREVERSIBLE. Repository and all data will be deleted forever.",
         message="Repository delete request created. Check Slack for CRITICAL WARNING."

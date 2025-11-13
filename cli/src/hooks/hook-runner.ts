@@ -322,7 +322,15 @@ export class HookRunner {
       }
 
       // Requires approval - show message
-      const operationName = deletion ? 'branch deletion' : (isForcePush ? 'force push' : (isMergeCommit ? 'merge to protected branch' : 'operation'));
+      const operationName = deletion 
+        ? 'Branch deletion' 
+        : protectedBranch
+        ? 'Push to protected branch'
+        : isForcePush 
+        ? 'Force push' 
+        : isMergeCommit 
+        ? 'Merge to protected branch' 
+        : 'Operation';
       console.log('\n' + chalk.yellow(`⚠️  SafeRun: ${operationName} requires approval`));
 
       // Show AI-specific message if detected

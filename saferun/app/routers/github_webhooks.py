@@ -235,14 +235,17 @@ async def github_webhook_event(
         else:
             print(f"⚠️ No SHA found for deleted branch '{branch_name}' in {repo_full_name}")
     
+    # Normalize risk_score to 0-1 range for storage (displayed as 0-10 in UI)
+    normalized_risk_score = min(risk_score / 10.0, 1.0)
+    
     # Create change record
     change = {
         "change_id": change_id,
         "target_id": repo_full_name,
         "provider": "github",
         "title": f"{action_type.replace('github_', '').replace('_', ' ').title()} - {repo_full_name}",
-        "status": "pending_review" if risk_score >= 7.0 else "logged",
-        "risk_score": risk_score,
+        "status": "pending_review" if risk_score >= 7.0 else "logged",  # Use denormalized for comparison
+        "risk_score": normalized_risk_score,  # Store normalized (0-1)
         "expires_at": iso_z(datetime.now(timezone.utc) + timedelta(hours=24)),
         "created_at": iso_z(datetime.now(timezone.utc)),
         "last_edited_time": iso_z(datetime.now(timezone.utc)),
