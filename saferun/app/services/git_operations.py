@@ -88,7 +88,6 @@ async def build_git_operation_dryrun(req: GitOperationDryRunRequest, api_key: st
     approval_token = None
     approve_url = None
     if requires_approval:
-        from .. import db_adapter as db
         approval_token = db.create_approval_token(change_id)
         base_url = os.getenv("APP_BASE_URL", "http://localhost:8500")  # type: ignore[name-defined]
         approve_url = f"{base_url}/approvals/{change_id}?token={approval_token}"
