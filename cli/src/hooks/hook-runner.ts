@@ -222,15 +222,35 @@ export class HookRunner {
         
         return;
       } else {
-        // Regular push - allow
-        await context.metrics.track('operation_allowed', {
-          hook: 'pre-push',
-          operation_type: 'push',
-          branch,
-          repo: repoSlug,
-          reason: 'regular_push',
-        });
-        return;
+        // Regular push - check if protected branch requires approval
+        if (protectedBranch) {
+          // Protected branch push requires approval
+          dryRun = await context.client.gitOperation({
+            operationType: 'push_protected',
+            target: `${repoSlug}#${branch}`,
+            command: 'git push',
+            metadata: {
+              repo: repoSlug,
+              branch,
+              protectedBranch: true,
+            },
+            riskScore: 0.5, // Medium risk
+            humanPreview: `Push to protected branch ${branch}`,
+            requiresApproval: true,
+            reasons: ['push_protected_branch'],
+          });
+          // Continue to approval flow below...
+        } else {
+          // Non-protected branch - allow
+          await context.metrics.track('operation_allowed', {
+            hook: 'pre-push',
+            operation_type: 'push',
+            branch,
+            repo: repoSlug,
+            reason: 'regular_push_non_protected',
+          });
+          return;
+        }
       }
 
       // Track the operation
@@ -473,191 +493,9 @@ export class HookRunner {
       process.exit(1);
     }
 
-    // STEP 2: Check protected branch commits (existing logic)
-    const protectedBranch = isProtectedBranch(branch, context.config.github.protected_branches ?? []);
-    if (!protectedBranch) {
-      return;
-    }
-
-    const repoSlug = context.config.github.repo === 'auto' ? context.gitInfo.repoSlug ?? 'unknown/repo' : context.config.github.repo;
-    const rule = this.getRule(context.config, 'commit_protected');
-    const enforcement = this.resolveEnforcement(context.modeSettings, rule?.action, 'require_approval');
-
-    if (enforcement.action === 'allow' || enforcement.action === 'warn') {
-      if (enforcement.action === 'warn' || context.modeSettings?.show_warnings) {
-        console.warn(chalk.yellow(`SafeRun warning: committing directly to protected branch '${branch}'.`));
-      }
-      await context.metrics.track('operation_allowed', {
-        hook: 'pre-commit',
-        operation_type: 'commit_protected',
-        repo: repoSlug,
-        branch,
-        reason: enforcement.action === 'warn' ? 'policy_warn' : 'policy_allow',
-      }).catch(() => undefined);
-      await logOperation(context.gitInfo.repoRoot, {
-        event: 'commit',
-        operation: 'commit_protected',
-        repo: repoSlug,
-        branch,
-        outcome: enforcement.action === 'warn' ? 'policy_warn' : 'policy_allow',
-      });
-      return;
-    }
-
-    const humanPreview = `Commit to protected branch ${branch}`;
-    const riskScore = this.clampRisk(rule?.risk_score ?? 8.5);
-
-    try {
-      const dryRun = await context.client.gitOperation({
-        operationType: 'commit_protected',
-        target: `${repoSlug}#${branch}`,
-        command: 'git commit',
-        metadata: {
-          repo: repoSlug,
-          branch,
-          protectedBranch: true,
-        },
-        riskScore: riskScore / 10,
-        humanPreview,
-        requiresApproval: enforcement.requiresApproval || enforcement.shouldBlock,
-        reasons: ['commit_protected_branch'],
-      });
-
-      if (!dryRun.needsApproval && !enforcement.shouldBlock) {
-        context.metrics.track('operation_allowed', {
-          hook: 'pre-commit',
-          operation_type: 'commit_protected',
-          repo: repoSlug,
-          branch,
-          reason: 'no_approval_required',
-        }).catch(() => undefined);
-        await logOperation(context.gitInfo.repoRoot, {
-          event: 'commit',
-          operation: 'commit_protected',
-          repo: repoSlug,
-          branch,
-          outcome: 'allowed',
-        });
-        return;
-      }
-
-      if (!dryRun.needsApproval && enforcement.shouldBlock) {
-        console.error(chalk.red(`SafeRun policy blocks commits on '${branch}'.`));
-        await context.metrics.track('operation_blocked', {
-          hook: 'pre-commit',
-          operation_type: 'commit_protected',
-          repo: repoSlug,
-          branch,
-          reason: 'policy_block',
-        }).catch(() => undefined);
-        await logOperation(context.gitInfo.repoRoot, {
-          event: 'commit',
-          operation: 'commit_protected',
-          repo: repoSlug,
-          branch,
-          outcome: 'blocked',
-          reason: 'policy_block',
-        });
-        process.exit(1);
-      }
-
-      const flow = new ApprovalFlow({
-        client: context.client,
-        metrics: context.metrics,
-        config: context.config,
-        modeSettings: context.modeSettings,
-        timeoutMs: context.config.approval_timeout?.duration ? context.config.approval_timeout.duration * 1000 : undefined,
-      });
-      const outcome = await flow.requestApproval(dryRun);
-      if (outcome !== ApprovalOutcome.Approved) {
-        // Try to notify API, but exit regardless of success
-        try {
-          await context.client.confirmGitOperation({
-            changeId: dryRun.changeId,
-            status: 'cancelled',
-            metadata: { repo: repoSlug, branch },
-          });
-        } catch (apiError) {
-          // Ignore API errors when cancelling - we still block the commit
-        }
-        context.metrics.track('operation_blocked', {
-          hook: 'pre-commit',
-          operation_type: 'commit_protected',
-          repo: repoSlug,
-          branch,
-          reason: 'user_cancelled',
-        }).catch(() => undefined);
-        await logOperation(context.gitInfo.repoRoot, {
-          event: 'commit',
-          operation: 'commit_protected',
-          repo: repoSlug,
-          branch,
-          outcome: 'cancelled',
-        });
-        console.error(chalk.red(`SafeRun blocked commit on protected branch '${branch}'.`));
-        process.exit(1);
-      }
-
-      await context.client.confirmGitOperation({
-        changeId: dryRun.changeId,
-        status: 'applied',
-        metadata: { repo: repoSlug, branch },
-      });
-      context.metrics.track('operation_allowed', {
-        hook: 'pre-commit',
-        operation_type: 'commit_protected',
-        repo: repoSlug,
-        branch,
-        reason: 'approved',
-      }).catch(() => undefined);
-      await logOperation(context.gitInfo.repoRoot, {
-        event: 'commit',
-        operation: 'commit_protected',
-        repo: repoSlug,
-        branch,
-        outcome: 'approved',
-      });
-    } catch (error) {
-      const err = error instanceof Error ? error : new Error(String(error));
-      const { shouldBlock, message } = this.handleAPIError(err, context.config);
-
-      console.error(chalk.red(`SafeRun pre-commit error: ${err.message}`));
-      console.error(shouldBlock ? chalk.red(message) : chalk.yellow(message));
-
-      if (shouldBlock) {
-        await context.metrics.track('operation_blocked', {
-          hook: 'pre-commit',
-          operation_type: 'commit_protected',
-          repo: repoSlug,
-          branch,
-          reason: 'api_error_blocked',
-        }).catch(() => undefined);
-        await logOperation(context.gitInfo.repoRoot, {
-          event: 'blocked',
-          operation: 'commit_protected',
-          repo: repoSlug,
-          branch,
-          reason: 'API error - fail_mode blocked operation',
-        });
-        process.exit(1);
-      } else {
-        await context.metrics.track('operation_allowed', {
-          hook: 'pre-commit',
-          operation_type: 'commit_protected',
-          repo: repoSlug,
-          branch,
-          reason: 'api_error_graceful',
-        }).catch(() => undefined);
-        await logOperation(context.gitInfo.repoRoot, {
-          event: 'commit',
-          operation: 'commit_protected',
-          repo: repoSlug,
-          branch,
-          outcome: 'api_error',
-          error: err.message,
-        });
-      }
-    }
+    // STEP 2: Commits are local operations - protection happens at push time
+    // No additional checks needed here - just allow commit to proceed
+    return;
   }
 
   private async handlePostCheckout(context: HookContext): Promise<void> {
