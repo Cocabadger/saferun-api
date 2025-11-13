@@ -311,6 +311,8 @@ async def approve_operation(
             metadata = json.loads(metadata)
         except:
             metadata = {}
+    else:
+        metadata = {}
     
     # Check if this is an API operation with revert_window (needs immediate execution)
     # CLI operations are executed locally by client, so skip server-side execution
