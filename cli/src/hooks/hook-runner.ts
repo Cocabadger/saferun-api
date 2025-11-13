@@ -287,7 +287,17 @@ export class HookRunner {
             console.log('');
           }
         } else {
-          console.log(chalk.green(`✓ Force push to '${branch}' approved (always requires approval for irreversible operations)`));
+          // Dynamic message based on operation type
+          const operationLabel = protectedBranch
+            ? `Push to protected branch '${branch}'`
+            : isForcePush
+            ? `Force push to '${branch}'`
+            : isMergeCommit
+            ? `Merge to '${branch}'`
+            : deletion
+            ? `Branch deletion`
+            : `Push to '${branch}'`;
+          console.log(chalk.green(`✓ ${operationLabel} approved`));
         }
         
         await context.metrics.track('operation_allowed', {
