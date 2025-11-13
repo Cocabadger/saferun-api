@@ -80,6 +80,7 @@ async def build_git_operation_dryrun(req: GitOperationDryRunRequest, api_key: st
         "requires_approval": requires_approval,
         "human_preview": human_preview,
         "webhook_url": req.webhook_url,
+        "api_key": api_key,  # User isolation (Phase 1.4)
     }
 
     storage.save_change(change_id, change_data, ttl_seconds)
