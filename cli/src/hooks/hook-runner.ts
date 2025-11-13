@@ -226,14 +226,13 @@ export class HookRunner {
         if (protectedBranch) {
           // Protected branch push requires approval
           dryRun = await context.client.gitOperation({
-            operationType: 'custom',
+            operationType: 'push_protected',
             target: `${repoSlug}#${branch}`,
             command: 'git push',
             metadata: {
               repo: repoSlug,
               branch,
               protectedBranch: true,
-              operation_type: 'push_protected',
             },
             riskScore: 0.5, // Medium risk
             humanPreview: `Push to protected branch ${branch}`,

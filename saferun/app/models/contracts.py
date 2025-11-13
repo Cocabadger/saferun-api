@@ -157,6 +157,7 @@ class GitOperationDryRunRequest(BaseModel):
         "rebase",
         "cherry_pick",
         "commit_protected",
+        "push_protected",
         "custom",
     ]
     target: str
