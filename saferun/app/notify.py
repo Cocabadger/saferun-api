@@ -161,14 +161,14 @@ class Notifier:
                 {"type": "mrkdwn", "text": f"*Provider:*\n{provider_emoji} {provider.capitalize()}"},
                 {"type": "mrkdwn", "text": f"*Repository:*\n{repository_name}"},
                 {"type": "mrkdwn", "text": f"*Operation:*\n{operation_display}"},
-                {"type": "mrkdwn", "text": f"*Risk Score:*\n{risk_score:.1f}/10"}
+                {"type": "mrkdwn", "text": f"*Risk Score:*\n{risk_score * 10:.1f}/10"}
             ])
         else:
             # For other providers or fallback, use original layout
             fields.extend([
                 {"type": "mrkdwn", "text": f"*Provider:*\n{provider_emoji} {provider.capitalize()}"},
                 {"type": "mrkdwn", "text": f"*Operation:*\n{operation_display}"},
-                {"type": "mrkdwn", "text": f"*Risk Score:*\n{risk_score:.1f}/10"},
+                {"type": "mrkdwn", "text": f"*Risk Score:*\n{risk_score * 10:.1f}/10"},
                 {"type": "mrkdwn", "text": f"*Change ID:*\n`{change_id}`"}
             ])
 
@@ -473,13 +473,13 @@ class Notifier:
                 {"type": "mrkdwn", "text": f"*Provider:*\n🐙 {provider.capitalize()}"},
                 {"type": "mrkdwn", "text": f"*Repository:*\n{repository_name}"},
                 {"type": "mrkdwn", "text": f"*Operation:*\n{operation_display}"},
-                {"type": "mrkdwn", "text": f"*Risk Score:*\n{risk_score:.1f}/10"}
+                {"type": "mrkdwn", "text": f"*Risk Score:*\n{risk_score * 10:.1f}/10"}
             ]
         else:
             # For other providers or fallback
             fields = [
                 {"type": "mrkdwn", "text": f"*Operation:*\n{operation_display}"},
-                {"type": "mrkdwn", "text": f"*Risk Score:*\n{risk_score:.1f}/10"}
+                {"type": "mrkdwn", "text": f"*Risk Score:*\n{risk_score * 10:.1f}/10"}
             ]
         
         blocks = [
@@ -786,7 +786,7 @@ def format_slack_message(action, user_email: str, source: str = "github_webhook"
                     },
                     {
                         "type": "mrkdwn",
-                        "text": f"*Risk Score:*\n{action.risk_score}/10"
+                        "text": f"*Risk Score:*\n{action.risk_score * 10:.1f}/10"
                     },
                     {
                         "type": "mrkdwn",
