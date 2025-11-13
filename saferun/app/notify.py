@@ -232,10 +232,10 @@ class Notifier:
         if change_id:
             if event_type in ("approval_required", "dry_run"):  # Add buttons for both CLI and API approval flows
                 # Show Approve/Reject buttons that link to Landing page
-                landing_url = os.environ.get("LANDING_URL", "https://saferun-landing.vercel.app")
-                if landing_url and not landing_url.startswith("http"):
-                    landing_url = f"https://{landing_url}"
-                approval_page_url = f"{landing_url}/approvals/{change_id}"
+                api_base = os.environ.get("APP_BASE_URL") or os.environ.get("RAILWAY_PUBLIC_DOMAIN", "https://saferun-api.up.railway.app")
+                if api_base and not api_base.startswith("http"):
+                    api_base = f"https://{api_base}"
+                approval_page_url = f"{api_base}/approvals/{change_id}"
                 
                 # Add single "Approval URL" section with direct link to approval page
                 blocks.append({
@@ -978,12 +978,12 @@ def format_slack_message(action, user_email: str, source: str = "github_webhook"
                 print(f"⚠️ Failed to parse expires_at: {e}")
         
         # Add Approve/Reject buttons for webhook high-risk events
-        landing_url = os.environ.get("LANDING_URL", "https://saferun-landing.vercel.app")
-        if landing_url and not landing_url.startswith("http"):
-            landing_url = f"https://{landing_url}"
+        api_base = os.environ.get("APP_BASE_URL") or os.environ.get("RAILWAY_PUBLIC_DOMAIN", "https://saferun-api.up.railway.app")
+        if api_base and not api_base.startswith("http"):
+            api_base = f"https://{api_base}"
         
         # Use action.id as change_id for webhook events
-        approval_page_url = f"{landing_url}/approvals/{action.id}"
+        approval_page_url = f"{api_base}/approvals/{action.id}"
         
         message["blocks"].append({
             "type": "actions",
