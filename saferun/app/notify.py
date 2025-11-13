@@ -1,5 +1,6 @@
 import os, json, hmac, hashlib, asyncio, logging
 from typing import Dict, Any, Optional
+from datetime import datetime, timezone
 import httpx
 
 logger = logging.getLogger(__name__)
@@ -199,7 +200,6 @@ class Notifier:
         if event_type in ("dry_run", "approval_required"):
             expires_at = payload.get("expires_at")
             if expires_at:
-                from datetime import datetime, timezone
                 # Parse expires_at timestamp
                 if isinstance(expires_at, str):
                     try:
