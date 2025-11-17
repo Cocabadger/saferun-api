@@ -159,7 +159,7 @@ async def github_webhook_event(
     
     if repo_full_name and action_type in ["github_merge", "github_force_push"]:
         # Check for recent CLI/API operations to avoid duplicate notifications
-        check_time = (datetime.now() - timedelta(minutes=5)).isoformat()
+        check_time = datetime.now(timezone.utc) - timedelta(minutes=5)
         
         # Map webhook action_type to operation_type stored in summary_json
         if action_type == "github_merge":
