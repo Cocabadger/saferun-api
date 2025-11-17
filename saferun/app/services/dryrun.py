@@ -391,7 +391,7 @@ async def build_dryrun(req: DryRunArchiveRequest, notion_version: str | None = N
                     last_edited_time=last_edit,
                 ),
                 diff=[DiffUnit(op=op, impact={"pages_affected": 1})],
-                risk_score=risk_score,
+                risk_score=normalized_risk_score,  # Return normalized (0-1) for CLI
                 reasons=all_reasons,
                 requires_approval=need_approval,
                 human_preview=hp,
