@@ -207,12 +207,19 @@ async def github_webhook_event(
             # Send completion notification instead of new approval request
             print(f"✅ Sending completion notification for executed operation: {recent_executed_op['change_id']}")
             
-            # Get user's Slack webhook URL
+            # Get api_key from the executed operation (CLI operation has user's api_key)
+            executed_change = db.fetchone(
+                "SELECT api_key FROM changes WHERE change_id = %s",
+                (recent_executed_op['change_id'],)
+            )
+            
+            # Get user's Slack webhook URL using api_key from executed operation
             slack_webhook_url = None
-            if user_api_key:
+            if executed_change and executed_change.get("api_key"):
+                operation_api_key = executed_change["api_key"]
                 user_settings = db.fetchone(
                     "SELECT slack_webhook_url FROM user_notification_settings WHERE api_key = %s",
-                    (user_api_key,)
+                    (operation_api_key,)
                 )
                 if user_settings:
                     slack_webhook_url = user_settings.get("slack_webhook_url")
