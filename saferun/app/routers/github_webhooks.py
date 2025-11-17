@@ -158,7 +158,7 @@ async def github_webhook_event(
     ref_name = payload.get("ref", "").replace("refs/heads/", "") or payload.get("pull_request", {}).get("base", {}).get("ref", "")
     
     if repo_full_name and action_type in ["github_merge", "github_force_push"]:
-        # Check for recent API-initiated operations
+        # Check for recent CLI/API operations to avoid duplicate notifications
         check_time = (datetime.now() - timedelta(minutes=5)).isoformat()
         
         # Map webhook action_type to operation_type stored in summary_json
@@ -169,35 +169,38 @@ async def github_webhook_event(
         else:
             operation_type_pattern = action_type
         
+        # Construct target pattern to match both formats:
+        # CLI: "Cocabadger/test-sf-v01#main"
+        # Webhook: "Cocabadger/test-sf-v01"
+        target_pattern = f"%{repo_full_name}%"
+        
         # Check for PENDING operations (skip webhook to avoid duplicate approval requests)
         recent_pending_op = db.fetchone(
             """SELECT change_id, status FROM changes 
                WHERE target_id LIKE %s 
                AND summary_json LIKE %s
-               AND summary_json LIKE %s
                AND created_at > %s
                AND status = 'pending'
                ORDER BY created_at DESC
                LIMIT 1""",
-            (f"%{repo_full_name}%", '%"initiated_via":"api"%', f'%"operation_type":"{operation_type_pattern}"%', check_time)
+            (target_pattern, f'%"operation_type":"{operation_type_pattern}"%', check_time)
         )
         
         if recent_pending_op:
             # Skip - user already has approval request from CLI
-            print(f"⏭️  Skipping webhook notification - Pending API-initiated operation detected: {recent_pending_op['change_id']}")
-            return {"status": "skipped", "reason": "api_pending", "api_change_id": recent_pending_op['change_id']}
+            print(f"⏭️  Skipping webhook notification - Pending operation detected: {recent_pending_op['change_id']}")
+            return {"status": "skipped", "reason": "pending_operation", "change_id": recent_pending_op['change_id']}
         
-        # Check for EXECUTED operations (send completion notification)
+        # Check for EXECUTED/APPROVED operations (send completion notification)
         recent_executed_op = db.fetchone(
             """SELECT change_id, status, summary_json FROM changes 
                WHERE target_id LIKE %s 
-               AND summary_json LIKE %s
                AND summary_json LIKE %s
                AND created_at > %s
                AND status IN ('approved', 'executed')
                ORDER BY created_at DESC
                LIMIT 1""",
-            (f"%{repo_full_name}%", '%"initiated_via":"api"%', f'%"operation_type":"{operation_type_pattern}"%', check_time)
+            (target_pattern, f'%"operation_type":"{operation_type_pattern}"%', check_time)
         )
         
         if recent_executed_op:
