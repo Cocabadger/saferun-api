@@ -159,7 +159,8 @@ async def github_webhook_event(
     
     if repo_full_name and action_type in ["github_merge", "github_force_push"]:
         # Check for recent CLI/API operations to avoid duplicate notifications
-        check_time = datetime.now(timezone.utc) - timedelta(minutes=5)
+        # Use naive datetime to match PostgreSQL timestamp without time zone
+        check_time = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(minutes=5)
         
         # Map webhook action_type to operation_type stored in summary_json
         if action_type == "github_merge":
@@ -178,12 +179,13 @@ async def github_webhook_event(
         recent_pending_op = db.fetchone(
             """SELECT change_id, status FROM changes 
                WHERE target_id LIKE %s 
-               AND summary_json LIKE %s
+               AND summary_json::text LIKE %s
+               AND summary_json::text LIKE %s
                AND created_at > %s
                AND status = 'pending'
                ORDER BY created_at DESC
                LIMIT 1""",
-            (target_pattern, f'%"operation_type":"{operation_type_pattern}"%', check_time)
+            (target_pattern, '%"operation_type"%', f'%"{operation_type_pattern}"%', check_time)
         )
         
         if recent_pending_op:
@@ -195,12 +197,13 @@ async def github_webhook_event(
         recent_executed_op = db.fetchone(
             """SELECT change_id, status, summary_json FROM changes 
                WHERE target_id LIKE %s 
-               AND summary_json LIKE %s
+               AND summary_json::text LIKE %s
+               AND summary_json::text LIKE %s
                AND created_at > %s
                AND status IN ('approved', 'executed')
                ORDER BY created_at DESC
                LIMIT 1""",
-            (target_pattern, f'%"operation_type":"{operation_type_pattern}"%', check_time)
+            (target_pattern, '%"operation_type"%', f'%"{operation_type_pattern}"%', check_time)
         )
         
         if recent_executed_op:
