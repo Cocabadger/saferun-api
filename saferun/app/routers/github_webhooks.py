@@ -221,8 +221,7 @@ async def github_webhook_event(
                     summary = json.loads(summary_json) if isinstance(summary_json, str) else summary_json
                     initiated_via = summary.get("initiated_via", "api")
                     
-                    # Format timestamp
-                    from datetime import datetime, timezone
+                    # Format timestamp (datetime already imported at top)
                     now_utc = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
                     
                     # Send completion notification
