@@ -161,7 +161,17 @@ async def github_webhook_event(
         # Check for recent API-initiated operations that are STILL PENDING
         # (Don't skip if operation was already approved/executed - webhook is the "completion notification")
         check_time = (datetime.now() - timedelta(minutes=5)).isoformat()
-        operation_type_pattern = action_type.replace("github_", "github_pr_") if action_type == "github_merge" else action_type
+        
+        # Map webhook action_type to operation_type stored in summary_json
+        # github_merge → "merge" or "github_pr_merge"
+        # github_force_push → "force_push"
+        if action_type == "github_merge":
+            operation_type_pattern = "merge"  # Stored as "merge" in CLI operations
+        elif action_type == "github_force_push":
+            operation_type_pattern = "force_push"  # Stored as "force_push" in CLI operations
+        else:
+            operation_type_pattern = action_type
+        
         recent_api_op = db.fetchone(
             """SELECT change_id, status FROM changes 
                WHERE target_id LIKE %s 
@@ -290,6 +300,7 @@ async def github_webhook_event(
                     self.risk_score = risk_score
                     self.risk_reasons = reasons
                     self.metadata = summary
+                    self.expires_at = data.get("expires_at")  # Add expires_at for Slack formatting
             
             mock_action = MockAction(change)
             slack_message = format_slack_message(
