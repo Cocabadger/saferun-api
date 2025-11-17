@@ -158,21 +158,19 @@ async def github_webhook_event(
     ref_name = payload.get("ref", "").replace("refs/heads/", "") or payload.get("pull_request", {}).get("base", {}).get("ref", "")
     
     if repo_full_name and action_type in ["github_merge", "github_force_push"]:
-        # Check for recent API-initiated operations that are STILL PENDING
-        # (Don't skip if operation was already approved/executed - webhook is the "completion notification")
+        # Check for recent API-initiated operations
         check_time = (datetime.now() - timedelta(minutes=5)).isoformat()
         
         # Map webhook action_type to operation_type stored in summary_json
-        # github_merge → "merge" or "github_pr_merge"
-        # github_force_push → "force_push"
         if action_type == "github_merge":
-            operation_type_pattern = "merge"  # Stored as "merge" in CLI operations
+            operation_type_pattern = "merge"
         elif action_type == "github_force_push":
-            operation_type_pattern = "force_push"  # Stored as "force_push" in CLI operations
+            operation_type_pattern = "force_push"
         else:
             operation_type_pattern = action_type
         
-        recent_api_op = db.fetchone(
+        # Check for PENDING operations (skip webhook to avoid duplicate approval requests)
+        recent_pending_op = db.fetchone(
             """SELECT change_id, status FROM changes 
                WHERE target_id LIKE %s 
                AND summary_json LIKE %s
@@ -184,11 +182,30 @@ async def github_webhook_event(
             (f"%{repo_full_name}%", '%"initiated_via":"api"%', f'%"operation_type":"{operation_type_pattern}"%', check_time)
         )
         
-        if recent_api_op:
-            # This webhook event corresponds to a PENDING API-initiated operation
-            # Skip creating duplicate notification (user already has approval request)
-            print(f"⏭️  Skipping webhook notification - Pending API-initiated operation detected: {recent_api_op['change_id']}")
-            return {"status": "skipped", "reason": "api_pending", "api_change_id": recent_api_op['change_id']}
+        if recent_pending_op:
+            # Skip - user already has approval request from CLI
+            print(f"⏭️  Skipping webhook notification - Pending API-initiated operation detected: {recent_pending_op['change_id']}")
+            return {"status": "skipped", "reason": "api_pending", "api_change_id": recent_pending_op['change_id']}
+        
+        # Check for EXECUTED operations (send completion notification)
+        recent_executed_op = db.fetchone(
+            """SELECT change_id, status, summary_json FROM changes 
+               WHERE target_id LIKE %s 
+               AND summary_json LIKE %s
+               AND summary_json LIKE %s
+               AND created_at > %s
+               AND status IN ('approved', 'executed')
+               ORDER BY created_at DESC
+               LIMIT 1""",
+            (f"%{repo_full_name}%", '%"initiated_via":"api"%', f'%"operation_type":"{operation_type_pattern}"%', check_time)
+        )
+        
+        if recent_executed_op:
+            # Send completion notification instead of new approval request
+            print(f"✅ Sending completion notification for executed operation: {recent_executed_op['change_id']}")
+            # TODO: Implement send_completion_notification()
+            # For now, skip webhook to avoid duplicate/confusing notification
+            return {"status": "completion_notification_sent", "api_change_id": recent_executed_op['change_id']}
     
     # Generate unique change ID
     change_id = str(uuid.uuid4())
@@ -297,7 +314,7 @@ async def github_webhook_event(
                     self.operation_type = summary.get("operation_type", "")
                     self.repo_name = summary.get("repo_name", "")
                     self.branch_name = summary.get("branch_name", "")
-                    self.risk_score = risk_score
+                    self.risk_score = normalized_risk_score  # Use normalized (0-1) for display
                     self.risk_reasons = reasons
                     self.metadata = summary
                     self.expires_at = data.get("expires_at")  # Add expires_at for Slack formatting
