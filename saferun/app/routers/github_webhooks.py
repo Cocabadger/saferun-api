@@ -158,7 +158,8 @@ async def github_webhook_event(
     ref_name = payload.get("ref", "").replace("refs/heads/", "") or payload.get("pull_request", {}).get("base", {}).get("ref", "")
     
     if repo_full_name and action_type in ["github_merge", "github_force_push"]:
-        # Check for recent API-initiated operations
+        # Check for recent API-initiated operations that are STILL PENDING
+        # (Don't skip if operation was already approved/executed - webhook is the "completion notification")
         check_time = (datetime.now() - timedelta(minutes=5)).isoformat()
         operation_type_pattern = action_type.replace("github_", "github_pr_") if action_type == "github_merge" else action_type
         recent_api_op = db.fetchone(
@@ -167,17 +168,17 @@ async def github_webhook_event(
                AND summary_json LIKE %s
                AND summary_json LIKE %s
                AND created_at > %s
-               AND status IN ('pending', 'approved', 'executed')
+               AND status = 'pending'
                ORDER BY created_at DESC
                LIMIT 1""",
             (f"%{repo_full_name}%", '%"initiated_via":"api"%', f'%"operation_type":"{operation_type_pattern}"%', check_time)
         )
         
         if recent_api_op:
-            # This webhook event corresponds to an API-initiated operation
-            # Skip creating duplicate notification
-            print(f"⏭️  Skipping webhook notification - API-initiated operation detected: {recent_api_op['change_id']}")
-            return {"status": "skipped", "reason": "api_initiated", "api_change_id": recent_api_op['change_id']}
+            # This webhook event corresponds to a PENDING API-initiated operation
+            # Skip creating duplicate notification (user already has approval request)
+            print(f"⏭️  Skipping webhook notification - Pending API-initiated operation detected: {recent_api_op['change_id']}")
+            return {"status": "skipped", "reason": "api_pending", "api_change_id": recent_api_op['change_id']}
     
     # Generate unique change ID
     change_id = str(uuid.uuid4())

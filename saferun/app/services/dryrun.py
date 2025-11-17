@@ -231,6 +231,9 @@ async def build_dryrun(req: DryRunArchiveRequest, notion_version: str | None = N
                 summary_json["branch_name"] = metadata.get("name", "")
                 summary_json["is_default_branch"] = metadata.get("isDefault", False)
             
+            # Normalize risk_score to 0-1 range for storage (displayed as 0-10 in UI)
+            normalized_risk_score = min(risk_score / 10.0, 1.0)
+            
             change_data = {
                 "change_id": change_id,
                 "api_key": api_key,  # Store API key for user isolation
@@ -238,7 +241,7 @@ async def build_dryrun(req: DryRunArchiveRequest, notion_version: str | None = N
                 "target_id": req.target_id,
                 "title": title,
                 "last_edited_time": last_edit,
-                "risk_score": risk_score,
+                "risk_score": normalized_risk_score,  # Store normalized (0-1)
                 "policy": loaded_policy,
                 "expires_at": expires_at_str,
                 "token": req.token,
