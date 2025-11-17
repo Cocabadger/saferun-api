@@ -203,8 +203,68 @@ async def github_webhook_event(
         if recent_executed_op:
             # Send completion notification instead of new approval request
             print(f"✅ Sending completion notification for executed operation: {recent_executed_op['change_id']}")
-            # TODO: Implement send_completion_notification()
-            # For now, skip webhook to avoid duplicate/confusing notification
+            
+            # Get user's Slack webhook URL
+            slack_webhook_url = None
+            if user_api_key:
+                user_settings = db.fetchone(
+                    "SELECT slack_webhook_url FROM user_notification_settings WHERE api_key = %s",
+                    (user_api_key,)
+                )
+                if user_settings:
+                    slack_webhook_url = user_settings.get("slack_webhook_url")
+            
+            if slack_webhook_url:
+                try:
+                    # Parse summary_json to get approval source
+                    summary_json = recent_executed_op.get("summary_json", "{}")
+                    summary = json.loads(summary_json) if isinstance(summary_json, str) else summary_json
+                    initiated_via = summary.get("initiated_via", "api")
+                    
+                    # Format timestamp
+                    from datetime import datetime, timezone
+                    now_utc = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+                    
+                    # Send completion notification
+                    completion_message = {
+                        "blocks": [
+                            {
+                                "type": "header",
+                                "text": {"type": "plain_text", "text": "✅ SafeRun - Operation Completed"}
+                            },
+                            {"type": "divider"},
+                            {
+                                "type": "section",
+                                "fields": [
+                                    {"type": "mrkdwn", "text": f"*Operation:*\n{action_type.replace('github_', '').replace('_', ' ').title()}"},
+                                    {"type": "mrkdwn", "text": f"*Repository:*\n{repo_full_name}"},
+                                    {"type": "mrkdwn", "text": f"*Branch:*\n{ref_name}"},
+                                    {"type": "mrkdwn", "text": f"*Status:*\n:white_check_mark: Executed Successfully"},
+                                ]
+                            },
+                            {
+                                "type": "section",
+                                "text": {"type": "mrkdwn", "text": f"*Change ID:* `{recent_executed_op['change_id']}`"}
+                            },
+                            {
+                                "type": "context",
+                                "elements": [
+                                    {"type": "mrkdwn", "text": f":robot_face: Approved via CLI | :clock1: {now_utc}"}
+                                ]
+                            }
+                        ]
+                    }
+                    
+                    success = await send_to_slack(slack_webhook_url, completion_message)
+                    if success:
+                        print(f"✅ Completion notification sent for {recent_executed_op['change_id']}")
+                    else:
+                        print(f"❌ Failed to send completion notification")
+                except Exception as e:
+                    print(f"❌ Error sending completion notification: {e}")
+                    import traceback
+                    traceback.print_exc()
+            
             return {"status": "completion_notification_sent", "api_change_id": recent_executed_op['change_id']}
     
     # Generate unique change ID
