@@ -1,5 +1,5 @@
 """GitHub App webhook endpoints"""
-from fastapi import APIRouter, Request, HTTPException, Header, Depends
+from fastapi import APIRouter, Request, HTTPException, Header, Depends, Query
 import json
 import uuid
 from typing import Optional
@@ -365,6 +365,11 @@ async def github_webhook_event(
     
     db.upsert_change(change)
     
+    # Generate approval token for revert operations (used in Slack button)
+    approval_token = None
+    if revert_action:  # Only generate token if revert is possible
+        approval_token = db.create_approval_token(change_id)
+    
     # Insert audit log
     db.insert_audit(change_id, "github_webhook_received", {
         "event_type": event_type,
@@ -378,7 +383,7 @@ async def github_webhook_event(
         try:
             # Create mock action object for formatting
             class MockAction:
-                def __init__(self, data):
+                def __init__(self, data, token=None):
                     self.id = change_id
                     summary_json = change.get("summary_json", "{}")
                     summary = json.loads(summary_json) if isinstance(summary_json, str) else summary_json
@@ -389,8 +394,9 @@ async def github_webhook_event(
                     self.risk_reasons = reasons
                     self.metadata = summary
                     self.expires_at = data.get("expires_at")  # Add expires_at for Slack formatting
+                    self.approval_token = token  # NEW: approval token for revert button
             
-            mock_action = MockAction(change)
+            mock_action = MockAction(change, approval_token)
             slack_message = format_slack_message(
                 action=mock_action,
                 user_email=user_email,
@@ -427,28 +433,83 @@ async def github_webhook_event(
 async def revert_github_action(
     change_id: str,
     request: Request,
-    api_key: str = Depends(verify_api_key)
+    token: Optional[str] = Query(None),  # NEW: Approval token support
+    api_key: Optional[str] = Header(None, alias="X-API-Key")  # Now optional for backward compat
 ):
     """
     Revert a GitHub action (force push, delete, merge)
     
-    Requires:
-    - change_id: SafeRun change ID to revert
-    - github_token: GitHub token with write permissions (JSON body: {"github_token": "ghp_XXX"})
-    - X-API-Key header: User's API key (for ownership verification)
-    """
-    # Verify ownership FIRST (before accessing change data)
-    storage = storage_manager.get_storage()
-    change = verify_change_ownership(change_id, api_key, storage)
+    Authentication (Dual Auth):
+    - Method 1: Approval token (?token=tok_xxx) - Preferred, no API key needed
+    - Method 2: API key (X-API-Key header) - Backward compatibility
     
-    # Parse JSON body
-    try:
-        body = await request.json()
-        github_token = body.get("github_token")
-        if not github_token:
-            raise HTTPException(status_code=400, detail="github_token required in request body")
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=f"Invalid JSON body: {str(e)}")
+    GitHub token retrieval:
+    - With approval token: Retrieved from encrypted storage automatically
+    - With API key: Must provide github_token in JSON body (old method)
+    """
+    storage = storage_manager.get_storage()
+    github_token = None
+    
+    # DUAL AUTHENTICATION LOGIC (like approvals.py)
+    if token:
+        # Method 1: Approval token authentication
+        token_info = db.get_approval_token_info(token)
+        
+        if not token_info:
+            raise HTTPException(status_code=401, detail="Invalid or expired approval token")
+        
+        if token_info.get("used"):
+            raise HTTPException(status_code=401, detail="Approval token already used")
+        
+        if token_info.get("change_id") != change_id:
+            raise HTTPException(status_code=403, detail="Token does not match change ID")
+        
+        # Check token expiration
+        expires_at = token_info.get("expires_at")
+        if expires_at:
+            from datetime import datetime, timezone
+            if isinstance(expires_at, str):
+                expires_at = datetime.fromisoformat(expires_at.replace('Z', '+00:00'))
+            if datetime.now(timezone.utc) > expires_at:
+                raise HTTPException(status_code=401, detail="Approval token expired")
+        
+        # Get change record (no ownership check - token grants access)
+        change = storage.get_change(change_id)
+        if not change:
+            raise HTTPException(status_code=404, detail="Change not found")
+        
+        # Retrieve encrypted GitHub token from change record
+        summary_json = change.get("summary_json") or "{}"
+        try:
+            summary = json.loads(summary_json) if isinstance(summary_json, str) else summary_json
+        except (json.JSONDecodeError, TypeError):
+            summary = {}
+        
+        encrypted_github_token = summary.get("github_token")
+        if not encrypted_github_token:
+            raise HTTPException(status_code=400, detail="GitHub token not found in change record")
+        
+        # Decrypt GitHub token
+        github_token = db.decrypt_token(encrypted_github_token)
+        
+        # Mark token as used
+        db.mark_approval_token_used(token)
+        
+    elif api_key:
+        # Method 2: API key authentication (backward compatibility)
+        change = verify_change_ownership(change_id, api_key, storage)
+        
+        # Parse JSON body for github_token (old method)
+        try:
+            body = await request.json()
+            github_token = body.get("github_token")
+            if not github_token:
+                raise HTTPException(status_code=400, detail="github_token required in request body when using API key auth")
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=f"Invalid JSON body: {str(e)}")
+    else:
+        # No authentication provided
+        raise HTTPException(status_code=401, detail="Authentication required: provide either ?token=xxx or X-API-Key header")
     
     # ✅ BUG #16 FIX: Check if operation can be reverted
     current_status = change.get("status", "pending")
@@ -467,14 +528,16 @@ async def revert_github_action(
             detail="Operation already reverted"
         )
     
-    summary_json = change.get("summary_json") or "{}"
-    try:
-        summary = json.loads(summary_json) if isinstance(summary_json, str) else summary_json
-    except (json.JSONDecodeError, TypeError):
-        summary = {}
-    
-    if not isinstance(summary, dict):
-        summary = {}
+    # Parse summary_json if not already done (in API key auth path)
+    if not github_token or 'summary' not in locals():
+        summary_json = change.get("summary_json") or "{}"
+        try:
+            summary = json.loads(summary_json) if isinstance(summary_json, str) else summary_json
+        except (json.JSONDecodeError, TypeError):
+            summary = {}
+        
+        if not isinstance(summary, dict):
+            summary = {}
     
     revert_action = summary.get("revert_action")
     

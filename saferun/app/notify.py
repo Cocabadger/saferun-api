@@ -876,46 +876,136 @@ def format_slack_message(action, user_email: str, source: str = "github_webhook"
             owner, repo = repo_name.split("/") if "/" in repo_name else ("", repo_name)
             branch_protection_url = f"https://github.com/{owner}/{repo}/settings/branches" if owner else ""
             
-            warning_text = (
-                f"*⚠️ Limited Revert Available:*\n"
-                f"{revert_type} (force-updates branch to pre-merge state)\n\n"
-                f"*⚠️ Limitations & Consequences:*\n"
-                f"• Merge commit will be REMOVED from history (destructive)\n"
-                f"• Team members who pulled the merge will have diverged history\n"
-                f"• Temporal window existed - code may have been deployed\n"
-                f"• Does NOT prevent future unauthorized merges\n\n"
-                f"*To revert changes (via curl):*\n"
-                f"```curl -X POST '{revert_url}' \\\n  -H 'x-api-key: YOUR_SAFERUN_API_KEY' \\\n  -H 'Content-Type: application/json' \\\n  -d '{{\"github_token\": \"YOUR_GITHUB_TOKEN\"}}'```\n\n"
-                f":warning: *Important:* Use the same SafeRun API key from your original request"
-            )
-            
-            if branch_protection_url:
-                warning_text += (
-                    f"\n\n*🛡️ RECOMMENDED: Enable Branch Protection*\n"
-                    f"Prevent merges without review:\n"
-                    f"{branch_protection_url}\n\n"
-                    f"Required settings:\n"
-                    f"✅ Require pull request reviews before merging\n"
-                    f"✅ Dismiss stale pull request approvals\n"
-                    f"❌ Allow force pushes (keep disabled)"
+            # NEW: Button-based revert for merge (no curl)
+            if hasattr(action, 'approval_token') and action.approval_token:
+                revert_url_with_token = f"{revert_url}?token={action.approval_token}"
+                
+                warning_text = (
+                    f"*⚠️ Limited Revert Available:*\n"
+                    f"{revert_type} (force-updates branch to pre-merge state)\n\n"
+                    f"*⚠️ Limitations & Consequences:*\n"
+                    f"• Merge commit will be REMOVED from history (destructive)\n"
+                    f"• Team members who pulled the merge will have diverged history\n"
+                    f"• Temporal window existed - code may have been deployed\n"
+                    f"• Does NOT prevent future unauthorized merges"
                 )
-            
-            message["blocks"].append({
-                "type": "section",
-                "text": {
-                    "type": "mrkdwn",
-                    "text": warning_text
-                }
-            })
+                
+                if branch_protection_url:
+                    warning_text += (
+                        f"\n\n*🛡️ RECOMMENDED: Enable Branch Protection*\n"
+                        f"Prevent merges without review:\n"
+                        f"{branch_protection_url}\n\n"
+                        f"Required settings:\n"
+                        f"✅ Require pull request reviews before merging\n"
+                        f"✅ Dismiss stale pull request approvals\n"
+                        f"❌ Allow force pushes (keep disabled)"
+                    )
+                
+                # Add section with warning text
+                message["blocks"].append({
+                    "type": "section",
+                    "text": {
+                        "type": "mrkdwn",
+                        "text": warning_text
+                    }
+                })
+                
+                # Add revert button separately
+                message["blocks"].append({
+                    "type": "actions",
+                    "elements": [{
+                        "type": "button",
+                        "text": {
+                            "type": "plain_text",
+                            "text": "🔄 Revert Merge (Force Push)",
+                            "emoji": True
+                        },
+                        "url": revert_url_with_token,
+                        "style": "danger",
+                        "confirm": {
+                            "title": {
+                                "type": "plain_text",
+                                "text": "Confirm Revert"
+                            },
+                            "text": {
+                                "type": "mrkdwn",
+                                "text": "This will force push to remove the merge commit. Are you sure?"
+                            },
+                            "confirm": {
+                                "type": "plain_text",
+                                "text": "Yes, Revert"
+                            },
+                            "deny": {
+                                "type": "plain_text",
+                                "text": "Cancel"
+                            }
+                        }
+                    }]
+                })
+            else:
+                # FALLBACK: Old curl method
+                warning_text = (
+                    f"*⚠️ Limited Revert Available:*\n"
+                    f"{revert_type} (force-updates branch to pre-merge state)\n\n"
+                    f"*⚠️ Limitations & Consequences:*\n"
+                    f"• Merge commit will be REMOVED from history (destructive)\n"
+                    f"• Team members who pulled the merge will have diverged history\n"
+                    f"• Temporal window existed - code may have been deployed\n"
+                    f"• Does NOT prevent future unauthorized merges\n\n"
+                    f"*To revert changes (via curl):*\n"
+                    f"```curl -X POST '{revert_url}' \\\n  -H 'x-api-key: YOUR_SAFERUN_API_KEY' \\\n  -H 'Content-Type: application/json' \\\n  -d '{{\"github_token\": \"YOUR_GITHUB_TOKEN\"}}'```\n\n"
+                    f":warning: *Important:* Use the same SafeRun API key from your original request"
+                )
+                
+                if branch_protection_url:
+                    warning_text += (
+                        f"\n\n*🛡️ RECOMMENDED: Enable Branch Protection*\n"
+                        f"Prevent merges without review:\n"
+                        f"{branch_protection_url}\n\n"
+                        f"Required settings:\n"
+                        f"✅ Require pull request reviews before merging\n"
+                        f"✅ Dismiss stale pull request approvals\n"
+                        f"❌ Allow force pushes (keep disabled)"
+                    )
+                
+                message["blocks"].append({
+                    "type": "section",
+                    "text": {
+                        "type": "mrkdwn",
+                        "text": warning_text
+                    }
+                })
         else:
-            # Standard revert message for other operations
-            message["blocks"].append({
-                "type": "section",
-                "text": {
-                    "type": "mrkdwn",
-                    "text": f"*:arrows_counterclockwise: Revert Available:*\n{revert_type}\n\n```curl -X POST '{revert_url}' \\\n  -H 'x-api-key: YOUR_SAFERUN_API_KEY' \\\n  -H 'Content-Type: application/json' \\\n  -d '{{\"github_token\": \"YOUR_GITHUB_TOKEN\"}}'```\n\n:warning: *Important:* Use the same SafeRun API key from your original request"
-                }
-            })
+            # Standard revert message with button (using approval token)
+            if hasattr(action, 'approval_token') and action.approval_token:
+                # NEW: Button-based revert (no secrets in Slack!)
+                revert_url_with_token = f"{revert_url}?token={action.approval_token}"
+                message["blocks"].append({
+                    "type": "section",
+                    "text": {
+                        "type": "mrkdwn",
+                        "text": f"*:arrows_counterclockwise: Revert Available:* {revert_type}"
+                    },
+                    "accessory": {
+                        "type": "button",
+                        "text": {
+                            "type": "plain_text",
+                            "text": "🔄 Revert Operation",
+                            "emoji": True
+                        },
+                        "url": revert_url_with_token,
+                        "style": "danger"
+                    }
+                })
+            else:
+                # FALLBACK: Old curl method (if no approval token)
+                message["blocks"].append({
+                    "type": "section",
+                    "text": {
+                        "type": "mrkdwn",
+                        "text": f"*:arrows_counterclockwise: Revert Available:*\n{revert_type}\n\n```curl -X POST '{revert_url}' \\\n  -H 'x-api-key: YOUR_SAFERUN_API_KEY' \\\n  -H 'Content-Type: application/json' \\\n  -d '{{\"github_token\": \"YOUR_GITHUB_TOKEN\"}}'```\n\n:warning: *Important:* Use the same SafeRun API key from your original request"
+                    }
+                })
     
     # Add approval requirement for high-risk
     if action.risk_score >= 7.0:
