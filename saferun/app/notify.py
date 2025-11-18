@@ -1,5 +1,6 @@
 import os, json, hmac, hashlib, asyncio, logging
 from typing import Dict, Any, Optional
+from datetime import datetime, timezone
 import httpx
 
 logger = logging.getLogger(__name__)
@@ -160,14 +161,14 @@ class Notifier:
                 {"type": "mrkdwn", "text": f"*Provider:*\n{provider_emoji} {provider.capitalize()}"},
                 {"type": "mrkdwn", "text": f"*Repository:*\n{repository_name}"},
                 {"type": "mrkdwn", "text": f"*Operation:*\n{operation_display}"},
-                {"type": "mrkdwn", "text": f"*Risk Score:*\n{risk_score:.1f}/10"}
+                {"type": "mrkdwn", "text": f"*Risk Score:*\n{risk_score * 10:.1f}/10"}  # risk_score stored as 0-1, display as 0-10
             ])
         else:
             # For other providers or fallback, use original layout
             fields.extend([
                 {"type": "mrkdwn", "text": f"*Provider:*\n{provider_emoji} {provider.capitalize()}"},
                 {"type": "mrkdwn", "text": f"*Operation:*\n{operation_display}"},
-                {"type": "mrkdwn", "text": f"*Risk Score:*\n{risk_score:.1f}/10"},
+                {"type": "mrkdwn", "text": f"*Risk Score:*\n{risk_score * 10:.1f}/10"},  # risk_score stored as 0-1, display as 0-10
                 {"type": "mrkdwn", "text": f"*Change ID:*\n`{change_id}`"}
             ])
 
@@ -194,43 +195,58 @@ class Notifier:
                     "text": f"<{approve_url}|🌐 View in Dashboard>"
                 }
             })
+        
+        # Add expiration info for approval-required operations
+        if event_type in ("dry_run", "approval_required"):
+            expires_at = payload.get("expires_at")
+            if expires_at:
+                # Parse expires_at timestamp
+                if isinstance(expires_at, str):
+                    try:
+                        expires_dt = datetime.fromisoformat(expires_at.replace('Z', '+00:00'))
+                    except ValueError:
+                        expires_dt = None
+                elif hasattr(expires_at, 'timestamp'):
+                    expires_dt = expires_at
+                else:
+                    expires_dt = None
+                
+                if expires_dt:
+                    # Calculate remaining time
+                    now = datetime.now(timezone.utc)
+                    if expires_dt.tzinfo is None:
+                        expires_dt = expires_dt.replace(tzinfo=timezone.utc)
+                    remaining = expires_dt - now
+                    remaining_minutes = int(remaining.total_seconds() / 60)
+                    
+                    if remaining_minutes > 0:
+                        blocks.append({
+                            "type": "section",
+                            "text": {
+                                "type": "mrkdwn",
+                                "text": f"⏰ *Expires in:* {remaining_minutes} minutes"
+                            }
+                        })
 
         # Add buttons based on event type
         if change_id:
-            if event_type == "approval_required":
-                # Show Approve/Reject buttons that link to API approval endpoint
-                api_base = os.environ.get("APP_BASE_URL") or os.environ.get("RAILWAY_PUBLIC_DOMAIN", "https://saferun-api.up.railway.app")
-                if api_base and not api_base.startswith("http"):
-                    api_base = f"https://{api_base}"
-                approval_page_url = f"{api_base}/approvals/{change_id}"
+            if event_type in ("approval_required", "dry_run"):  # Add buttons for both CLI and API approval flows
+                # Get approval URL with token from extras (includes authentication)
+                approve_url = payload.get("approve_url")
                 
-                # Add single "Approval URL" section with direct link to approval page
-                blocks.append({
-                    "type": "section",
-                    "text": {
-                        "type": "mrkdwn",
-                        "text": f"*Approval URL:*\n<{approval_page_url}|View Details>"
-                    }
-                })
-                
-                # Add Approve/Reject buttons linking to approval page (with change_id)
-                blocks.append({
-                    "type": "actions",
-                    "elements": [
-                        {
-                            "type": "button",
-                            "text": {"type": "plain_text", "text": "✅ Approve"},
-                            "style": "primary",
-                            "url": approval_page_url
-                        },
-                        {
-                            "type": "button",
-                            "text": {"type": "plain_text", "text": "❌ Reject"},
-                            "style": "danger",
-                            "url": approval_page_url
-                        }
-                    ]
-                })
+                if approve_url:
+                    # Add single action button with token-authenticated URL
+                    blocks.append({
+                        "type": "actions",
+                        "elements": [
+                            {
+                                "type": "button",
+                                "text": {"type": "plain_text", "text": "🛡️ Review & Approve"},
+                                "style": "primary",
+                                "url": approve_url
+                            }
+                        ]
+                    })
             elif event_type == "executed_with_revert":
                 # Determine success message based on operation type and item type
                 item_type = payload.get("item_type", "repository")
@@ -440,13 +456,13 @@ class Notifier:
                 {"type": "mrkdwn", "text": f"*Provider:*\n🐙 {provider.capitalize()}"},
                 {"type": "mrkdwn", "text": f"*Repository:*\n{repository_name}"},
                 {"type": "mrkdwn", "text": f"*Operation:*\n{operation_display}"},
-                {"type": "mrkdwn", "text": f"*Risk Score:*\n{risk_score:.1f}/10"}
+                {"type": "mrkdwn", "text": f"*Risk Score:*\n{risk_score * 10:.1f}/10"}  # risk_score stored as 0-1, display as 0-10
             ]
         else:
             # For other providers or fallback
             fields = [
                 {"type": "mrkdwn", "text": f"*Operation:*\n{operation_display}"},
-                {"type": "mrkdwn", "text": f"*Risk Score:*\n{risk_score:.1f}/10"}
+                {"type": "mrkdwn", "text": f"*Risk Score:*\n{risk_score * 10:.1f}/10"}  # risk_score stored as 0-1, display as 0-10
             ]
         
         blocks = [
@@ -538,6 +554,39 @@ class Notifier:
                 }
             })
         elif approve_url:
+            # Add expiration info BEFORE approval URL for dry_run/approval_required events
+            expires_at = payload.get("expires_at")
+            if expires_at and event_type in ("dry_run", "approval_required"):
+                try:
+                    # Parse expires_at timestamp
+                    if isinstance(expires_at, str):
+                        expires_dt = datetime.fromisoformat(expires_at.replace('Z', '+00:00'))
+                    else:
+                        expires_dt = expires_at
+                    
+                    if expires_dt:
+                        # Calculate remaining time
+                        now = datetime.now(timezone.utc)
+                        if expires_dt.tzinfo is None:
+                            expires_dt = expires_dt.replace(tzinfo=timezone.utc)
+                        remaining = expires_dt - now
+                        remaining_minutes = int(remaining.total_seconds() / 60)
+                        
+                        if remaining_minutes > 0:
+                            hours = remaining_minutes // 60
+                            minutes = remaining_minutes % 60
+                            time_str = f"{hours}h {minutes}m" if hours > 0 else f"{minutes} minutes"
+                            
+                            blocks.append({
+                                "type": "section",
+                                "text": {
+                                    "type": "mrkdwn",
+                                    "text": f"⏰ *Expires in:* {time_str}"
+                                }
+                            })
+                except Exception as e:
+                    print(f"⚠️ Failed to parse expires_at in CLI notification: {e}")
+            
             # Add approve URL for dry_run events
             blocks.append({
                 "type": "section",
@@ -625,6 +674,7 @@ class Notifier:
             "revert_url": (extras or {}).get("revert_url"),
             "revert_window_hours": (extras or {}).get("revert_window_hours"),
             "revert_token": (extras or {}).get("revert_token"),
+            "expires_at": change.get("expires_at"),  # Add expiration time for approval notifications
             "metadata": change.get("metadata"),  # Add metadata from change_data
             "extras": extras,  # Include full extras for fallback metadata access
             "ts": change.get("ts") or change.get("created_at"),
@@ -753,7 +803,7 @@ def format_slack_message(action, user_email: str, source: str = "github_webhook"
                     },
                     {
                         "type": "mrkdwn",
-                        "text": f"*Risk Score:*\n{action.risk_score}/10"
+                        "text": f"*Risk Score:*\n{action.risk_score * 10:.1f}/10"  # risk_score stored as 0-1, display as 0-10
                     },
                     {
                         "type": "mrkdwn",
@@ -874,6 +924,54 @@ def format_slack_message(action, user_email: str, source: str = "github_webhook"
             "text": {
                 "type": "mrkdwn",
                 "text": f":rotating_light: *Approval Required*\nAction ID: `{action.id}` - Check SafeRun dashboard"
+            }
+        })
+        
+        # Add expiration time for approval-required operations
+        if action.expires_at:
+            try:
+                # Parse expires_at timestamp
+                if isinstance(action.expires_at, str):
+                    expires_dt = datetime.fromisoformat(action.expires_at.replace('Z', '+00:00'))
+                else:
+                    expires_dt = action.expires_at
+                
+                if expires_dt:
+                    # Calculate remaining time
+                    from datetime import timezone
+                    now = datetime.now(timezone.utc)
+                    if expires_dt.tzinfo is None:
+                        expires_dt = expires_dt.replace(tzinfo=timezone.utc)
+                    remaining = expires_dt - now
+                    remaining_minutes = int(remaining.total_seconds() / 60)
+                    
+                    if remaining_minutes > 0:
+                        hours = remaining_minutes // 60
+                        minutes = remaining_minutes % 60
+                        time_str = f"{hours}h {minutes}m" if hours > 0 else f"{minutes} minutes"
+                        
+                        message["blocks"].append({
+                            "type": "section",
+                            "text": {
+                                "type": "mrkdwn",
+                                "text": f"⏰ *Expires in:* {time_str}"
+                            }
+                        })
+            except Exception as e:
+                print(f"⚠️ Failed to parse expires_at: {e}")
+        
+        # Add note about approval for webhook events (no auth token available)
+        api_base = os.environ.get("APP_BASE_URL") or os.environ.get("RAILWAY_PUBLIC_DOMAIN", "https://saferun-api.up.railway.app")
+        if api_base and not api_base.startswith("http"):
+            api_base = f"https://{api_base}"
+        
+        approval_page_url = f"{api_base}/approvals/{action.id}"
+        
+        message["blocks"].append({
+            "type": "section",
+            "text": {
+                "type": "mrkdwn",
+                "text": f"*📋 Action Required:*\n<{approval_page_url}|View approval details>"
             }
         })
     

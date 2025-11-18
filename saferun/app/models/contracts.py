@@ -157,6 +157,7 @@ class GitOperationDryRunRequest(BaseModel):
         "rebase",
         "cherry_pick",
         "commit_protected",
+        "push_protected",
         "custom",
     ]
     target: str
@@ -168,7 +169,7 @@ class GitOperationDryRunRequest(BaseModel):
     reasons: List[str] = []
     policy: Optional[Dict] = None
     webhook_url: Optional[str] = None
-    ttl_minutes: int = Field(default=30, ge=5, le=240)
+    ttl_minutes: int = Field(default=120, ge=5, le=240)  # 2 hours default expiration
 
 
 class GitOperationStatusResponse(BaseModel):
@@ -246,7 +247,7 @@ class DryRunArchiveResponse(BaseModel):
     diff: List[DiffUnit]
     risk_score: float = Field(ge=0.0, le=10.0)  # Changed from 1.0 to 10.0 to support new scoring
     reasons: List[str] = []
-    requires_approval: bool = Field(False, alias="needsApproval", serialization_alias="needsApproval")
+    needsApproval: bool = Field(default=True, alias="requires_approval")  # Use needsApproval as primary field name
     human_preview: str
     telemetry: Dict
     approve_url: Optional[str] = None
@@ -258,7 +259,7 @@ class DryRunArchiveResponse(BaseModel):
     expires_at: datetime
     
     model_config = {
-        "populate_by_name": True  # Allow both requires_approval and needsApproval
+        "populate_by_name": True,  # Allow both requires_approval and needsApproval
     }
 
 

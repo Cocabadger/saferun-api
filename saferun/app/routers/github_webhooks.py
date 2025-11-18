@@ -158,25 +158,125 @@ async def github_webhook_event(
     ref_name = payload.get("ref", "").replace("refs/heads/", "") or payload.get("pull_request", {}).get("base", {}).get("ref", "")
     
     if repo_full_name and action_type in ["github_merge", "github_force_push"]:
-        # Check for recent API-initiated operations
-        check_time = (datetime.now() - timedelta(minutes=5)).isoformat()
-        recent_api_op = db.fetchone(
-            """SELECT change_id, status FROM changes
-               WHERE target_id LIKE %s
-               AND summary_json LIKE %s
-               AND summary_json LIKE %s
+        # Check for recent CLI/API operations to avoid duplicate notifications
+        # Use naive datetime to match PostgreSQL timestamp without time zone
+        check_time = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(minutes=5)
+        
+        # Map webhook action_type to operation_type stored in summary_json
+        if action_type == "github_merge":
+            operation_type_pattern = "merge"
+        elif action_type == "github_force_push":
+            operation_type_pattern = "force_push"
+        else:
+            operation_type_pattern = action_type
+        
+        # Construct target pattern to match both formats:
+        # CLI: "Cocabadger/test-sf-v01#main"
+        # Webhook: "Cocabadger/test-sf-v01"
+        target_pattern = f"%{repo_full_name}%"
+        
+        # Check for PENDING operations (skip webhook to avoid duplicate approval requests)
+        recent_pending_op = db.fetchone(
+            """SELECT change_id, status FROM changes 
+               WHERE target_id LIKE %s 
+               AND summary_json::text LIKE %s
+               AND summary_json::text LIKE %s
                AND created_at > %s
-               AND status IN ('pending', 'approved', 'executed')
+               AND status = 'pending'
                ORDER BY created_at DESC
                LIMIT 1""",
-            (f"%{repo_full_name}%", '%"initiated_via":"api"%', f'%"operation_type":"{action_type.replace("github_", "github_pr_") if action_type == "github_merge" else action_type}"%', check_time)
+            (target_pattern, '%"operation_type"%', f'%"{operation_type_pattern}"%', check_time)
         )
         
-        if recent_api_op:
-            # This webhook event corresponds to an API-initiated operation
-            # Skip creating duplicate notification
-            print(f"⏭️  Skipping webhook notification - API-initiated operation detected: {recent_api_op['change_id']}")
-            return {"status": "skipped", "reason": "api_initiated", "api_change_id": recent_api_op['change_id']}
+        if recent_pending_op:
+            # Skip - user already has approval request from CLI
+            print(f"⏭️  Skipping webhook notification - Pending operation detected: {recent_pending_op['change_id']}")
+            return {"status": "skipped", "reason": "pending_operation", "change_id": recent_pending_op['change_id']}
+        
+        # Check for EXECUTED/APPROVED operations (send completion notification)
+        recent_executed_op = db.fetchone(
+            """SELECT change_id, status, summary_json FROM changes 
+               WHERE target_id LIKE %s 
+               AND summary_json::text LIKE %s
+               AND summary_json::text LIKE %s
+               AND created_at > %s
+               AND status IN ('approved', 'executed')
+               ORDER BY created_at DESC
+               LIMIT 1""",
+            (target_pattern, '%"operation_type"%', f'%"{operation_type_pattern}"%', check_time)
+        )
+        
+        if recent_executed_op:
+            # Send completion notification instead of new approval request
+            print(f"✅ Sending completion notification for executed operation: {recent_executed_op['change_id']}")
+            
+            # Get api_key from the executed operation (CLI operation has user's api_key)
+            executed_change = db.fetchone(
+                "SELECT api_key FROM changes WHERE change_id = %s",
+                (recent_executed_op['change_id'],)
+            )
+            
+            # Get user's Slack webhook URL using api_key from executed operation
+            slack_webhook_url = None
+            if executed_change and executed_change.get("api_key"):
+                operation_api_key = executed_change["api_key"]
+                # Use db_adapter to properly decrypt Slack webhook URL
+                from ..db_adapter import get_notification_settings
+                notif_settings = get_notification_settings(operation_api_key)
+                if notif_settings and notif_settings.get("slack_enabled"):
+                    slack_webhook_url = notif_settings.get("slack_webhook_url")
+            
+            if slack_webhook_url:
+                try:
+                    # Parse summary_json to get approval source
+                    summary_json = recent_executed_op.get("summary_json", "{}")
+                    summary = json.loads(summary_json) if isinstance(summary_json, str) else summary_json
+                    initiated_via = summary.get("initiated_via", "api")
+                    
+                    # Format timestamp (datetime already imported at top)
+                    now_utc = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+                    
+                    # Send completion notification
+                    completion_message = {
+                        "blocks": [
+                            {
+                                "type": "header",
+                                "text": {"type": "plain_text", "text": "✅ SafeRun - Operation Completed"}
+                            },
+                            {"type": "divider"},
+                            {
+                                "type": "section",
+                                "fields": [
+                                    {"type": "mrkdwn", "text": f"*Operation:*\n{action_type.replace('github_', '').replace('_', ' ').title()}"},
+                                    {"type": "mrkdwn", "text": f"*Repository:*\n{repo_full_name}"},
+                                    {"type": "mrkdwn", "text": f"*Branch:*\n{ref_name}"},
+                                    {"type": "mrkdwn", "text": f"*Status:*\n:white_check_mark: Executed Successfully"},
+                                ]
+                            },
+                            {
+                                "type": "section",
+                                "text": {"type": "mrkdwn", "text": f"*Change ID:* `{recent_executed_op['change_id']}`"}
+                            },
+                            {
+                                "type": "context",
+                                "elements": [
+                                    {"type": "mrkdwn", "text": f":robot_face: Approved via CLI | :clock1: {now_utc}"}
+                                ]
+                            }
+                        ]
+                    }
+                    
+                    success = await send_to_slack(slack_webhook_url, completion_message)
+                    if success:
+                        print(f"✅ Completion notification sent for {recent_executed_op['change_id']}")
+                    else:
+                        print(f"❌ Failed to send completion notification")
+                except Exception as e:
+                    print(f"❌ Error sending completion notification: {e}")
+                    import traceback
+                    traceback.print_exc()
+            
+            return {"status": "completion_notification_sent", "api_change_id": recent_executed_op['change_id']}
     
     # Generate unique change ID
     change_id = str(uuid.uuid4())
@@ -199,13 +299,11 @@ async def github_webhook_event(
             user_row = db.fetchone("SELECT email FROM api_keys WHERE api_key=%s", (user_api_key,))
             if user_row:
                 user_email = user_row.get("email")
-                # Get Slack webhook from notification settings
-                notif_row = db.fetchone(
-                    "SELECT slack_webhook_url, slack_enabled FROM user_notification_settings WHERE api_key=%s", 
-                    (user_api_key,)
-                )
-                if notif_row and notif_row.get("slack_enabled"):
-                    slack_webhook_url = notif_row.get("slack_webhook_url")
+                # Get Slack webhook from notification settings (using db_adapter for proper decryption)
+                from ..db_adapter import get_notification_settings
+                notif_settings = get_notification_settings(user_api_key)
+                if notif_settings and notif_settings.get("slack_enabled"):
+                    slack_webhook_url = notif_settings.get("slack_webhook_url")
     
     if not user_email:
         user_email = sender_login
@@ -236,15 +334,18 @@ async def github_webhook_event(
         else:
             print(f"⚠️ No SHA found for deleted branch '{branch_name}' in {repo_full_name}")
     
+    # Normalize risk_score to 0-1 range for storage (displayed as 0-10 in UI)
+    normalized_risk_score = min(risk_score / 10.0, 1.0)
+    
     # Create change record
     change = {
         "change_id": change_id,
         "target_id": repo_full_name,
         "provider": "github",
         "title": f"{action_type.replace('github_', '').replace('_', ' ').title()} - {repo_full_name}",
-        "status": "pending_review" if risk_score >= 7.0 else "logged",
-        "risk_score": risk_score,
-        "expires_at": iso_z(datetime.now(timezone.utc) + timedelta(hours=24)),
+        "status": "pending_review" if risk_score >= 7.0 else "logged",  # Use denormalized for comparison
+        "risk_score": normalized_risk_score,  # Store normalized (0-1)
+        "expires_at": iso_z(datetime.now(timezone.utc) + timedelta(hours=2)),  # 2 hours for consistency with CLI
         "created_at": iso_z(datetime.now(timezone.utc)),
         "last_edited_time": iso_z(datetime.now(timezone.utc)),
         "policy_json": {"risk_reasons": reasons},
@@ -284,9 +385,10 @@ async def github_webhook_event(
                     self.operation_type = summary.get("operation_type", "")
                     self.repo_name = summary.get("repo_name", "")
                     self.branch_name = summary.get("branch_name", "")
-                    self.risk_score = risk_score
+                    self.risk_score = normalized_risk_score  # Use normalized (0-1) for display
                     self.risk_reasons = reasons
                     self.metadata = summary
+                    self.expires_at = data.get("expires_at")  # Add expires_at for Slack formatting
             
             mock_action = MockAction(change)
             slack_message = format_slack_message(

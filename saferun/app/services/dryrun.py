@@ -210,13 +210,38 @@ async def build_dryrun(req: DryRunArchiveRequest, notion_version: str | None = N
             expires_at_str = db.iso_z(expires_dt_obj)
             ttl_seconds = int(expires_dt_obj.timestamp() - datetime.now(timezone.utc).timestamp())
 
+            # Build summary_json for the change record
+            summary_json = {
+                "operation_type": metadata.get("operation_type", "archive"),
+                "provider": req.provider,
+                "target_id": req.target_id,
+                "title": title,
+                "item_type": item_type,
+                "risk_score": risk_score,
+                "reasons": all_reasons,
+                "blocks": blocks,
+                "linked_count": linked_count,
+                "last_edit": last_edit,
+                "reason": req.reason or "",
+            }
+            
+            # Add GitHub-specific fields
+            if req.provider == "github":
+                summary_json["repo_name"] = metadata.get("full_name", "")
+                summary_json["branch_name"] = metadata.get("name", "")
+                summary_json["is_default_branch"] = metadata.get("isDefault", False)
+            
+            # Normalize risk_score to 0-1 range for storage (displayed as 0-10 in UI)
+            normalized_risk_score = min(risk_score / 10.0, 1.0)
+            
             change_data = {
                 "change_id": change_id,
+                "api_key": api_key,  # Store API key for user isolation
                 "provider": req.provider,
                 "target_id": req.target_id,
                 "title": title,
                 "last_edited_time": last_edit,
-                "risk_score": risk_score,
+                "risk_score": normalized_risk_score,  # Store normalized (0-1)
                 "policy": loaded_policy,
                 "expires_at": expires_at_str,
                 "token": req.token,
@@ -225,6 +250,7 @@ async def build_dryrun(req: DryRunArchiveRequest, notion_version: str | None = N
                 "created_at": created_at_str,
                 "webhook_url": req.webhook_url,  # Store webhook URL
                 "metadata": metadata,  # Store metadata for revert logic (object type, etc.)
+                "summary_json": json.dumps(summary_json),  # Add summary_json field
             }
             
             # Add revert_window for non-approval GitHub archives
@@ -239,19 +265,17 @@ async def build_dryrun(req: DryRunArchiveRequest, notion_version: str | None = N
             
             # 5.1) Create one-time approval token AFTER saving change (FK constraint requirement)
             approval_token = db.create_approval_token(change_id)
+            
+            # 5.2) Generate approval URL with token (always, for all changes)
+            base = os.environ.get("APP_BASE_URL", "http://localhost:8500")
+            approve_url = f"{base}/approvals/{change_id}?token={approval_token}"
 
             # 6) If no approval required but has revert_window - execute immediately and notify with revert option
             # 6) ALL operations require approval in MVP - NO auto-execute
             # (Old auto-execute logic removed - everything goes through approval flow)
             
             # 7) Approval URL and notification for approval-required changes
-            approve_url = None
             if need_approval:
-                base = os.environ.get("APP_BASE_URL", "http://localhost:8500")
-                # Include approval token in URL (Phase 1.4 fix: auth for Landing page)
-                approve_url = f"{base}/approvals/{change_id}?token={approval_token}"
-
-                # publish notification (use saferun namespace import)
                 import asyncio
                 from ..notify import notifier
                 change_record = storage.get_change(change_id)
@@ -367,7 +391,7 @@ async def build_dryrun(req: DryRunArchiveRequest, notion_version: str | None = N
                     last_edited_time=last_edit,
                 ),
                 diff=[DiffUnit(op=op, impact={"pages_affected": 1})],
-                risk_score=risk_score,
+                risk_score=normalized_risk_score,  # Return normalized (0-1) for CLI
                 reasons=all_reasons,
                 requires_approval=need_approval,
                 human_preview=hp,
