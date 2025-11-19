@@ -126,6 +126,10 @@ async def github_webhook_event(
     payload = await request.json()
     event_type = x_github_event
     
+    # Handle installation events (created, deleted, repositories_added/removed)
+    if event_type == "installation" or event_type == "installation_repositories":
+        return await github_app_installation(request, x_hub_signature_256)
+    
     # Extract repository and user info
     repository = payload.get("repository", {})
     repo_full_name = repository.get("full_name", "unknown/unknown")
@@ -496,13 +500,30 @@ async def revert_github_action(
             if not github_token:
                 raise HTTPException(status_code=500, detail="Failed to get GitHub App token")
         else:
-            # CLI/API event: Use encrypted user token
-            encrypted_github_token = summary.get("github_token")
-            if not encrypted_github_token:
-                raise HTTPException(status_code=400, detail="GitHub token not found in change record")
-            
-            # Decrypt GitHub token
-            github_token = db.decrypt_token(encrypted_github_token)
+            # No installation_id: Try fallback methods
+            # 1. Try finding installation_id by repository name (for old webhook events)
+            repo_name = summary.get("repo_name")
+            if repo_name and summary.get("source") == "github_webhook":
+                install_record = db.fetchone(
+                    "SELECT installation_id FROM github_installations WHERE repositories_json::text LIKE %s LIMIT 1",
+                    (f"%{repo_name}%",)
+                )
+                if install_record:
+                    installation_id = install_record.get("installation_id")
+                    from ..services.github import get_github_app_installation_token
+                    github_token = get_github_app_installation_token(installation_id)
+                    if not github_token:
+                        raise HTTPException(status_code=500, detail="Failed to get GitHub App token")
+                else:
+                    raise HTTPException(status_code=400, detail="GitHub App not installed for this repository")
+            else:
+                # 2. CLI/API event: Use encrypted user token
+                encrypted_github_token = summary.get("github_token")
+                if not encrypted_github_token:
+                    raise HTTPException(status_code=400, detail="GitHub token not found in change record")
+                
+                # Decrypt GitHub token
+                github_token = db.decrypt_token(encrypted_github_token)
         
         # Mark token as used
         db.mark_approval_token_used(token)
