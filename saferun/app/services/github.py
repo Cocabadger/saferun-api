@@ -2,12 +2,64 @@
 import hashlib
 import hmac
 import os
+import time
+import jwt
 from typing import Dict, Any, Optional, Tuple
 import httpx
 from fastapi import HTTPException
 
 
 GITHUB_WEBHOOK_SECRET = os.getenv("GITHUB_WEBHOOK_SECRET", "")
+GITHUB_APP_ID = os.getenv("GITHUB_APP_ID", "")
+GITHUB_PRIVATE_KEY = os.getenv("GITHUB_PRIVATE_KEY", "")
+
+
+def get_github_app_installation_token(installation_id: int) -> Optional[str]:
+    """
+    Get GitHub App Installation Access Token
+    
+    Args:
+        installation_id: GitHub App installation ID
+    
+    Returns:
+        Installation access token or None if failed
+    """
+    if not GITHUB_APP_ID or not GITHUB_PRIVATE_KEY:
+        raise ValueError("GITHUB_APP_ID and GITHUB_PRIVATE_KEY must be configured")
+    
+    # Generate JWT for GitHub App authentication
+    now = int(time.time())
+    payload = {
+        "iat": now - 60,  # Issued at time (60s ago to account for clock drift)
+        "exp": now + (10 * 60),  # Expires in 10 minutes
+        "iss": GITHUB_APP_ID
+    }
+    
+    # Sign JWT with private key
+    jwt_token = jwt.encode(payload, GITHUB_PRIVATE_KEY, algorithm="RS256")
+    
+    # Request installation access token
+    try:
+        with httpx.Client() as client:
+            response = client.post(
+                f"https://api.github.com/app/installations/{installation_id}/access_tokens",
+                headers={
+                    "Authorization": f"Bearer {jwt_token}",
+                    "Accept": "application/vnd.github+json",
+                    "X-GitHub-Api-Version": "2022-11-28"
+                },
+                timeout=10.0
+            )
+            
+            if response.status_code == 201:
+                data = response.json()
+                return data.get("token")
+            else:
+                print(f"❌ Failed to get GitHub App token: {response.status_code} {response.text}")
+                return None
+    except Exception as e:
+        print(f"❌ Error getting GitHub App token: {str(e)}")
+        return None
 
 
 def verify_webhook_signature(payload: bytes, signature: str) -> bool:

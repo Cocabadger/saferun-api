@@ -356,6 +356,7 @@ async def github_webhook_event(
             "source": "github_webhook",
             "event_type": event_type,
             "sender": sender_login,
+            "installation_id": installation_id,  # Save for GitHub App token generation
             "payload": payload,
             "revert_action": revert_action  # Now contains SHA for delete events!
         },
@@ -485,12 +486,23 @@ async def revert_github_action(
         except (json.JSONDecodeError, TypeError):
             summary = {}
         
-        encrypted_github_token = summary.get("github_token")
-        if not encrypted_github_token:
-            raise HTTPException(status_code=400, detail="GitHub token not found in change record")
+        # Check if this is a webhook event (has installation_id)
+        installation_id = summary.get("installation_id")
         
-        # Decrypt GitHub token
-        github_token = db.decrypt_token(encrypted_github_token)
+        if installation_id:
+            # Webhook event: Use GitHub App Installation Token
+            from ..services.github import get_github_app_installation_token
+            github_token = get_github_app_installation_token(installation_id)
+            if not github_token:
+                raise HTTPException(status_code=500, detail="Failed to get GitHub App token")
+        else:
+            # CLI/API event: Use encrypted user token
+            encrypted_github_token = summary.get("github_token")
+            if not encrypted_github_token:
+                raise HTTPException(status_code=400, detail="GitHub token not found in change record")
+            
+            # Decrypt GitHub token
+            github_token = db.decrypt_token(encrypted_github_token)
         
         # Mark token as used
         db.mark_approval_token_used(token)

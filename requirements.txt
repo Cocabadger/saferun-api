@@ -21,3 +21,4 @@ psycopg2-binary>=2.9.9
 
 # Security - Token encryption
 cryptography>=41.0.0
+PyJWT>=2.8.0
