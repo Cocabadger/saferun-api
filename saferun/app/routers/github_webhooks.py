@@ -525,8 +525,10 @@ async def revert_github_action(
                 # Decrypt GitHub token
                 github_token = db.decrypt_token(encrypted_github_token)
         
-        # Mark token as used
-        db.mark_approval_token_used(token)
+        # Mark approval token as used (one-time use)
+        if token:
+            if not db.verify_approval_token(change_id, token):
+                raise HTTPException(status_code=403, detail="Token validation failed")
         
     elif api_key:
         # Method 2: API key authentication (backward compatibility)
