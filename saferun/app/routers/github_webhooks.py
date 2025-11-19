@@ -549,8 +549,24 @@ async def revert_github_action(
     # ✅ BUG #16 FIX: Check if operation can be reverted
     current_status = change.get("status", "pending")
     
-    # Only allow revert for executed/applied operations
-    if current_status not in {"executed", "applied"}:
+    # Allow revert for executed/applied operations AND pending_review webhook events
+    # (webhook events are "pending_review" awaiting user decision, but already executed on GitHub)
+    summary_json_check = change.get("summary_json") or "{}"
+    try:
+        summary_check = json.loads(summary_json_check) if isinstance(summary_json_check, str) else summary_json_check
+    except (json.JSONDecodeError, TypeError):
+        summary_check = {}
+    
+    is_webhook_event = summary_check.get("source") == "github_webhook"
+    
+    if current_status not in {"executed", "applied", "pending_review"}:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Cannot revert: operation is {current_status}. Only executed operations can be reverted."
+        )
+    
+    # pending_review is only allowed for webhook events
+    if current_status == "pending_review" and not is_webhook_event:
         raise HTTPException(
             status_code=409,
             detail=f"Cannot revert: operation is {current_status}. Only executed operations can be reverted."
