@@ -146,7 +146,9 @@ async def get_approval_details(
         summary_data = {}
 
     # Parse metadata (may be stored as JSON string)
-    metadata_raw = rec.get("metadata") or summary_data.get("metadata") or {}
+    # For webhook events: use entire summary_json as metadata (includes revert_action)
+    # For API operations: use rec.get("metadata") or summary_data.get("metadata")
+    metadata_raw = rec.get("metadata") or summary_data or {}
     if isinstance(metadata_raw, str):
         try:
             metadata_parsed = json.loads(metadata_raw)
