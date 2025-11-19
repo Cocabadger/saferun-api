@@ -868,7 +868,9 @@ def format_slack_message(action, user_email: str, source: str = "github_webhook"
     # Add revert information if available
     if revert_action:
         revert_type = revert_action.get("type", "").replace("_", " ").title()
-        revert_url = f"https://saferun-api.up.railway.app/webhooks/github/revert/{action.id}"
+        # Landing Page URL for revert (opens in browser)
+        landing_base = os.getenv("LANDING_PAGE_URL", "https://saferun.vercel.app")
+        revert_landing_url = f"{landing_base}/revert/{action.id}"
         
         # Special handling for merge revert (limited revert with warnings)
         if revert_action.get("type") == "merge_revert":
@@ -876,9 +878,9 @@ def format_slack_message(action, user_email: str, source: str = "github_webhook"
             owner, repo = repo_name.split("/") if "/" in repo_name else ("", repo_name)
             branch_protection_url = f"https://github.com/{owner}/{repo}/settings/branches" if owner else ""
             
-            # NEW: Button-based revert for merge (no curl)
+            # NEW: Button-based revert for merge (opens Landing Page)
             if hasattr(action, 'approval_token') and action.approval_token:
-                revert_url_with_token = f"{revert_url}?token={action.approval_token}"
+                revert_url_with_token = f"{revert_landing_url}?token={action.approval_token}"
                 
                 warning_text = (
                     f"*⚠️ Limited Revert Available:*\n"
@@ -943,7 +945,8 @@ def format_slack_message(action, user_email: str, source: str = "github_webhook"
                     }]
                 })
             else:
-                # FALLBACK: Old curl method
+                # FALLBACK: Old curl method (for API operations without approval token)
+                api_revert_url = f"https://saferun-api.up.railway.app/webhooks/github/revert/{action.id}"
                 warning_text = (
                     f"*⚠️ Limited Revert Available:*\n"
                     f"{revert_type} (force-updates branch to pre-merge state)\n\n"
@@ -953,7 +956,7 @@ def format_slack_message(action, user_email: str, source: str = "github_webhook"
                     f"• Temporal window existed - code may have been deployed\n"
                     f"• Does NOT prevent future unauthorized merges\n\n"
                     f"*To revert changes (via curl):*\n"
-                    f"```curl -X POST '{revert_url}' \\\n  -H 'x-api-key: YOUR_SAFERUN_API_KEY' \\\n  -H 'Content-Type: application/json' \\\n  -d '{{\"github_token\": \"YOUR_GITHUB_TOKEN\"}}'```\n\n"
+                    f"```curl -X POST '{api_revert_url}' \\\n  -H 'x-api-key: YOUR_SAFERUN_API_KEY' \\\n  -H 'Content-Type: application/json' \\\n  -d '{{\"github_token\": \"YOUR_GITHUB_TOKEN\"}}'```\n\n"
                     f":warning: *Important:* Use the same SafeRun API key from your original request"
                 )
                 
@@ -978,8 +981,8 @@ def format_slack_message(action, user_email: str, source: str = "github_webhook"
         else:
             # Standard revert message with button (using approval token)
             if hasattr(action, 'approval_token') and action.approval_token:
-                # NEW: Button-based revert (no secrets in Slack!)
-                revert_url_with_token = f"{revert_url}?token={action.approval_token}"
+                # NEW: Button opens Landing Page (consistent UX with approvals!)
+                revert_url_with_token = f"{revert_landing_url}?token={action.approval_token}"
                 message["blocks"].append({
                     "type": "section",
                     "text": {
@@ -998,12 +1001,13 @@ def format_slack_message(action, user_email: str, source: str = "github_webhook"
                     }
                 })
             else:
-                # FALLBACK: Old curl method (if no approval token)
+                # FALLBACK: Old curl method (for API operations without approval token)
+                api_revert_url = f"https://saferun-api.up.railway.app/webhooks/github/revert/{action.id}"
                 message["blocks"].append({
                     "type": "section",
                     "text": {
                         "type": "mrkdwn",
-                        "text": f"*:arrows_counterclockwise: Revert Available:*\n{revert_type}\n\n```curl -X POST '{revert_url}' \\\n  -H 'x-api-key: YOUR_SAFERUN_API_KEY' \\\n  -H 'Content-Type: application/json' \\\n  -d '{{\"github_token\": \"YOUR_GITHUB_TOKEN\"}}'```\n\n:warning: *Important:* Use the same SafeRun API key from your original request"
+                        "text": f"*:arrows_counterclockwise: Revert Available:*\n{revert_type}\n\n```curl -X POST '{api_revert_url}' \\\n  -H 'x-api-key: YOUR_SAFERUN_API_KEY' \\\n  -H 'Content-Type: application/json' \\\n  -d '{{\"github_token\": \"YOUR_GITHUB_TOKEN\"}}'```\n\n:warning: *Important:* Use the same SafeRun API key from your original request"
                     }
                 })
     
