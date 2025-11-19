@@ -136,6 +136,11 @@ async def github_webhook_event(
     sender = payload.get("sender", {})
     sender_login = sender.get("login", "unknown")
     
+    # FILTER OUT: Events from SafeRun bot itself (revert operations)
+    if sender_login in ["saferun-ai[bot]", "SafeRun-AI[bot]"]:
+        print(f"⏭️  Ignoring event from SafeRun bot (revert operation): {repo_full_name}")
+        return {"status": "ignored", "reason": "saferun_bot_operation"}
+    
     # FILTER OUT: Push events with zero commits (GitHub sends these on branch delete - ignore them!)
     if event_type == "push":
         commits = payload.get("commits", [])
