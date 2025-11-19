@@ -352,7 +352,7 @@ async def github_webhook_event(
         "target_id": repo_full_name,
         "provider": "github",
         "title": f"{action_type.replace('github_', '').replace('_', ' ').title()} - {repo_full_name}",
-        "status": "pending_review" if risk_score >= 7.0 else "logged",  # Use denormalized for comparison
+        "status": "executed",  # Webhook events are already executed on GitHub
         "risk_score": normalized_risk_score,  # Store normalized (0-1)
         "expires_at": iso_z(datetime.now(timezone.utc) + timedelta(hours=2)),  # 2 hours for consistency with CLI
         "created_at": iso_z(datetime.now(timezone.utc)),
@@ -564,14 +564,7 @@ async def revert_github_action(
     
     is_webhook_event = summary_check.get("source") == "github_webhook"
     
-    if current_status not in {"executed", "applied", "pending_review"}:
-        raise HTTPException(
-            status_code=409,
-            detail=f"Cannot revert: operation is {current_status}. Only executed operations can be reverted."
-        )
-    
-    # pending_review is only allowed for webhook events
-    if current_status == "pending_review" and not is_webhook_event:
+    if current_status not in {"executed", "applied"}:
         raise HTTPException(
             status_code=409,
             detail=f"Cannot revert: operation is {current_status}. Only executed operations can be reverted."
