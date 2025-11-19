@@ -869,7 +869,7 @@ def format_slack_message(action, user_email: str, source: str = "github_webhook"
     if revert_action:
         revert_type = revert_action.get("type", "").replace("_", " ").title()
         # Landing Page URL for revert (opens in browser)
-        landing_base = os.getenv("LANDING_PAGE_URL", "https://saferun.vercel.app")
+        landing_base = os.getenv("LANDING_PAGE_URL", "https://saferun-landing.vercel.app")
         revert_landing_url = f"{landing_base}/revert/{action.id}"
         
         # Special handling for merge revert (limited revert with warnings)
