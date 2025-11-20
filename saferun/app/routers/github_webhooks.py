@@ -336,7 +336,7 @@ async def github_webhook_event(
                AND summary_json::text LIKE %s
                AND branch_head_sha IS NOT NULL
                ORDER BY created_at DESC LIMIT 1""",
-            (repo_full_name, f'%"branch_name":"{branch_name}"%')
+            (repo_full_name, f'%"branch_name": "{branch_name}"%')
         )
         if last_push and last_push.get("branch_head_sha"):
             revert_action["sha"] = last_push["branch_head_sha"]
