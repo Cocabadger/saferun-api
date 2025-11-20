@@ -68,8 +68,8 @@ async def get_approval_details(
                 detail="Invalid or expired approval link"
             )
         
-        # Token valid, get change without ownership check
-        rec = storage.get_change(change_id)
+        # Token valid, get change without ownership check (use db_adapter for webhooks)
+        rec = db.fetchone("SELECT * FROM changes WHERE change_id = %s", (change_id,))
         if not rec:
             raise HTTPException(status_code=404, detail="Approval request not found")
     
