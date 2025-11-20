@@ -329,14 +329,14 @@ async def github_webhook_event(
     # For delete events, get SHA from last push to this branch
     if event_type == "delete" and payload.get("ref_type") == "branch" and revert_action:
         branch_name = payload.get("ref", "")
-        # Query last push event for this branch (filter by branch name in summary_json)
+        # Query last push event for this branch (filter by branch_name in summary_json)
         last_push = db.fetchone(
             """SELECT branch_head_sha FROM changes 
                WHERE target_id = %s 
                AND summary_json::text LIKE %s
                AND branch_head_sha IS NOT NULL
                ORDER BY created_at DESC LIMIT 1""",
-            (repo_full_name, f'%"branch":"{branch_name}"%')
+            (repo_full_name, f'%"branch_name":"{branch_name}"%')
         )
         if last_push and last_push.get("branch_head_sha"):
             revert_action["sha"] = last_push["branch_head_sha"]
