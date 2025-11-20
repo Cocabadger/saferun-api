@@ -380,6 +380,8 @@ async def github_webhook_event(
     approval_token = None
     if revert_action:  # Only generate token if revert is possible
         approval_token = db.create_approval_token(change_id)
+        # Update change record with the approval token
+        db.update_change(change_id, {"revert_token": approval_token})
     
     # Insert audit log
     db.insert_audit(change_id, "github_webhook_received", {
