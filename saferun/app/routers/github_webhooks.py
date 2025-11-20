@@ -333,9 +333,10 @@ async def github_webhook_event(
         last_push = db.fetchone(
             """SELECT branch_head_sha FROM changes 
                WHERE target_id = %s 
+               AND target_branch = %s
                AND branch_head_sha IS NOT NULL
                ORDER BY created_at DESC LIMIT 1""",
-            (repo_full_name,)
+            (repo_full_name, branch_name)
         )
         if last_push and last_push.get("branch_head_sha"):
             revert_action["sha"] = last_push["branch_head_sha"]
