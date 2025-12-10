@@ -143,13 +143,36 @@ async def github_webhook_event(
         return {"status": "ignored", "reason": "saferun_bot_operation"}
     
     # FILTER OUT: Push events with zero commits (GitHub sends these on branch delete - ignore them!)
+    # BUT: Save the SHA for branch creation events so we can restore the branch later
     if event_type == "push":
         commits = payload.get("commits", [])
         deleted = payload.get("deleted", False)
-        if not commits or deleted:
-            print(f"⏭️  Ignoring empty push event (likely branch delete artifact): {repo_full_name}")
+        if not commits and not deleted:
+            # This is a branch CREATION event (push with no commits) - save SHA for future revert!
+            branch_name = payload.get("ref", "").replace("refs/heads/", "")
+            head_sha = payload.get("after")
+            if branch_name and head_sha and head_sha != "0000000000000000000000000000000000000000":
+                # Store a lightweight record just to capture the SHA
+                branch_record_id = str(uuid.uuid4())
+                db.exec(
+                    """INSERT INTO changes (change_id, target_id, provider, title, status, risk_score, 
+                       expires_at, created_at, summary_json, branch_head_sha)
+                       VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                       ON CONFLICT (change_id) DO NOTHING""",
+                    (branch_record_id, repo_full_name, "github", 
+                     f"Branch Created: {branch_name}", "executed", 0.0,
+                     iso_z(datetime.now(timezone.utc) + timedelta(hours=24)),
+                     iso_z(datetime.now(timezone.utc)),
+                     json.dumps({"operation_type": "github_branch_create", "branch_name": branch_name, "source": "github_webhook"}),
+                     head_sha)
+                )
+                print(f"📌 Saved SHA {head_sha[:8]} for new branch '{branch_name}' in {repo_full_name}")
+            print(f"⏭️  Ignoring empty push event (branch creation): {repo_full_name}")
+            return {"status": "ignored", "reason": "branch_creation_event", "sha_saved": True}
+        elif deleted:
+            print(f"⏭️  Ignoring empty push event (branch delete artifact): {repo_full_name}")
             return {"status": "ignored", "reason": "empty_push_event"}
-    
+
     # Calculate risk score
     risk_score, reasons = calculate_github_risk_score(event_type, payload)
     
