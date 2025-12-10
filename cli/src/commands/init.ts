@@ -129,6 +129,7 @@ export class InitCommand {
       reset: '!saferun hook git-reset',
       clean: '!saferun hook git-clean',
       push: '!saferun hook git-push',
+      commit: '!saferun hook git-commit',
     };
 
     const backupPath = path.join(repoRoot, '.saferun', 'alias-backup.json');

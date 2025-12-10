@@ -44,6 +44,10 @@ export class HookCommand {
           const { interceptForcePush } = await import('../interceptors/force-push');
           return await interceptForcePush(context);
         }
+        case 'git-commit': {
+          const { interceptCommit } = await import('../interceptors/commit');
+          return await interceptCommit(context);
+        }
         default: {
           console.warn(chalk.yellow(`Unknown SafeRun hook handler: ${handler}`));
           return runGitCommand(this.mapHandlerToGitCommand(handler, forwarded), {
@@ -67,6 +71,8 @@ export class HookCommand {
         return 'clean';
       case 'git-push':
         return 'push';
+      case 'git-commit':
+        return 'commit';
       default:
         return handler;
     }
@@ -82,6 +88,8 @@ export class HookCommand {
         return ['clean', ...args];
       case 'git-push':
         return ['push', ...args];
+      case 'git-commit':
+        return ['commit', ...args];
       default: {
         const command = handler.startsWith('git-') ? handler.slice(4) : handler;
         return [command, ...args];
