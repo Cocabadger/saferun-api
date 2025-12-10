@@ -62,6 +62,80 @@ def get_github_app_installation_token(installation_id: int) -> Optional[str]:
         return None
 
 
+def get_deleted_branch_sha(owner: str, repo: str, branch_name: str, installation_id: int) -> Optional[str]:
+    """
+    Get SHA of a deleted branch by looking at GitHub Events API.
+    
+    When a branch is deleted, we can find its last SHA from the DeleteEvent
+    or from recent PushEvents to that branch.
+    
+    Args:
+        owner: Repository owner
+        repo: Repository name  
+        branch_name: Name of the deleted branch
+        installation_id: GitHub App installation ID for authentication
+    
+    Returns:
+        SHA string if found, None otherwise
+    """
+    try:
+        # Get GitHub App token
+        token = get_github_app_installation_token(installation_id)
+        if not token:
+            print(f"⚠️ Could not get GitHub App token for installation {installation_id}")
+            return None
+        
+        headers = {
+            "Authorization": f"token {token}",
+            "Accept": "application/vnd.github+json",
+            "X-GitHub-Api-Version": "2022-11-28"
+        }
+        
+        # Try to get SHA from repository events
+        # Look for recent PushEvent or CreateEvent for this branch
+        with httpx.Client() as client:
+            # Check repo events for push to this branch
+            response = client.get(
+                f"https://api.github.com/repos/{owner}/{repo}/events",
+                headers=headers,
+                params={"per_page": 100},
+                timeout=10.0
+            )
+            
+            if response.status_code == 200:
+                events = response.json()
+                for event in events:
+                    # Look for PushEvent to this branch
+                    if event.get("type") == "PushEvent":
+                        payload = event.get("payload", {})
+                        ref = payload.get("ref", "")
+                        # ref format: "refs/heads/branch-name"
+                        if ref == f"refs/heads/{branch_name}":
+                            head_sha = payload.get("head")
+                            if head_sha:
+                                print(f"✅ Found SHA for deleted branch '{branch_name}' from PushEvent: {head_sha}")
+                                return head_sha
+                    
+                    # Look for CreateEvent for this branch (branch creation)
+                    if event.get("type") == "CreateEvent":
+                        payload = event.get("payload", {})
+                        if payload.get("ref_type") == "branch" and payload.get("ref") == branch_name:
+                            # CreateEvent doesn't have SHA directly, but we can get it from master_branch
+                            # For new branches, the SHA is the same as the source branch at creation time
+                            # We need to look at the next PushEvent or use the default branch SHA
+                            print(f"⚠️ Found CreateEvent for branch '{branch_name}' but no SHA in payload")
+                            continue
+                
+                print(f"⚠️ No SHA found in events for deleted branch '{branch_name}'")
+            else:
+                print(f"⚠️ Failed to get repo events: {response.status_code}")
+                
+    except Exception as e:
+        print(f"❌ Error getting deleted branch SHA: {str(e)}")
+    
+    return None
+
+
 def verify_webhook_signature(payload: bytes, signature: str) -> bool:
     """
     Verify GitHub webhook signature using HMAC-SHA256

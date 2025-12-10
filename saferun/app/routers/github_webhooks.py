@@ -15,7 +15,8 @@ from ..services.github import (
     create_revert_action,
     revert_force_push,
     restore_deleted_branch,
-    create_revert_commit
+    create_revert_commit,
+    get_deleted_branch_sha
 )
 from ..notify import send_to_slack, format_slack_message
 
@@ -340,9 +341,20 @@ async def github_webhook_event(
         )
         if last_push and last_push.get("branch_head_sha"):
             revert_action["sha"] = last_push["branch_head_sha"]
-            print(f"✅ Retrieved SHA for branch '{branch_name}' delete: {revert_action['sha']}")
+            print(f"✅ Retrieved SHA for branch '{branch_name}' delete from DB: {revert_action['sha']}")
         else:
-            print(f"⚠️ No SHA found for deleted branch '{branch_name}' in {repo_full_name}")
+            # Fallback: try to get SHA from GitHub Events API
+            print(f"⚠️ No SHA found in DB for deleted branch '{branch_name}', trying GitHub API...")
+            if installation_id:
+                owner = payload.get("repository", {}).get("owner", {}).get("login")
+                repo_name = payload.get("repository", {}).get("name")
+                if owner and repo_name:
+                    api_sha = get_deleted_branch_sha(owner, repo_name, branch_name, installation_id)
+                    if api_sha:
+                        revert_action["sha"] = api_sha
+                        print(f"✅ Retrieved SHA for branch '{branch_name}' delete from GitHub API: {api_sha}")
+                    else:
+                        print(f"❌ Could not retrieve SHA for deleted branch '{branch_name}' from any source")
     
     # Normalize risk_score to 0-1 range for storage (displayed as 0-10 in UI)
     normalized_risk_score = min(risk_score / 10.0, 1.0)
