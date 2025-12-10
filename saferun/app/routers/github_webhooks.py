@@ -364,6 +364,7 @@ async def github_webhook_event(
         )
         if last_push and last_push.get("branch_head_sha"):
             revert_action["sha"] = last_push["branch_head_sha"]
+            revert_action["before_sha"] = last_push["branch_head_sha"]  # Alias for frontend compatibility
             print(f"✅ Retrieved SHA for branch '{branch_name}' delete from DB: {revert_action['sha']}")
         else:
             # Fallback: try to get SHA from GitHub Events API
@@ -375,6 +376,7 @@ async def github_webhook_event(
                     api_sha = get_deleted_branch_sha(owner, repo_name, branch_name, installation_id)
                     if api_sha:
                         revert_action["sha"] = api_sha
+                        revert_action["before_sha"] = api_sha  # Alias for frontend compatibility
                         print(f"✅ Retrieved SHA for branch '{branch_name}' delete from GitHub API: {api_sha}")
                     else:
                         print(f"❌ Could not retrieve SHA for deleted branch '{branch_name}' from any source")
