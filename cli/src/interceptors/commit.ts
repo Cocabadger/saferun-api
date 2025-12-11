@@ -32,7 +32,8 @@ export async function interceptCommit(context: InterceptorContext): Promise<numb
   riskScore = clampRisk(riskScore);
 
   const humanPreview = 'Committing with --no-verify bypasses pre-commit and commit-msg hooks.';
-  const enforcement = resolveEnforcement(context.modeSettings, rule?.action, 'warn');
+  // SECURITY: Default to 'block' for --no-verify as it bypasses security hooks
+  const enforcement = resolveEnforcement(context.modeSettings, rule?.action, 'block');
 
   // Log the attempt
   console.log(chalk.yellow('\n⚠️  SafeRun detected: git commit --no-verify'));
@@ -58,13 +59,14 @@ export async function interceptCommit(context: InterceptorContext): Promise<numb
 
   try {
     const dryRun = await context.client.gitOperation({
-      operationType: 'commit_no_verify',
+      operationType: 'custom',  // API doesn't have commit_no_verify yet
       target: `${repoSlug}@workspace`,
       command,
       metadata: {
         repo: repoSlug,
         args: context.args,
         bypassed_hooks: ['pre-commit', 'commit-msg'],
+        custom_type: 'commit_no_verify',
       },
       riskScore: riskScore / 10,
       humanPreview,
@@ -139,7 +141,27 @@ export async function interceptCommit(context: InterceptorContext): Promise<numb
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     console.error(chalk.red(`SafeRun error: ${message}`));
-    console.warn(chalk.yellow('Proceeding without SafeRun approval.'));
+    
+    // If enforcement requires blocking, do NOT proceed on API error
+    if (enforcement.shouldBlock || enforcement.action === 'block') {
+      console.error(chalk.red('🛑 SafeRun blocks commit --no-verify even when API fails.'));
+      context.metrics.track('operation_blocked', {
+        hook: 'alias:commit',
+        operation_type: 'commit_no_verify',
+        repo: repoSlug,
+        reason: 'api_error_with_block_policy',
+      }).catch(() => undefined);
+      await logOperation(context.gitInfo.repoRoot, {
+        event: 'commit_no_verify',
+        operation: 'commit',
+        repo: repoSlug,
+        outcome: 'blocked_api_error',
+        error: message,
+      });
+      return 1;
+    }
+    
+    console.warn(chalk.yellow('Proceeding without SafeRun approval (non-blocking mode).'));
     context.metrics.track('operation_allowed', {
       hook: 'alias:commit',
       operation_type: 'commit_no_verify',
