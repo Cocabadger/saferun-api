@@ -194,11 +194,11 @@ export async function interceptForcePush(context: InterceptorContext): Promise<n
       error: error.message,
     }).catch(() => undefined);
 
-    // In case of API error, allow the operation (fail-open)
-    console.log(chalk.yellow('⚠️  Proceeding without SafeRun protection due to error'));
-    return runGitCommand(['push', ...context.args], {
-      cwd: context.gitInfo.repoRoot,
-      disableAliases: ['push'],
-    });
+    // SECURITY: Block operation when API unavailable (fail-secure)
+    // AI agents could disable network to bypass protection
+    console.error(chalk.red('🚫 Operation blocked - SafeRun API unreachable'));
+    console.error(chalk.yellow('   Cannot verify safety without API connection.'));
+    console.error(chalk.yellow('   Please check your network and try again.'));
+    return 1;
   }
 }

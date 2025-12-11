@@ -140,20 +140,23 @@ export async function interceptClean(context: InterceptorContext): Promise<numbe
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     console.error(chalk.red(`SafeRun error: ${message}`));
-    console.warn(chalk.yellow('Proceeding without SafeRun approval.'));
-    context.metrics.track('operation_allowed', {
+    // SECURITY: Block operation when API unavailable (fail-secure)
+    console.error(chalk.red('🚫 Operation blocked - SafeRun API unreachable'));
+    console.error(chalk.yellow('   Cannot verify safety without API connection.'));
+    context.metrics.track('operation_blocked', {
       hook: 'alias:clean',
       operation_type: 'clean',
       repo: repoSlug,
-      reason: 'api_error',
+      reason: 'api_unreachable',
     }).catch(() => undefined);
     await logOperation(context.gitInfo.repoRoot, {
       event: 'clean',
       operation: 'clean',
       repo: repoSlug,
-      outcome: 'api_error',
+      outcome: 'blocked_api_error',
       error: message,
     });
+    return 1;
   }
 
   const exitCode = await runGitCommand(['clean', ...context.args], {

@@ -142,39 +142,24 @@ export async function interceptCommit(context: InterceptorContext): Promise<numb
     const message = error instanceof Error ? error.message : String(error);
     console.error(chalk.red(`SafeRun error: ${message}`));
     
-    // If enforcement requires blocking, do NOT proceed on API error
-    if (enforcement.shouldBlock || enforcement.action === 'block') {
-      console.error(chalk.red('🛑 SafeRun blocks commit --no-verify even when API fails.'));
-      context.metrics.track('operation_blocked', {
-        hook: 'alias:commit',
-        operation_type: 'commit_no_verify',
-        repo: repoSlug,
-        reason: 'api_error_with_block_policy',
-      }).catch(() => undefined);
-      await logOperation(context.gitInfo.repoRoot, {
-        event: 'commit_no_verify',
-        operation: 'commit',
-        repo: repoSlug,
-        outcome: 'blocked_api_error',
-        error: message,
-      });
-      return 1;
-    }
-    
-    console.warn(chalk.yellow('Proceeding without SafeRun approval (non-blocking mode).'));
-    context.metrics.track('operation_allowed', {
+    // SECURITY: Always block when API unavailable (fail-secure)
+    // AI agents could disable network to bypass protection
+    console.error(chalk.red('🚫 Operation blocked - SafeRun API unreachable'));
+    console.error(chalk.yellow('   Cannot verify safety without API connection.'));
+    context.metrics.track('operation_blocked', {
       hook: 'alias:commit',
       operation_type: 'commit_no_verify',
       repo: repoSlug,
-      reason: 'api_error',
+      reason: 'api_unreachable',
     }).catch(() => undefined);
     await logOperation(context.gitInfo.repoRoot, {
       event: 'commit_no_verify',
       operation: 'commit',
       repo: repoSlug,
-      outcome: 'api_error',
+      outcome: 'blocked_api_error',
       error: message,
     });
+    return 1;
   }
 
   const exitCode = await runGitCommand(['commit', ...context.args], {
