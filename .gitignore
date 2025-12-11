@@ -53,5 +53,5 @@ artifacts/
 # Temporary: Testing documentation (remove when ready for production)
 *.md
 !README.md
-!SLACK_SETUP.md
+!QUICK_START.md
 logs/
