@@ -19,11 +19,8 @@ export interface ModeSettings {
   // Protection is now based ONLY on mode selection.
 }
 
-export interface OfflineModeConfig {
-  enabled?: boolean;
-  default_action?: 'allow' | 'deny' | 'cache';
-  cache_duration?: number;
-}
+// SECURITY: OfflineModeConfig removed - offline mode is a security vulnerability
+// AI agents can manipulate env vars/config to bypass protection
 
 export type FailMode = 'strict' | 'graceful' | 'permissive';
 export type ErrorAction = 'block' | 'warn' | 'allow';
@@ -45,7 +42,7 @@ export interface ApiConfig {
   key?: string;
   timeout?: number;
   retry_count?: number;
-  offline_mode?: OfflineModeConfig;
+  // SECURITY: offline_mode removed - agents can manipulate it to bypass protection
   fail_mode?: FailMode;
   error_handling?: ErrorHandlingSettings;
 }
@@ -142,13 +139,9 @@ const DEFAULT_CONFIG: SafeRunConfig = {
   api: {
     url: process.env.SAFERUN_API_URL ?? 'https://saferun-api.up.railway.app',
     key: process.env.SAFERUN_API_KEY,
-    timeout: 2000,
+    timeout: 5000,
     retry_count: 3,
-    offline_mode: {
-      enabled: true,
-      default_action: 'deny',  // SECURITY: Block critical ops when API unreachable
-      cache_duration: 3600,
-    },
+    // SECURITY: offline_mode removed - API unavailable = operations blocked
     fail_mode: 'graceful',
     error_handling: {
       '403_forbidden': {

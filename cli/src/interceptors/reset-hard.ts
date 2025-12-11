@@ -74,7 +74,11 @@ export async function interceptReset(context: InterceptorContext): Promise<numbe
     : 'Reset --hard will overwrite working tree and index.';
 
   const actionOverride = rule?.max_commits_back && commitsBack > rule.max_commits_back ? 'require_approval' : rule?.action;
+  
+  // DEBUG: временный лог для диагностики
+  
   const enforcement = resolveEnforcement(context.modeSettings, actionOverride, 'warn');
+  
 
   if (enforcement.action === 'allow' || enforcement.action === 'warn') {
     if (enforcement.action === 'warn' || context.modeSettings?.show_warnings) {

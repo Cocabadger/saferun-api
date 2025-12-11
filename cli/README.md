@@ -402,10 +402,6 @@ api:
   key: your-api-key-here
   timeout: 5000
 
-# Offline mode
-offline_mode: false
-cache_ttl: 300000  # 5 minutes
-
 # GitHub settings
 github:
   repo: auto  # or "owner/repo"
@@ -648,11 +644,6 @@ saferun status
 ```
 
 Look for "SafeRun API: reachable"
-
-**Switch to offline mode:**
-```bash
-saferun config set offline_mode true
-```
 
 **Change API URL:**
 ```bash

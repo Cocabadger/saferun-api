@@ -131,14 +131,6 @@ Shows if AI agent is detected and confidence level.
 saferun init --force
 ```
 
-### Switch to offline mode
-
-If API is unreachable:
-
-```bash
-saferun config set offline_mode true
-```
-
 ## Next Steps
 
 - Read [Team Setup](./team-setup.md) for multi-developer workflows

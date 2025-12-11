@@ -86,7 +86,7 @@ export class HookRunner {
       // - 'enforce': Strict blocking, no exceptions
       // No environment variable bypasses to prevent exploitation by malicious code.
 
-      const client = createSafeRunClient({ config, cache });
+      const client = createSafeRunClient({ config });
 
       const context: HookContext = {
         hook: hookType,
