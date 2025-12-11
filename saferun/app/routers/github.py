@@ -60,10 +60,10 @@ async def dry_run_github_branch(req: GitHubBranchDeleteDryRunRequest, api_key: s
         token=req.token,
         target_id=req.target_id,
         provider="github",
-        reason=getattr(req, 'reason', None),
+        reason=getattr(req, 'reason', None) or f"Delete branch: {branch}",
         policy=req.policy,
         webhook_url=getattr(req, 'webhook_url', None),
-        metadata={"object": "branch", "owner": owner, "repo": repo, "name": branch}
+        metadata={"object": "branch", "operation_type": "branch_delete", "owner": owner, "repo": repo, "name": branch}
     )
     return await build_dryrun(generic_req, api_key=api_key)
 

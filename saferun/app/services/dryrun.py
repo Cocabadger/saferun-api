@@ -357,7 +357,8 @@ async def build_dryrun(req: DryRunArchiveRequest, notion_version: str | None = N
 
             # 8) Write audit event and build final response for non-bulk
             db.insert_audit(change_id, "dry_run", {"latency_ms": 0, "summary": {"title": title, "blocks": blocks}})
-            hp = hp_render(req.provider, title, item_type, blocks, last_edit, risk_score, all_reasons, metadata.get("linkedCount", 0))
+            op_type = metadata.get("operation_type", "archive")
+            hp = hp_render(req.provider, title, item_type, blocks, last_edit, risk_score, all_reasons, metadata.get("linkedCount", 0), operation_type=op_type)
 
             op = "archive"
             if req.provider == "github" and item_type == "branch":

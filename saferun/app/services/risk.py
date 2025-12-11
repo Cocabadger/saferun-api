@@ -163,7 +163,7 @@ def compute_risk(provider: str, title: str, blocks_count: int, last_edit: str | 
 
     return risk_score, reasons
 
-def human_preview(provider: str, title: str | None, item_type: str, blocks_count: int, last_edited_time: str | None, score: float, reasons: list[str], linked_count: int = 0) -> str:
+def human_preview(provider: str, title: str | None, item_type: str, blocks_count: int, last_edited_time: str | None, score: float, reasons: list[str], linked_count: int = 0, operation_type: str | None = None) -> str:
     preview = ""
     if provider == "airtable":
         preview += f"⚠️ ARCHIVE PREVIEW (Airtable)\n"
@@ -173,11 +173,19 @@ def human_preview(provider: str, title: str | None, item_type: str, blocks_count
             preview += f"Last modified: {last_edited_time}\n"
         preview += f"Risk Score: {score:.2f} ({'HIGH' if score > 0.5 else 'MEDIUM' if score > 0.2 else 'LOW'})\n"
     elif provider == "github":
-        preview += f"⚠️ ARCHIVE PREVIEW (GitHub)\n"
-        # For repos, title is repo name; for branches include branch in reasons context
-        preview += f"Repo: {title or '(unknown)'}\n"
+        # Show operation-specific header
+        op_labels = {
+            "branch_delete": "🗑️ DELETE BRANCH",
+            "force_push": "⚠️ FORCE PUSH",
+            "delete_repo": "🔴 DELETE REPOSITORY",
+            "merge": "🔀 MERGE",
+            "archive": "📦 ARCHIVE REPO",
+        }
+        op_label = op_labels.get(operation_type or "", "⚠️ GITHUB OPERATION")
+        preview += f"{op_label}\n"
+        preview += f"Target: {title or '(unknown)'}\n"
         if last_edited_time:
-            preview += f"Last pushed/commit: {last_edited_time}\n"
+            preview += f"Last activity: {last_edited_time}\n"
         preview += f"Risk Score: {score:.2f} ({'HIGH' if score > 0.5 else 'MEDIUM' if score > 0.2 else 'LOW'})\n"
     else:
         preview += f"⚠️ ARCHIVE PREVIEW ({item_type.upper()})\n"
