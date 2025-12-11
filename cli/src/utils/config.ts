@@ -142,23 +142,24 @@ const DEFAULT_CONFIG: SafeRunConfig = {
     timeout: 5000,
     retry_count: 3,
     // SECURITY: offline_mode removed - API unavailable = operations blocked
-    fail_mode: 'graceful',
+    // SECURITY: fail_mode changed to 'strict' - block on any API error
+    fail_mode: 'strict',
     error_handling: {
       '403_forbidden': {
         action: 'block',
         message: '🚫 API limit exceeded - operations blocked for safety.\n\nOptions:\n  • Upgrade your plan at https://saferun-landing.vercel.app\n  • Wait for limit reset (resets monthly)\n  • Uninstall completely: npx saferun uninstall',
       },
       '500_server_error': {
-        action: 'warn',
-        message: '⚠️  API temporarily unavailable - proceeding with warning',
+        action: 'block',
+        message: '🚫 API temporarily unavailable - operation blocked for safety',
       },
       'network_error': {
-        action: 'warn',
-        message: '⚠️  Network error - proceeding with warning',
+        action: 'block',
+        message: '🚫 Network error - operation blocked for safety (API unreachable)',
       },
       'timeout': {
-        action: 'warn',
-        message: '⚠️  API timeout - proceeding with warning',
+        action: 'block',
+        message: '🚫 API timeout - operation blocked for safety',
       },
     },
   },
