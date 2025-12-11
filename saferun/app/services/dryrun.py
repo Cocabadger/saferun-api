@@ -108,10 +108,12 @@ async def build_dryrun(req: DryRunArchiveRequest, notion_version: str | None = N
                     item_type = "repo"
                 
                 # Detect operation type from reason or metadata
-                if req.reason and "DELETE" in req.reason.upper():
-                    metadata["operation_type"] = "delete_repo"
-                elif req.reason and "FORCE" in req.reason.upper():
-                    metadata["operation_type"] = "force_push"
+                # Only override if not already set
+                if not metadata.get("operation_type"):
+                    if req.reason and "DELETE" in req.reason.upper() and "BRANCH" not in req.reason.upper():
+                        metadata["operation_type"] = "delete_repo"
+                    elif req.reason and "FORCE" in req.reason.upper():
+                        metadata["operation_type"] = "force_push"
 
             # 2) Calculate risk score and other context variables
             linked_count = metadata.get("linkedCount", 0)
