@@ -9,13 +9,22 @@ import os from 'os';
 import path from 'path';
 
 export class ShellInitCommand {
-  async run(options: { auto?: boolean; shell?: string }): Promise<void> {
+  async run(options: { auto?: boolean; shell?: string; quiet?: boolean }): Promise<void> {
     const shell = options.shell || this.detectShell();
+    const snippet = this.generateSnippet(shell);
+
+    // If called as eval "$(saferun shell-init)" - just output the snippet
+    // Detect by checking if stdout is not a TTY (piped)
+    const isPiped = !process.stdout.isTTY;
+    
+    if (isPiped || options.quiet) {
+      // Output only shell code for eval
+      console.log(snippet);
+      return;
+    }
 
     console.log(chalk.cyan('\n🐚 SafeRun Shell Integration Setup\n'));
     console.log(chalk.gray(`Detected shell: ${shell}`));
-
-    const snippet = this.generateSnippet(shell);
 
     if (options.auto) {
       await this.autoInstall(shell, snippet);

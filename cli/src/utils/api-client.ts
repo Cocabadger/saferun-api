@@ -1,5 +1,6 @@
 import { SafeRunClient } from '@saferun/sdk';
 import { SafeRunConfig } from './config';
+import { loadGlobalCredentialsSync } from './credentials';
 
 export interface SafeRunClientContext {
   config: SafeRunConfig;
@@ -33,12 +34,20 @@ export function createSafeRunClient(context: SafeRunClientContext): SafeRunClien
 }
 
 export function resolveApiKey(config: SafeRunConfig): string | undefined {
+  // 1. Check local config
   if (config.api.key && config.api.key.length > 0 && !isEnvPlaceholder(config.api.key)) {
     return config.api.key;
   }
 
+  // 2. Check environment variable
   if (process.env.SAFERUN_API_KEY && process.env.SAFERUN_API_KEY.length > 0) {
     return process.env.SAFERUN_API_KEY;
+  }
+
+  // 3. Check global credentials (~/.saferun/credentials)
+  const globalCreds = loadGlobalCredentialsSync();
+  if (globalCreds.api_key) {
+    return globalCreds.api_key;
   }
 
   return undefined;

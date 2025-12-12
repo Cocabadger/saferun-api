@@ -174,3 +174,55 @@ async def delete_notification_settings(api_key: str = Depends(verify_api_key)):
         "success": True,
         "message": "Notification settings reset to defaults"
     }
+
+
+@router.get("/github-app/check/{owner}/{repo}")
+async def check_github_app_installation(
+    owner: str,
+    repo: str,
+    api_key: str = Depends(verify_api_key)
+):
+    """
+    Check if GitHub App is installed on a specific repository.
+    
+    Returns:
+    - installed: bool - whether the app is installed
+    - installation_id: int - the installation ID if installed
+    - account: str - the account where app is installed
+    """
+    import json
+    
+    full_repo = f"{owner}/{repo}"
+    
+    # Check if we have an installation for this account
+    installation = db.fetchone(
+        "SELECT installation_id, account_login, repositories_json FROM github_installations WHERE account_login = %s",
+        (owner,)
+    )
+    
+    if not installation:
+        return {
+            "installed": False,
+            "repo": full_repo,
+            "message": "GitHub App not installed on this account"
+        }
+    
+    # Check if this specific repo is in the installation
+    repos_json = installation.get("repositories_json", "[]")
+    try:
+        repos = json.loads(repos_json) if repos_json else []
+    except:
+        repos = []
+    
+    # If repos is empty, it might mean "All repositories" was selected
+    # In that case, we consider it installed
+    is_installed = len(repos) == 0 or full_repo in repos
+    
+    return {
+        "installed": is_installed,
+        "repo": full_repo,
+        "installation_id": installation.get("installation_id"),
+        "account": installation.get("account_login"),
+        "all_repos": len(repos) == 0,
+        "message": "GitHub App is installed" if is_installed else "Repository not in installation scope"
+    }

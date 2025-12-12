@@ -1,6 +1,37 @@
 import { Command } from 'commander';
 
 export function registerCommands(program: Command) {
+  // ─────────────────────────────────────────────────────────────────
+  // SETUP & DIAGNOSTICS
+  // ─────────────────────────────────────────────────────────────────
+
+  program
+    .command('setup')
+    .description('Complete SafeRun setup wizard (API key, Slack, GitHub App, hooks)')
+    .option('--api-key <key>', 'Provide API key directly')
+    .option('--skip-slack', 'Skip Slack configuration')
+    .option('--skip-github', 'Skip GitHub App installation')
+    .action(async (options) => {
+      const { SetupCommand } = await import('./commands/setup');
+      await new SetupCommand().run({
+        apiKey: options.apiKey,
+        skipSlack: options.skipSlack,
+        skipGithub: options.skipGithub,
+      });
+    });
+
+  program
+    .command('doctor')
+    .description('Check SafeRun health and configuration')
+    .action(async () => {
+      const { DoctorCommand } = await import('./commands/doctor');
+      await new DoctorCommand().run();
+    });
+
+  // ─────────────────────────────────────────────────────────────────
+  // REPOSITORY COMMANDS
+  // ─────────────────────────────────────────────────────────────────
+
   program
     .command('init')
     .description('Install SafeRun git protections in the current repository')
