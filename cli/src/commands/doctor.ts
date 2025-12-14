@@ -10,7 +10,8 @@ import path from 'path';
 import os from 'os';
 
 import { getGitInfo, isGitRepository, listHooks } from '../utils/git';
-import { loadConfig } from '../utils/config';
+import { loadGlobalConfig, globalConfigExists } from '../utils/global-config';
+import { isRepoProtectedSync, getProtectedRepoSync, listProtectedRepos } from '../utils/protected-repos';
 import { loadManifest } from '../hooks/installer';
 import {
   loadGlobalCredentials,
@@ -19,7 +20,6 @@ import {
   getGlobalConfigDir,
   getCredentialsPath,
 } from '../utils/credentials';
-import { checkGitignore } from '../utils/gitignore';
 
 const SAFERUN_API_URL = 'https://saferun-api.up.railway.app';
 
@@ -39,15 +39,78 @@ export class DoctorCommand {
     // Run all checks
     await this.checkApiKey();
     await this.checkApiServer();
+    await this.checkGlobalConfig();
+    await this.checkProtectedRepo();
     await this.checkSlack();
     await this.checkGitHubApp();
     await this.checkGitHooks();
     await this.checkShellWrapper();
-    await this.checkGitignore();
+    // Note: .gitignore check removed - config is now in ~/.saferun/ (global)
     await this.checkFilePermissions();
 
     // Print results
     this.printResults();
+  }
+
+  private async checkGlobalConfig(): Promise<void> {
+    if (globalConfigExists()) {
+      const config = await loadGlobalConfig();
+      this.checks.push({
+        name: 'Global Config',
+        status: 'ok',
+        message: `Mode: ${config.mode.toUpperCase()}`,
+        detail: '~/.saferun/config.yml',
+      });
+    } else {
+      this.checks.push({
+        name: 'Global Config',
+        status: 'warn',
+        message: 'Using defaults',
+        detail: 'Run "saferun setup" to customize',
+      });
+    }
+  }
+
+  private async checkProtectedRepo(): Promise<void> {
+    const isRepo = await isGitRepository();
+    
+    if (!isRepo) {
+      this.checks.push({
+        name: 'Protected Repo',
+        status: 'skip',
+        message: 'Not in a git repository',
+      });
+      return;
+    }
+
+    const gitInfo = await getGitInfo();
+    if (!gitInfo) {
+      this.checks.push({
+        name: 'Protected Repo',
+        status: 'error',
+        message: 'Could not get git info',
+      });
+      return;
+    }
+
+    const isProtected = isRepoProtectedSync(gitInfo.repoRoot);
+    const repoInfo = getProtectedRepoSync(gitInfo.repoRoot);
+
+    if (isProtected) {
+      this.checks.push({
+        name: 'Protected Repo',
+        status: 'ok',
+        message: `Registered (${repoInfo?.github || repoInfo?.name || 'local'})`,
+        detail: 'Protected via global registry',
+      });
+    } else {
+      this.checks.push({
+        name: 'Protected Repo',
+        status: 'error',
+        message: 'Not protected',
+        detail: 'Run "saferun init" to protect this repo',
+      });
+    }
   }
 
   private async checkApiKey(): Promise<void> {
@@ -80,10 +143,9 @@ export class DoctorCommand {
   }
 
   private async checkApiServer(): Promise<void> {
-    const apiKey = await resolveApiKey();
-    
     try {
-      const response = await this.fetchWithTimeout(`${SAFERUN_API_URL}/health`, 5000);
+      // Check root endpoint for version info
+      const response = await this.fetchWithTimeout(`${SAFERUN_API_URL}/`, 5000);
       const data = await response.json();
       
       this.checks.push({
@@ -363,53 +425,6 @@ export class DoctorCommand {
         status: 'warn',
         message: 'Not configured',
         detail: 'Run "saferun shell-init --auto" for extra protection',
-      });
-    }
-  }
-
-  private async checkGitignore(): Promise<void> {
-    const isRepo = await isGitRepository();
-    
-    if (!isRepo) {
-      this.checks.push({
-        name: '.gitignore',
-        status: 'skip',
-        message: 'Not in a git repository',
-      });
-      return;
-    }
-
-    const gitInfo = await getGitInfo();
-    if (!gitInfo) {
-      this.checks.push({
-        name: '.gitignore',
-        status: 'skip',
-        message: 'Could not get git info',
-      });
-      return;
-    }
-
-    const result = await checkGitignore(gitInfo.repoRoot);
-
-    if (result.hasSaferunEntries) {
-      this.checks.push({
-        name: '.gitignore',
-        status: 'ok',
-        message: 'Credentials excluded',
-      });
-    } else if (result.exists) {
-      this.checks.push({
-        name: '.gitignore',
-        status: 'warn',
-        message: 'Missing SafeRun entries',
-        detail: 'Run "saferun setup" to add entries',
-      });
-    } else {
-      this.checks.push({
-        name: '.gitignore',
-        status: 'warn',
-        message: 'No .gitignore file',
-        detail: 'Run "saferun setup" to create',
       });
     }
   }

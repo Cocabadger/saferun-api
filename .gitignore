@@ -19,12 +19,9 @@ dist/
 *.log
 *.bak
 
-# Tests - not needed in remote repo
-tests/
+# Test artifacts (tests themselves are tracked!)
 htmlcov/
 .pytest_cache/
-pytest.ini
-requirements-dev.txt
 .coverage
 
 # Data/Secrets/Scratch
@@ -45,13 +42,13 @@ logs/
 # E2E and local outputs
 scripts/secrets/
 test_local.py
-
-# CLI tests - not needed in remote repo
-cli/tests/
 artifacts/
 
 # Temporary: Testing documentation (remove when ready for production)
-*.md
-!README.md
 !QUICK_START.md
 logs/
+
+# Private/Internal files
+.claude/
+.PROJECT_STATUS.md
+docs/archive/

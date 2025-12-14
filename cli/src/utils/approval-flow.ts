@@ -35,7 +35,7 @@ export class ApprovalFlow {
     this.client = options.client;
     this.metrics = options.metrics;
     this.pollInterval = options.pollIntervalMs ?? 2_000;
-    this.timeout = options.timeoutMs ?? 5 * 60_000;
+    this.timeout = options.timeoutMs ?? 2 * 60 * 60_000; // 2 hours (matches server approval timeout)
     this.config = options.config;
     this.modeSettings = options.modeSettings;
     this.rl = readline.createInterface({ input: process.stdin, output: process.stdout });
@@ -64,26 +64,135 @@ export class ApprovalFlow {
       return this.waitForApproval(result);
     }
 
-    // Interactive mode - show options menu
+    // Interactive mode - start polling immediately in background
+    // User can approve via Slack/Web while we show options
+    const pollingPromise = this.waitForApprovalBackground(result);
+    
+    // Show options menu
     const options = this.buildOptions(result, approvalUrl);
     this.printOptions(options);
+    console.log(chalk.gray('\n💡 Approve in Slack or Web - CLI will auto-detect'));
 
     try {
-      while (true) {
-        const choice = (await this.prompt('\nSelect option: ')).trim();
-        const option = options.find((entry) => entry.key === choice);
-        if (!option) {
-          console.log(chalk.red('Invalid selection. Please choose one of the available options.'));
-          continue;
-        }
-
-        const outcome = await option.action();
-        // SECURITY: Bypass outcome removed
-        return outcome;
-      }
+      // Race between user input and background polling
+      const userInputPromise = this.waitForUserInput(options, result, approvalUrl);
+      
+      const outcome = await Promise.race([pollingPromise, userInputPromise]);
+      
+      // Clean up - cancel the other promise
+      this.cancelPolling = true;
+      
+      return outcome;
     } finally {
       this.close();
     }
+  }
+  
+  private cancelPolling = false;
+  
+  private async waitForUserInput(
+    options: Array<{ key: string; label: string; action: () => Promise<ApprovalOutcome> }>,
+    result: DryRunResult,
+    approvalUrl: string
+  ): Promise<ApprovalOutcome> {
+    while (!this.cancelPolling) {
+      const choice = (await this.prompt('\nSelect option: ')).trim();
+      
+      if (this.cancelPolling) {
+        // Polling finished while waiting for input
+        return ApprovalOutcome.Approved;
+      }
+      
+      const option = options.find((entry) => entry.key === choice);
+      if (!option) {
+        console.log(chalk.red('Invalid selection. Please choose one of the available options.'));
+        continue;
+      }
+
+      // For "Wait for auto-approval" option, just return - polling is already running
+      if (option.key === '4') {
+        console.log(chalk.gray('Already polling in background...'));
+        // Wait for the polling promise to complete
+        return new Promise(() => {}); // Never resolves - let polling win the race
+      }
+      
+      // For cancel, return immediately
+      if (option.key === '5') {
+        return ApprovalOutcome.Cancelled;
+      }
+
+      const outcome = await option.action();
+      return outcome;
+    }
+    return ApprovalOutcome.Approved;
+  }
+  
+  private async waitForApprovalBackground(result: DryRunResult): Promise<ApprovalOutcome> {
+    const approvalUrl = result.approvalUrl ?? 'https://app.saferun.dev';
+
+    // Show QR code for mobile scanning
+    try {
+      const qrcode = require('qrcode-terminal');
+      console.log(chalk.gray('\n📱 Scan with mobile:'));
+      qrcode.generate(approvalUrl, { small: true });
+    } catch {
+      // QR code optional, continue if fails
+    }
+
+    const startTime = Date.now();
+
+    // Silent polling - no spinner since user is looking at menu
+    while (!this.cancelPolling && Date.now() - startTime < this.timeout) {
+      try {
+        const status = await this.client.getApprovalStatus(result.changeId);
+
+        // Check final success statuses first
+        if (status.status === 'executed' || status.status === 'applied') {
+          console.log(chalk.green('\n✓ Operation approved and executed!'));
+          this.metrics?.track('operation_executed', { change_id: result.changeId }).catch(() => undefined);
+          return ApprovalOutcome.Approved;
+        }
+
+        if (status.status === 'reverted') {
+          console.log(chalk.yellow('\n↩ Operation was reverted'));
+          return ApprovalOutcome.Approved;
+        }
+
+        // Check failure statuses
+        if (status.rejected || ['failed', 'rejected', 'cancelled'].includes(status.status || '')) {
+          const message = status.status === 'failed'
+            ? '\n✗ Operation failed during execution'
+            : '\n✗ SafeRun approval rejected';
+          console.log(chalk.red(message));
+          return ApprovalOutcome.Cancelled;
+        }
+
+        if (status.expired) {
+          console.log(chalk.red('\n✗ Approval expired'));
+          return ApprovalOutcome.Cancelled;
+        }
+
+        // Fallback: if approved=true but no execution status yet, treat as approved
+        if (status.approved && !status.pending) {
+          console.log(chalk.green('\n✓ SafeRun approval granted!'));
+          return ApprovalOutcome.Approved;
+        }
+      } catch (error) {
+        // Continue polling on transient errors
+        if (error instanceof Error && !error.message.includes('404')) {
+          // Log but continue
+        }
+      }
+
+      // Wait before next poll
+      await new Promise(resolve => setTimeout(resolve, this.pollInterval));
+    }
+
+    // Timeout or cancelled
+    if (!this.cancelPolling) {
+      console.log(chalk.red('\n✗ Approval timed out'));
+    }
+    return ApprovalOutcome.Cancelled;
   }
 
   private showPreview(result: DryRunResult): void {

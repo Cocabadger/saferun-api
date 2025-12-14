@@ -1,203 +1,327 @@
-# SafeRun
+# 🛡️ SafeRun
 
-**AI Safety Middleware** - Stop AI agents from breaking production.
+> **Stop AI agents from breaking production**
 
-SafeRun intercepts high-risk operations (like deleting repositories, modifying CI/CD pipelines, or exposing secrets) and requires human approval before execution.
+[![npm version](https://img.shields.io/npm/v/@saferun/cli.svg)](https://www.npmjs.com/package/@saferun/cli)
+[![Public Beta](https://img.shields.io/badge/Status-Public%20Beta-blue.svg)](https://github.com/Cocabadger/saferun-api)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-## Why SafeRun?
+**Problem:** AI agents (Cursor, Claude Code, Copilot, n8n, LangChain) execute Git commands autonomously. One `git push --force` or `git reset --hard` at 3 AM = lost work, corrupted history, deleted branches.
 
-AI agents are powerful but can make catastrophic mistakes:
-- 🔥 Deleting production repositories
-- 🔐 Exposing GitHub Actions secrets
-- ⚙️ Modifying CI/CD workflows to run malicious code
-- 🚨 Transferring repositories to external organizations
-- 👁️ Making private repos public (permanent data leak)
+**Solution:** SafeRun intercepts dangerous operations, blocks execution, sends Slack notification with context → you approve or reject from your phone.
 
-**SafeRun catches these before they happen.**
-
-## How It Works
-
-1. **AI agent requests a dangerous operation** (e.g., delete repo)
-2. **SafeRun scores the risk** (0.0 to 10.0 scale)
-3. **High-risk operations (8.5+) require approval** via Slack/webhook
-4. **You approve or reject** with one click
-5. **SafeRun executes or blocks** the operation
-6. **Most operations can be reverted** if something goes wrong
-
-## Protected Operations
-
-### GitHub (22+ operations covered)
-
-**Critical Operations** (risk 8.5-10.0, require approval):
-- 🚨 Repository transfer (IRREVERSIBLE)
-- 🔑 GitHub Actions secrets (create/update/delete)
-- ⚙️ Workflow file modifications (arbitrary code execution risk)
-- 🛡️ Branch protection rules (bypass code review)
-- 👁️ Repository visibility changes (private→public is permanent)
-
-**Standard Operations** (risk 5.0-8.0):
-- Repository archive/unarchive
-- Branch deletion/restoration
-- Pull request bulk operations
-- Force push protection (via CLI hooks)
-
-### Coming Soon
-- Notion, Slack, Airtable, Google Drive, Google Sheets
-
-## Security Features
-
-- ✅ **Risk scoring engine** - Automatically detects dangerous operations
-- ✅ **Token encryption** - AES-256-GCM encryption for all stored credentials
-- ✅ **User isolation** - Users can only access their own tokens
-- ✅ **Revert mechanism** - Undo operations that went wrong
-- ✅ **Audit trail** - Full history of all operations
-- ✅ **CLI secrets scanner** - Prevents credential leaks in git commits
+> **v0.6.10 Public Beta** — Actively maintained. Core functionality stable. [Report issues →](https://github.com/Cocabadger/saferun-api/issues)
 
 ---
 
-## Quick Start
+## 🔒 Three Layers of Protection
 
-### 1. Install dependencies
+SafeRun protects at **every level** — whether the operation comes from terminal, API, or GitHub directly:
+
+### Layer 1: CLI Shell Wrapper
+Intercepts dangerous Git commands **before** they execute in your terminal:
+- `git push --force` / `git push -f` / `--force-with-lease`
+- `git reset --hard`
+- `git branch -D` / `git branch --delete --force`
+- `git clean -fd` (deletes untracked files)
+- `git commit --no-verify` (skips hooks)
+- Direct commits to `main` or `master` (protected branches)
+
+### Layer 2: REST API (for automation tools)
+Requires approval before executing via API:
+- **Repository:** Archive, Unarchive, Delete (permanent!), Transfer ownership, Change visibility (private↔public)
+- **Branch:** Delete, Force push
+- **Pull Request:** Merge (especially to main/master)
+- **GitHub Actions:** Create/delete secrets, Update workflow files
+- **Security:** Update/delete branch protection rules
+
+### Layer 3: GitHub Webhooks (catches everything else)
+Monitors GitHub events even if CLI is bypassed:
+- Force pushes made directly on GitHub
+- Branch deletions via GitHub UI
+- Merges from other machines/tools
+- Any operation that bypasses CLI protection
+
+---
+
+## ⚡ Quick Start (5 minutes)
+
+### Step 1: Install CLI
+
 ```bash
-pip install -r requirements.txt
+npm install -g @saferun/cli
 ```
 
-### 2. Set environment variables
+### Step 2: Run Setup Wizard
+
 ```bash
-cp .env.example .env
-# Edit .env with your settings
+cd ~/your-project    # Go to repo you want to protect
+saferun setup        # Run wizard from here
 ```
 
-### 3. Run the server
+The wizard guides you through **4 steps**:
+
+#### Step 2.1: API Key
+- Go to [saferun.dev](https://saferun.dev) (or saferun-landing.vercel.app)
+- Sign up with GitHub or email
+- Copy your API key (starts with `sr_...`)
+- Paste it in the wizard
+
+#### Step 2.2: Slack Notifications (Required!)
+You need **three things** from Slack:
+
+1. **Bot User OAuth Token** (`xoxb-...`):
+   - Go to [api.slack.com/apps](https://api.slack.com/apps) → Create New App → From scratch
+   - Name it "SafeRun", select your workspace
+   - OAuth & Permissions → Add Bot Token Scopes: `chat:write`, `chat:write.public`
+   - Install to Workspace → Copy **Bot User OAuth Token**
+
+2. **Webhook URL** (for interactive buttons):
+   - Go to Incoming Webhooks → Toggle ON
+   - Add New Webhook to Workspace → Select channel
+   - Copy the **Webhook URL** (`https://hooks.slack.com/services/...`)
+
+3. **Channel name** (e.g., `#saferun-alerts`):
+   - Create a channel in Slack or use existing one
+   - Bot will post approval requests there
+
+> ⚠️ **No Slack = No notifications!** You won't see approval requests without Slack configured.
+
+#### Step 2.3: GitHub App
+Install the SafeRun GitHub App to enable webhook protection:
+
+👉 **[Install SafeRun GitHub App](https://github.com/apps/saferun-ai)**
+
+- Click Install → Select your account/org → Choose repositories → Install
+- This catches operations that bypass CLI (web UI, other machines)
+
+#### Step 2.4: Shell Wrapper
+The wizard adds a git wrapper to your `.zshrc` or `.bashrc` that intercepts dangerous commands.
+
+### Step 3: Verify Installation
+
 ```bash
-uvicorn saferun.app.main:app --host 0.0.0.0 --port 8500
+saferun doctor    # Check everything is configured
+saferun status    # See protection status
 ```
 
-## API Usage
+### Step 4: Test It!
 
-### 1. Get API Key
 ```bash
-curl -X POST http://localhost:8500/v1/auth/register \
-  -H "Content-Type: application/json" \
-  -d '{"email": "your@email.com"}'
+git reset --hard HEAD~1
 ```
 
-### 2. Use SafeRun API
+Expected: SafeRun blocks the command, sends Slack notification, waits for your approval (timeout: 2 hours).
+
+---
+
+## 🔧 How It Works
+
+```
+Agent runs: git push --force origin main
+                    │
+                    ▼
+┌───────────────────────────────────────┐
+│  Shell Wrapper (Layer 1)              │
+│  Detects dangerous command            │
+│  Identifies AI agent (Cursor, etc.)   │
+└───────────────────────────────────────┘
+                    │
+                    ▼
+┌───────────────────────────────────────┐
+│  SafeRun CLI                          │
+│  • Calculates risk score (0-10)       │
+│  • Extracts context (repo, branch)    │
+│  • Sends request to SafeRun API       │
+└───────────────────────────────────────┘
+                    │
+                    ▼
+┌───────────────────────────────────────┐
+│  SafeRun API                          │
+│  • Creates approval record (24h TTL)  │
+│  • Sends Slack notification           │
+│  • Waits for human decision           │
+└───────────────────────────────────────┘
+                    │
+                    ▼
+┌───────────────────────────────────────┐
+│  Slack                                │
+│  Shows: repo, branch, command,        │
+│         risk score, agent name        │
+│  Buttons: [Approve] [Reject]          │
+└───────────────────────────────────────┘
+                    │
+        ┌──────────┴──────────┐
+        ▼                     ▼
+   ✅ Approved            ❌ Rejected
+   CLI executes           CLI blocks
+   the command            returns error
+```
+
+### Where Data is Stored
+
+```
+~/.saferun/
+├── config.yml              # Mode, rules, API URL
+├── credentials             # API key (chmod 600)
+└── protected-repos.json    # List of protected repos
+
+{repo}/.saferun/
+└── logs/
+    └── operations.log      # Local activity history
+```
+
+> **Privacy:** Only approval requests are sent to the API. Config and logs never leave your machine.
+
+---
+
+## 🤖 Supported AI Agents
+
+SafeRun auto-detects these agents:
+- Cursor
+- Claude Code  
+- Windsurf
+- GitHub Copilot
+- n8n / LangChain / AutoGPT (via API)
+
+---
+
+## 🔌 API for Automation (n8n, LangChain, AutoGPT)
+
+For autonomous agents, use the REST API directly instead of shell commands.
+
+### Example: Force Push with Approval
+
+**Step 1: Create approval request**
 ```bash
-# Dry run for GitHub repo archive
-curl -X POST http://localhost:8500/v1/dry-run/github.repo.archive \
-  -H "X-API-Key: your_api_key" \
+curl -X POST https://saferun-api.up.railway.app/v1/github/repos/owner/repo/git/force-push \
+  -H "X-API-Key: sr_your_api_key" \
   -H "Content-Type: application/json" \
   -d '{
-    "token": "users_github_token",
-    "target_id": "owner/repo"
+    "token": "ghp_your_github_token",
+    "ref": "refs/heads/main",
+    "sha": "abc123def456789...",
+    "reason": "Fixing commit history after accidental push"
   }'
 ```
 
-### 3. Configure Notifications (Slack/Webhooks)
-
-**Get current settings:**
-```bash
-curl -X GET https://saferun.up.railway.app/v1/settings/notifications \
-  -H "X-API-Key: your_api_key"
+Response:
+```json
+{
+  "change_id": "uuid-xxx",
+  "status": "pending",
+  "requires_approval": true,
+  "risk_score": 9.0,
+  "message": "Force push request created. Check Slack for approval."
+}
 ```
 
-**Configure Slack** (see [SLACK_SETUP.md](SLACK_SETUP.md) for full guide):
+**Step 2: Poll for approval (or wait for webhook)**
 ```bash
-curl -X PUT https://saferun.up.railway.app/v1/settings/notifications \
-  -H "X-API-Key: your_api_key" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "slack_bot_token": "xoxb-YOUR-BOT-TOKEN",
-    "slack_channel": "#saferun-alerts",
-    "slack_enabled": true
-  }'
+curl https://saferun-api.up.railway.app/v1/changes/{change_id} \
+  -H "X-API-Key: sr_your_api_key"
 ```
 
-**Test notifications:**
+**Step 3: Execute only if approved**
 ```bash
-curl -X POST https://saferun.up.railway.app/v1/settings/notifications/test/slack \
-  -H "X-API-Key: your_api_key"
+# status == "approved" → safe to execute
+git push --force origin main
 ```
 
-**Configure custom webhooks:**
-```bash
-curl -X PUT https://saferun.up.railway.app/v1/settings/notifications \
-  -H "X-API-Key: your_api_key" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "webhook_url": "https://your-webhook.com/saferun",
-    "webhook_secret": "your_secret_for_hmac_validation",
-    "webhook_enabled": true
-  }'
-```
+### Available API Endpoints
 
-**Notification features:**
-- ✅ Per-user settings stored in database
-- ✅ Interactive Slack buttons (approve/reject)
-- ✅ HMAC signature validation for webhooks
-- ✅ Fallback to global admin settings
+**Repository Operations:**
+- `POST /v1/github/repos/{owner}/{repo}/archive` — Archive repository
+- `POST /v1/github/repos/{owner}/{repo}/unarchive` — Unarchive repository
+- `DELETE /v1/github/repos/{owner}/{repo}` — Delete repository (requires confirmation)
+
+**Branch Operations:**
+- `DELETE /v1/github/repos/{owner}/{repo}/branches/{branch}` — Delete branch
+- `POST /v1/github/repos/{owner}/{repo}/git/force-push` — Force push
+
+**Pull Request:**
+- `PUT /v1/github/repos/{owner}/{repo}/pulls/{pr}/merge` — Merge PR
+
+**Dry-Run Endpoints (legacy):**
+- `POST /v1/dry-run/github.repo.archive`
+- `POST /v1/dry-run/github.branch.delete`
+- `POST /v1/dry-run/github.force-push`
+- `POST /v1/dry-run/github.merge`
+- `POST /v1/dry-run/github.repo.delete`
+- `POST /v1/dry-run/github.repo.transfer`
+- `POST /v1/dry-run/github.actions.secret.create`
+- `POST /v1/dry-run/github.actions.secret.delete`
+- `POST /v1/dry-run/github.workflow.update`
+- `POST /v1/dry-run/github.branch_protection.update`
+- `POST /v1/dry-run/github.branch_protection.delete`
+- `POST /v1/dry-run/github.repo.visibility.change`
 
 ---
 
-## Deployment
+## 📋 CLI Commands
 
-### Railway (Recommended)
+```bash
+# Setup & Installation
+saferun setup              # Complete setup wizard
+saferun init               # Initialize protection in current repo
+saferun doctor             # Health check and troubleshooting
+saferun uninstall          # Remove from current repo
+saferun uninstall --global # Remove SafeRun completely
 
-1. Push to GitHub
-2. Connect repo to Railway
-3. Add environment variables:
-   - `SR_STORAGE_BACKEND=sqlite`
-   - `SR_SQLITE_PATH=/data/saferun.db`
-4. Add Railway Volume mounted at `/data`
-5. Deploy!
+# Monitoring
+saferun status             # Show protection status + recent activity
+saferun status -n 20       # Show last 20 operations
 
-### Render
+# Configuration (read-only)
+saferun config show        # View current configuration
+saferun config slack       # Reconfigure Slack settings
+```
 
-1. Create new Web Service
-2. Connect GitHub repo
-3. Build command: `pip install -r requirements.txt`
-4. Start command: `uvicorn saferun.app.main:app --host 0.0.0.0 --port $PORT`
-
----
-
-## Environment Variables
-
-### Core Settings
-- `PORT` - Server port (default: 8500)
-- `SR_LOG_LEVEL` - Log level (info/debug)
-- `SR_STORAGE_BACKEND` - Storage type (sqlite or postgres)
-- `SR_SQLITE_PATH` - Database path (default: `/data/saferun.db`)
-- `DATABASE_URL` - PostgreSQL connection URL (for production)
-- `SR_FREE_TIER_LIMIT` - API call limit (default: 100, set `-1` to disable)
-
-### Provider Settings
-- `SR_GITHUB_API_BASE` - GitHub API base URL (optional)
-- `SR_GITHUB_USER_AGENT` - Custom user agent (optional)
-
-### Global Notification Settings (optional, for admin fallback)
-- `NOTIFY_TIMEOUT_MS` - Webhook timeout (default: 2000)
-- `NOTIFY_RETRY` - Retry count (default: 1)
-- `SLACK_BOT_TOKEN` - Slack Bot Token (optional)
-- `SLACK_CHANNEL` - Default Slack channel (default: #saferun-alerts)
-- `SLACK_WEBHOOK_URL` - Slack Webhook URL (optional)
-- `GENERIC_WEBHOOK_URL` - Generic webhook URL (optional)
-- `GENERIC_WEBHOOK_SECRET` - Webhook signature secret (optional)
-
-**Note:** Users can configure their own notification settings via API, which override these global settings.
+> **Security:** There is no `saferun config set` command. Configuration cannot be changed via CLI to prevent AI agents from disabling their own protection.
 
 ---
 
-## Pricing
+## 🆘 Troubleshooting
 
-- **Free Tier**: First 1000 API calls FREE
-- Set `SR_FREE_TIER_LIMIT=-1` to disable rate limiting
+**SafeRun not intercepting commands?**
+```bash
+saferun doctor  # Check shell wrapper status
+```
+
+**No Slack notifications?**
+- Verify bot token is correct (`xoxb-...`)
+- Check channel exists and bot has access
+- Re-run `saferun setup` → Slack step
+
+**View activity log:**
+```bash
+saferun status -n 50  # Last 50 operations
+```
 
 ---
 
-## Production Info
+## 🔒 Security
 
-- **Deployed**: https://saferun-api.up.railway.app
-- **Health**: `/healthz` endpoint
-- **Version**: 0.20.0
-- **Support**: [GitHub Issues](https://github.com/Cocabadger/saferun-api/issues)
+- **API keys** stored with `chmod 600` (owner-only read)
+- **GitHub tokens** encrypted with AES-256-GCM before storage
+- **Logs** stay local, never uploaded
+- **Config** stored in `~/.saferun/` — immune to `git reset --hard`
+- **No CLI bypass** — agents cannot disable protection via commands
+
+---
+
+## 📄 License
+
+MIT © SafeRun Team
+
+---
+
+## 🤝 Contributing
+
+Issues and PRs welcome! [Open an issue →](https://github.com/Cocabadger/saferun-api/issues)
+
+---
+
+## 🛡️ Don't let AI agents break your repo.
+
+**[Get Started →](#-quick-start-5-minutes)**

@@ -62,8 +62,9 @@ export SAFERUN_AGENT_ID="\${USER}-\$(date +%s)"
 # Git Command Interceptor
 # Catches dangerous operations in SafeRun-protected repos
 git() {
-  # Check if we're in a SafeRun protected repo
-  if [[ -d ".saferun" ]] || [[ -f ".saferun/config.yml" ]]; then
+  # Check if we're in a SafeRun protected repo (using global registry)
+  # This check is fast and cannot be bypassed by modifying repo files
+  if saferun is-protected --quiet 2>/dev/null; then
     local cmd="\$1"
     local all_args="\$*"
     
@@ -149,7 +150,8 @@ set -x SAFERUN_AI_SESSION "conversational"
 set -x SAFERUN_AGENT_ID "$USER-"(date +%s)
 
 function git --wraps git
-  if test -d ".saferun"; or test -f ".saferun/config.yml"
+  # Check if we're in a SafeRun protected repo (using global registry)
+  if saferun is-protected --quiet 2>/dev/null
     set -l cmd $argv[1]
     set -l all_args "$argv"
     

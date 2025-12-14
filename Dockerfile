@@ -1,25 +1,33 @@
-FROM python:3.11-slim
+# =============================================================================
+# DOCKERFILE - DISABLED FOR MVP
+# =============================================================================
+# SafeRun API is deployed on Railway, not via Docker.
+# This file is kept for reference but not used in production.
+# Re-enable after MVP if self-hosting option is needed.
+# =============================================================================
 
-# Install SQLite and other dependencies
-RUN apt-get update && apt-get install -y \
-    sqlite3 \
-    libsqlite3-dev \
-    && rm -rf /var/lib/apt/lists/*
+# FROM python:3.11-slim
 
-WORKDIR /app
+# # Install SQLite and other dependencies
+# RUN apt-get update && apt-get install -y \
+#     sqlite3 \
+#     libsqlite3-dev \
+#     && rm -rf /var/lib/apt/lists/*
 
-# Copy requirements and install Python dependencies
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+# WORKDIR /app
 
-# Copy application code
-COPY . .
+# # Copy requirements and install Python dependencies
+# COPY requirements.txt .
+# RUN pip install --no-cache-dir -r requirements.txt
 
-# Create data directory
-RUN mkdir -p /app/data
+# # Copy application code
+# COPY . .
 
-# Expose port
-EXPOSE 8500
+# # Create data directory
+# RUN mkdir -p /app/data
 
-# Run the application
-CMD ["uvicorn", "saferun.app.main:app", "--host", "0.0.0.0", "--port", "8500"]
+# # Expose port
+# EXPOSE 8500
+
+# # Run the application
+# CMD ["uvicorn", "saferun.app.main:app", "--host", "0.0.0.0", "--port", "8500"]

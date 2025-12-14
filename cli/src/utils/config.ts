@@ -194,23 +194,23 @@ const DEFAULT_CONFIG: SafeRunConfig = {
       exclude_patterns: ['tmp/*', 'test/*'],
     },
     reset_hard: {
-      action: 'warn',
-      risk_score: 7,
+      action: 'require_approval',
+      risk_score: 8,
       timeout_action: 'reject',
       timeout_duration: 7200,
       max_commits_back: 5,
     },
     clean: {
-      action: 'warn',
-      risk_score: 4,
-      timeout_action: 'allow',
+      action: 'require_approval',
+      risk_score: 6,
+      timeout_action: 'reject',
       timeout_duration: 3600,
     },
   },
   // SECURITY: bypass config removed
   notifications: {
     slack: {
-      enabled: process.env.SLACK_ENABLED === 'true',
+      enabled: true,
       webhook_url: process.env.SLACK_WEBHOOK_URL,
       channel: process.env.SLACK_CHANNEL ?? '#dev-safety',
     },

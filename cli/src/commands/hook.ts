@@ -1,5 +1,6 @@
 import chalk from 'chalk';
-import { loadConfig } from '../utils/config';
+import { loadGlobalConfig } from '../utils/global-config';
+import { isRepoProtectedSync } from '../utils/protected-repos';
 import { createSafeRunClient } from '../utils/api-client';
 import { getGitInfo, runGitCommand } from '../utils/git';
 import { MetricsCollector } from '../utils/metrics';
@@ -12,7 +13,17 @@ export class HookCommand {
       return runGitCommand(this.mapHandlerToGitCommand(handler, forwarded), { disableAliases: [this.aliasName(handler)] });
     }
 
-    const config = await loadConfig(gitInfo.repoRoot, { allowCreate: true });
+    // Check if repo is protected (using global registry)
+    if (!isRepoProtectedSync(gitInfo.repoRoot)) {
+      // Not protected - pass through
+      return runGitCommand(this.mapHandlerToGitCommand(handler, forwarded), { 
+        cwd: gitInfo.repoRoot,
+        disableAliases: [this.aliasName(handler)] 
+      });
+    }
+
+    // Load global config (not local!)
+    const config = await loadGlobalConfig();
     const modeSettings = config.modes?.[config.mode];
 
     const metrics = new MetricsCollector(gitInfo.repoRoot, config);

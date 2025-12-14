@@ -34,9 +34,11 @@ export function createSafeRunClient(context: SafeRunClientContext): SafeRunClien
 }
 
 export function resolveApiKey(config: SafeRunConfig): string | undefined {
-  // 1. Check local config
-  if (config.api.key && config.api.key.length > 0 && !isEnvPlaceholder(config.api.key)) {
-    return config.api.key;
+  // 1. Check global credentials (~/.saferun/credentials) - HIGHEST PRIORITY
+  //    This is set by the wizard and is the source of truth
+  const globalCreds = loadGlobalCredentialsSync();
+  if (globalCreds.api_key) {
+    return globalCreds.api_key;
   }
 
   // 2. Check environment variable
@@ -44,10 +46,9 @@ export function resolveApiKey(config: SafeRunConfig): string | undefined {
     return process.env.SAFERUN_API_KEY;
   }
 
-  // 3. Check global credentials (~/.saferun/credentials)
-  const globalCreds = loadGlobalCredentialsSync();
-  if (globalCreds.api_key) {
-    return globalCreds.api_key;
+  // 3. Fall back to local config (may be outdated)
+  if (config.api.key && config.api.key.length > 0 && !isEnvPlaceholder(config.api.key)) {
+    return config.api.key;
   }
 
   return undefined;

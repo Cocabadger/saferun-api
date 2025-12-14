@@ -3,8 +3,10 @@ import inquirer from 'inquirer';
 import path from 'path';
 import fs from 'fs';
 import { execGit, getGitInfo, isGitRepository, listHooks, ensureDir } from '../utils/git';
-import { loadConfig, saveConfig, setConfigValue, SafeRunConfig } from '../utils/config';
+import { loadGlobalConfig, saveGlobalConfig, setGlobalMode } from '../utils/global-config';
+import { registerProtectedRepo, isRepoProtectedSync } from '../utils/protected-repos';
 import { installHooks } from '../hooks/installer';
+import { SafeRunConfig, ProtectionMode } from '../utils/config';
 
 export interface InitOptions {
   auto: boolean;
@@ -28,15 +30,26 @@ export class InitCommand {
 
     console.log(chalk.cyan('\n🛡️  SafeRun CLI Setup\n'));
 
-    let config = await loadConfig(gitInfo.repoRoot, { allowCreate: true });
+    // Load global config (not local!)
+    let config = await loadGlobalConfig();
+    
+    // Configure mode and branches
     config = await this.configure(config, gitInfo.repoRoot, options.auto, gitInfo.repoSlug, gitInfo.defaultBranch);
-    await saveConfig(config, gitInfo.repoRoot);
+    
+    // Save to global config
+    await saveGlobalConfig(config);
+    
+    // Register repo in global protected repos registry
+    await registerProtectedRepo(gitInfo.repoRoot, {
+      github: gitInfo.repoSlug,
+      mode: config.mode,
+    });
 
     const hooksInfo = await installHooks({ repoRoot: gitInfo.repoRoot, gitDir: gitInfo.gitDir });
 
     await this.configureAliases(gitInfo.repoRoot);
 
-    this.printSummary(config, hooksInfo.installed.length, gitInfo.gitDir);
+    this.printSummary(config, hooksInfo.installed.length, gitInfo.gitDir, gitInfo.repoRoot);
   }
 
   private async configure(
@@ -51,14 +64,9 @@ export class InitCommand {
       protectedBranches.add(defaultBranch);
     }
 
-    if (repoSlug && (config.github.repo === 'auto' || !config.github.repo)) {
-      config.github.repo = repoSlug;
-    }
-
     if (auto) {
       config.mode = (process.env.SAFERUN_MODE as typeof config.mode) ?? config.mode;
       config.github.protected_branches = Array.from(protectedBranches);
-      this.ensureApiKey(config);
       return config;
     }
 
@@ -82,45 +90,12 @@ export class InitCommand {
         default: Array.from(protectedBranches).join(', '),
         filter: (input: string) => input.split(',').map((value) => value.trim()).filter(Boolean),
       },
-      {
-        type: 'input',
-        name: 'githubRepo',
-        message: 'GitHub repository (owner/repo):',
-        default: repoSlug ?? config.github.repo ?? 'auto',
-      },
-      {
-        type: 'password',
-        name: 'apiKey',
-        message: 'SafeRun API key (leave empty to use environment variable):',
-        mask: '*',
-        validate: (value: string) => (!value ? true : value.length >= 16 || 'API key looks too short'),
-      },
     ]);
 
-    setConfigValue(config, 'mode', answers.mode);
-    setConfigValue(config, 'github.protected_branches', answers.protectedBranches);
-
-    if (answers.githubRepo && answers.githubRepo !== 'auto') {
-      setConfigValue(config, 'github.repo', answers.githubRepo);
-    }
-
-    if (answers.apiKey) {
-      setConfigValue(config, 'api.key', answers.apiKey);
-    } else {
-      this.ensureApiKey(config);
-    }
+    config.mode = answers.mode as ProtectionMode;
+    config.github.protected_branches = answers.protectedBranches;
 
     return config;
-  }
-
-  private ensureApiKey(config: SafeRunConfig): void {
-    if (!config.api.key && !process.env.SAFERUN_API_KEY) {
-      console.warn(
-        chalk.yellow(
-          '\n⚠️  SafeRun API key is not configured. Set SAFERUN_API_KEY env or update .saferun/config.yml',
-        ),
-      );
-    }
   }
 
   private async configureAliases(repoRoot: string): Promise<void> {
@@ -166,10 +141,12 @@ export class InitCommand {
     await fs.promises.writeFile(backupPath, JSON.stringify(backup, null, 2));
   }
 
-  private async printSummary(config: SafeRunConfig, hooksInstalled: number, gitDir: string): Promise<void> {
+  private async printSummary(config: SafeRunConfig, hooksInstalled: number, gitDir: string, repoRoot: string): Promise<void> {
     console.log(chalk.green('\n✅ SafeRun initialized successfully!\n'));
     console.log(chalk.gray('Mode:        '), chalk.bold(config.mode.toUpperCase()));
     console.log(chalk.gray('Git hooks:   '), hooksInstalled > 0 ? chalk.green(`${hooksInstalled} installed`) : chalk.yellow('none installed'));
+    console.log(chalk.gray('Protected:   '), chalk.green('✓ Registered in global registry'));
+    console.log(chalk.gray('Config:      '), chalk.cyan('~/.saferun/config.yml'));
 
     const existingHooks = await listHooks(gitDir);
     if (existingHooks.length > 0) {
@@ -177,8 +154,8 @@ export class InitCommand {
     }
 
     console.log('\nNext steps:');
-    console.log(`  • Run ${chalk.cyan('saferun status')} to verify configuration`);
-    console.log(`  • Review ${chalk.cyan('.saferun/config.yml')} for advanced options`);
-    console.log(`  • Try a protected action (e.g. ${chalk.cyan('git push --force')}) to see SafeRun in action`);
+    console.log(`  • Run ${chalk.cyan('saferun doctor')} to verify configuration`);
+    console.log(`  • Run ${chalk.cyan('saferun config show')} to see current settings`);
+    console.log(`  • Try a protected action (e.g. ${chalk.cyan('git reset --hard')}) to see SafeRun in action`);
   }
 }

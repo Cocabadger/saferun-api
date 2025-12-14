@@ -1,145 +1,18 @@
-mode: monitor
-modes:
-  monitor:
-    description: Log only, no blocking
-    block_operations: false
-    show_warnings: false
-    send_notifications: false
-    collect_metrics: true
-  warn:
-    description: Show warnings but allow operations
-    block_operations: false
-    show_warnings: true
-    send_notifications: true
-    collect_metrics: true
-  block:
-    description: Require approval for risky actions
-    block_operations: true
-    require_approval: true
-    allow_bypass: true
-    bypass_methods:
-      - code
-      - env
-      - timeout
-    collect_metrics: true
-  enforce:
-    description: Strict blocking without bypass
-    block_operations: true
-    require_approval: true
-    allow_bypass: false
-    collect_metrics: true
+# SafeRun Configuration Template
+# Actual user settings are stored in ~/.saferun/config.yml
+
+mode: block
+
 api:
   url: https://saferun-api.up.railway.app
-  timeout: 2000
-  retry_count: 3
-  offline_mode:
-    enabled: true
-    default_action: allow
-    cache_duration: 3600
-  fail_mode: graceful
-  error_handling:
-    403_forbidden:
-      action: block
-      message: |-
-        🚫 API limit exceeded - operations blocked for safety.
+  timeout: 5000
 
-        Options:
-          • Upgrade your plan at https://saferun-landing.vercel.app
-          • Wait for limit reset (resets monthly)
-          • Uninstall completely: npx saferun uninstall
-    500_server_error:
-      action: warn
-      message: ⚠️  API temporarily unavailable - proceeding with warning
-    network_error:
-      action: warn
-      message: ⚠️  Network error - proceeding with warning
-    timeout:
-      action: warn
-      message: ⚠️  API timeout - proceeding with warning
 github:
   repo: auto
   protected_branches:
     - main
     - master
-    - release/*
     - production
-  branch_rules:
-    - pattern: feature/*
-      risk_level: low
-      allow_force_push: true
-    - pattern: hotfix/*
-      risk_level: medium
-      require_approval: false
-    - pattern: experiment/*
-      risk_level: low
-      skip_checks: true
+
 approval_timeout:
-  action: reject
-  duration: 7200
-  reminders: 3
-  reminder_interval: 1800
-rules:
-  force_push:
-    action: require_approval
-    risk_score: 8
-    timeout_action: reject
-    timeout_duration: 7200
-    bypass_roles:
-      - admin
-      - lead
-  branch_delete:
-    action: require_approval
-    risk_score: 6
-    timeout_action: reject
-    timeout_duration: 7200
-    exclude_patterns:
-      - tmp/*
-      - test/*
-  reset_hard:
-    action: warn
-    risk_score: 7
-    timeout_action: reject
-    timeout_duration: 7200
-    max_commits_back: 5
-  clean:
-    action: warn
-    risk_score: 4
-    timeout_action: allow
-    timeout_duration: 3600
-bypass:
-  ci: true
-  ci_environments:
-    enabled: true
-    detect_from_env:
-      - CI
-      - GITHUB_ACTIONS
-      - GITLAB_CI
-      - JENKINS_URL
-      - CIRCLECI
-  temporary_tokens:
-    enabled: true
-    duration: 3600
-  emergency:
-    enabled: true
-    keyword: EMERGENCY
-    notify_slack: true
-notifications:
-  slack:
-    enabled: false
-    channel: '#dev-safety'
-telemetry:
-  enabled: true
-  anonymous: true
-  events:
-    - operation_blocked
-    - operation_allowed
-    - approval_requested
-    - approval_granted
-    - bypass_used
-    - installation
-    - uninstallation
-  local_logs:
-    enabled: true
-    path: .saferun/logs
-    rotation: daily
-    retention: 30
+  duration: 7200  # 2 hours

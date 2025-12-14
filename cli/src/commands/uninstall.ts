@@ -2,13 +2,20 @@ import chalk from 'chalk';
 import inquirer from 'inquirer';
 import fs from 'fs';
 import path from 'path';
+import os from 'os';
 import { execGit, getGitInfo, isGitRepository } from '../utils/git';
 import { uninstallHooks } from '../hooks/installer';
+import { unregisterProtectedRepo, listProtectedRepos } from '../utils/protected-repos';
 import { readLogEntries } from '../utils/logger';
 import Table from 'cli-table3';
 
 export class UninstallCommand {
-  async run(): Promise<void> {
+  async run(options: { global?: boolean } = {}): Promise<void> {
+    if (options.global) {
+      await this.runGlobalUninstall();
+      return;
+    }
+
     const isRepo = await isGitRepository();
     if (!isRepo) {
       console.error(chalk.red('❌ Not inside a git repository.'));
@@ -42,7 +49,14 @@ export class UninstallCommand {
 
     await uninstallHooks(gitInfo.repoRoot, gitInfo.gitDir);
     await this.restoreAliases(gitInfo.repoRoot);
+    
+    // Remove from global protected repos registry
+    const wasProtected = await unregisterProtectedRepo(gitInfo.repoRoot);
+    
     console.log(chalk.green('✅ SafeRun hooks removed. Existing hooks restored if backups were found.'));
+    if (wasProtected) {
+      console.log(chalk.gray('   Removed from global protected repos registry.'));
+    }
     console.log(chalk.gray('\n💡 To reinstall: saferun init'));
   }
 
@@ -179,5 +193,82 @@ export class UninstallCommand {
     } catch {
       // ignore if unset
     }
+  }
+
+  private async runGlobalUninstall(): Promise<void> {
+    console.log(chalk.cyan('\n🌐 SafeRun Global Uninstall\n'));
+
+    const globalDir = path.join(os.homedir(), '.saferun');
+    const protectedRepos = await listProtectedRepos();
+
+    // Show what will be removed
+    console.log(chalk.yellow('This will remove:\n'));
+    
+    if (fs.existsSync(globalDir)) {
+      const files = fs.readdirSync(globalDir);
+      console.log(chalk.gray('  ~/.saferun/'));
+      files.forEach(f => console.log(chalk.gray(`    ├── ${f}`)));
+    }
+
+    if (protectedRepos.length > 0) {
+      console.log(chalk.gray(`\n  ${protectedRepos.length} protected repo(s):`));
+      protectedRepos.forEach(repo => {
+        console.log(chalk.gray(`    • ${repo.name || repo.path}`));
+      });
+    }
+
+    // Check for shell wrapper
+    const zshrcPath = path.join(os.homedir(), '.zshrc');
+    let hasShellWrapper = false;
+    if (fs.existsSync(zshrcPath)) {
+      const content = fs.readFileSync(zshrcPath, 'utf-8');
+      hasShellWrapper = content.includes('saferun shell-init') || content.includes('# SafeRun');
+    }
+
+    if (hasShellWrapper) {
+      console.log(chalk.gray('\n  Shell wrapper in ~/.zshrc'));
+    }
+
+    console.log('');
+
+    const { confirm } = await inquirer.prompt([
+      {
+        type: 'confirm',
+        name: 'confirm',
+        message: chalk.red('Remove ALL SafeRun data and configuration?'),
+        default: false,
+      },
+    ]);
+
+    if (!confirm) {
+      console.log(chalk.yellow('Global uninstall cancelled.'));
+      return;
+    }
+
+    // Remove global directory
+    if (fs.existsSync(globalDir)) {
+      fs.rmSync(globalDir, { recursive: true });
+      console.log(chalk.green('✓ Removed ~/.saferun/'));
+    }
+
+    // Remove shell wrapper from .zshrc
+    if (hasShellWrapper) {
+      let content = fs.readFileSync(zshrcPath, 'utf-8');
+      
+      // Remove various forms of SafeRun shell integration
+      // Form 1: eval "$(saferun shell-init)"
+      content = content.replace(/# SafeRun [sS]hell [iI]ntegration\n?eval "\$\(saferun shell-init\)"\n?/g, '');
+      // Form 2: Block with start/end markers
+      content = content.replace(/# SafeRun Shell Integration[\s\S]*?# End SafeRun Shell Integration\n?/g, '');
+      // Form 3: Just the eval line
+      content = content.replace(/eval "\$\(saferun shell-init\)"\n?/g, '');
+      
+      fs.writeFileSync(zshrcPath, content);
+      console.log(chalk.green('✓ Removed shell wrapper from ~/.zshrc'));
+    }
+
+    console.log(chalk.green('\n✅ SafeRun completely uninstalled.'));
+    console.log(chalk.gray('\n💡 To reinstall: npm install -g @saferun/cli && saferun setup'));
+    console.log(chalk.yellow('\n⚠️  Run: source ~/.zshrc (or restart terminal)'));
   }
 }

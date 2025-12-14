@@ -24,6 +24,8 @@ import {
   resolveApiKey,
 } from '../utils/credentials';
 import { checkGitignore, addToGitignore } from '../utils/gitignore';
+import { registerProtectedRepo } from '../utils/protected-repos';
+import { loadGlobalConfig, saveGlobalConfig } from '../utils/global-config';
 
 const execAsync = promisify(exec);
 
@@ -398,6 +400,11 @@ export class SetupCommand {
       return;
     }
 
+    // Register repo in global protected-repos registry
+    console.log(chalk.gray('\nRegistering repository...'));
+    await registerProtectedRepo(gitInfo.repoRoot, { name: gitInfo.repoSlug || undefined });
+    console.log(chalk.green('✓ Repository registered in global registry'));
+
     // Install hooks
     console.log(chalk.gray('\nInstalling git hooks...'));
     try {
@@ -443,23 +450,6 @@ export class SetupCommand {
     } else {
       console.log(chalk.green('✓ .gitignore already has SafeRun entries'));
     }
-
-    // Save local config (mode will be set in Step 5)
-    console.log(chalk.gray('\nCreating .saferun/config.yml...'));
-    let config = await loadConfig(gitInfo.repoRoot, { allowCreate: true });
-    
-    // Set repo info
-    if (gitInfo.repoSlug) {
-      config.github.repo = gitInfo.repoSlug;
-    }
-    if (gitInfo.defaultBranch) {
-      const branches = new Set(config.github.protected_branches);
-      branches.add(gitInfo.defaultBranch);
-      config.github.protected_branches = Array.from(branches);
-    }
-    
-    await saveConfig(config, gitInfo.repoRoot);
-    console.log(chalk.green('✓ Config saved'));
 
     this.repoInitialized = true;
     console.log('');
@@ -544,11 +534,6 @@ export class SetupCommand {
     console.log(chalk.bold('\nStep 6/6: Protection Mode'));
     console.log(chalk.gray('─'.repeat(40)));
 
-    if (!this.repoInitialized) {
-      console.log(chalk.gray('Skipped (repository not initialized)\n'));
-      return;
-    }
-
     console.log(chalk.cyan('\n📋 What should SafeRun do when it detects risky operations?\n'));
 
     const { mode } = await inquirer.prompt([{
@@ -566,15 +551,13 @@ export class SetupCommand {
 
     this.protectionMode = mode;
 
-    // Update config with mode
-    const gitInfo = await getGitInfo();
-    if (gitInfo) {
-      let config = await loadConfig(gitInfo.repoRoot, { allowCreate: false });
-      config.mode = mode as ProtectionMode;
-      await saveConfig(config, gitInfo.repoRoot);
-    }
+    // Save mode to GLOBAL config (not local - prevents rollback on git reset)
+    const globalConfig = await loadGlobalConfig();
+    globalConfig.mode = mode;
+    await saveGlobalConfig(globalConfig);
 
     console.log(chalk.green(`\n✓ Protection mode set to: ${mode.toUpperCase()}`));
+    console.log(chalk.gray('   Saved to ~/.saferun/config.yml (global)'));
     console.log('');
   }
 

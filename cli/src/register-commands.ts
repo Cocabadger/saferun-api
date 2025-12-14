@@ -44,9 +44,10 @@ export function registerCommands(program: Command) {
   program
     .command('uninstall')
     .description('Remove SafeRun hooks from the current repository')
-    .action(async () => {
+    .option('--global', 'Remove ALL SafeRun data (credentials, config, shell wrapper)')
+    .action(async (options) => {
       const { UninstallCommand } = await import('./commands/uninstall');
-      await new UninstallCommand().run();
+      await new UninstallCommand().run({ global: options.global });
     });
 
   program
@@ -54,9 +55,24 @@ export function registerCommands(program: Command) {
     .description('Show SafeRun protection status for this repo')
     .option('--agents', 'Show AI agent detection status and signals')
     .option('--pending', 'Show pending approvals')
+    .option('-n, --tail <count>', 'Show last N operations (default: 10)', '10')
     .action(async (options) => {
       const { StatusCommand } = await import('./commands/status');
-      await new StatusCommand().run({ agents: options.agents, pending: options.pending });
+      await new StatusCommand().run({ 
+        agents: options.agents, 
+        pending: options.pending,
+        tail: parseInt(options.tail, 10) || 10
+      });
+    });
+
+  program
+    .command('is-protected')
+    .description('Check if current directory is a protected repository')
+    .option('-q, --quiet', 'Quiet mode - only exit code')
+    .action(async (options) => {
+      const { IsProtectedCommand } = await import('./commands/is-protected');
+      const exitCode = await new IsProtectedCommand().run({ quiet: options.quiet });
+      process.exit(exitCode);
     });
 
   program
@@ -93,21 +109,9 @@ export function registerCommands(program: Command) {
       await new ConfigCommand().show();
     });
 
-  config
-    .command('set <path> <value>')
-    .description('Set a configuration value (dot notation)')
-    .action(async (path: string, value: string) => {
-      const { ConfigCommand } = await import('./commands/config');
-      await new ConfigCommand().set(path, value);
-    });
-
-  config
-    .command('mode <mode>')
-    .description('Switch SafeRun protection mode')
-    .action(async (mode: string) => {
-      const { ConfigCommand } = await import('./commands/config');
-      await new ConfigCommand().set('mode', mode);
-    });
+  // REMOVED: config set and config mode - security vulnerability
+  // Agents could disable their own protection with "saferun config mode monitor"
+  // Mode changes require manual editing of ~/.saferun/config.yml
 
   config
     .command('slack')
@@ -123,65 +127,6 @@ export function registerCommands(program: Command) {
       await new ConfigCommand().slack(options);
     });
 
-  // saferun allow - whitelist management
-  program
-    .command('allow')
-    .description('Manage whitelist for bots and automation')
-    .argument('[subcommand]', 'Subcommand: ci, bot, automation, agent, list, remove')
-    .argument('[args...]', 'Additional arguments')
-    .allowUnknownOption(true)
-    .action(async (subcommand: string, args: string[], options: any) => {
-      const { AllowCommand } = await import('./commands/allow');
-      const cmd = new AllowCommand();
-
-      switch (subcommand) {
-        case 'ci':
-          await cmd.addCI(options.scope || args[0] || 'ci', options.reason);
-          break;
-        case 'bot':
-          await cmd.addBot(options.name || options.email || args[0], options.reason);
-          break;
-        case 'automation':
-          await cmd.addAutomation(options.context || args[0], options.reason);
-          break;
-        case 'agent':
-          await cmd.addAgent(options.id || args[0], options.type, options.reason);
-          break;
-        case 'list':
-          await cmd.list();
-          break;
-        case 'remove':
-          await cmd.remove(args[0]);
-          break;
-        default:
-          console.log('Usage: saferun allow <ci|bot|automation|agent|list|remove>');
-      }
-    });
-
-  // saferun feedback - view detection feedback
-  program
-    .command('feedback')
-    .description('View AI detection feedback and statistics')
-    .argument('[subcommand]', 'Subcommand: stats, list, sync')
-    .action(async (subcommand?: string) => {
-      const { FeedbackCommand } = await import('./commands/feedback');
-      const cmd = new FeedbackCommand();
-
-      switch (subcommand) {
-        case 'stats':
-          await cmd.stats();
-          break;
-        case 'list':
-          await cmd.list();
-          break;
-        case 'sync':
-          await cmd.sync();
-          break;
-        default:
-          await cmd.stats(); // Default to stats
-      }
-    });
-
   // saferun shell-init - setup shell integration
   program
     .command('shell-init')
@@ -193,27 +138,19 @@ export function registerCommands(program: Command) {
       await new ShellInitCommand().run({ auto: options.auto, shell: options.shell });
     });
 
-  // saferun agent - agent registration
+  // saferun agent - agent status (read-only)
   program
     .command('agent')
-    .description('Manage AI agent registration')
-    .argument('[subcommand]', 'Subcommand: register, unregister, status')
+    .description('View AI agent detection status')
+    .argument('[subcommand]', 'Subcommand: status')
     .argument('[args...]', 'Additional arguments')
     .action(async (subcommand?: string, args?: string[], options?: any) => {
       const { AgentCommand } = await import('./commands/agent');
       const cmd = new AgentCommand();
 
-      switch (subcommand) {
-        case 'register':
-          await cmd.register(args?.[0] || 'unknown', { id: options?.id, version: options?.version });
-          break;
-        case 'unregister':
-          await cmd.unregister();
-          break;
-        case 'status':
-        default:
-          await cmd.status();
-      }
+      // Only allow status command (read-only)
+      // register/unregister removed for security - agents should not self-register
+      await cmd.status();
     });
 
   program
