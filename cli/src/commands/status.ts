@@ -201,6 +201,8 @@ export class StatusCommand {
     const approved = recent.filter(e => 
       e.outcome === 'approved' || 
       e.outcome === 'allowed' ||
+      e.outcome === 'executed' ||
+      e.outcome === 'api_auto_execute' ||
       e.event === 'allow' ||
       e.event === 'approved'
     ).length;
@@ -258,7 +260,7 @@ export class StatusCommand {
       const aiIcon = entry.is_ai_generated ? chalk.magenta('🤖') : '  ';
       
       // 3 types: approved, declined, info (checkout, etc.)
-      const isApproved = outcome === 'approved' || outcome === 'allowed' || event === 'allow' || event === 'approved';
+      const isApproved = outcome === 'approved' || outcome === 'allowed' || outcome === 'executed' || outcome === 'api_auto_execute' || event === 'allow' || event === 'approved';
       const isInfo = event === 'checkout'; // Just informational, not approve/decline
       const isDeclined = !isApproved && !isInfo;
       

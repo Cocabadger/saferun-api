@@ -151,12 +151,48 @@ Agent runs: git push --force origin main
 │  Buttons: [Approve] [Reject]          │
 └───────────────────────────────────────┘
                     │
-        ┌──────────┴──────────┐
-        ▼                     ▼
+        ┌───────────┴───────────┐
+        ▼                       ▼
    ✅ Approved            ❌ Rejected
    CLI executes           CLI blocks
    the command            returns error
 ```
+
+## 🔥 Comprehensive Capability Matrix
+
+### 💻 Layer 1: CLI (Local Protection)
+*Intercepts git commands on your machine.*
+
+- `git push --force` / `git push -f` / `--force-with-lease`
+- `git reset --hard`
+- `git branch -D` / `git branch --delete --force`
+- `git clean -fd`
+- `git commit` with secrets (`.env`, `sk-`, `ghp_`)
+- Direct commits to `main` / `master`
+
+### 🤖 Layer 2: API (Autonomous Agents)
+*Endpoints for your bots (n8n, LangChain) to execute safely.*
+
+**Operational Endpoints (Execute after Approval):**
+*   `POST /v1/github/repos/{owner}/{repo}/archive`
+*   `POST /v1/github/repos/{owner}/{repo}/unarchive`
+*   `DELETE /v1/github/repos/{owner}/{repo}` (Delete Repo)
+*   `DELETE /v1/github/repos/{owner}/{repo}/branches/{branch}`
+*   `POST /v1/github/repos/{owner}/{repo}/git/force-push`
+*   `PUT /v1/github/repos/{owner}/{repo}/pulls/{pr}/merge`
+
+**Analysis-Only Endpoints (Dry-Run Only):**
+*   *Check risk without execution support yet:*
+*   `POST /v1/dry-run/github.repo.transfer`
+*   `POST /v1/dry-run/github.actions.secret.create`
+*   `POST /v1/dry-run/github.workflow.update`
+
+### 🚨 Layer 3: Webhooks (Recovery)
+*Watches GitHub events to revert accidents.*
+
+*   **Revert Force Push:** Detects forced updates and allows restoring previous SHA.
+*   **Restore Deleted Branch:** Detects deletion and offers "Restore" button.
+*   **Secret Leak Revert:** Detects if a secret was pushed and offers instant revert.
 
 ### Where Data is Stored
 
@@ -245,6 +281,7 @@ git push --force origin main
 **Dry-Run Endpoints (legacy):**
 - `POST /v1/dry-run/github.repo.archive`
 - `POST /v1/dry-run/github.branch.delete`
+- `POST /v1/dry-run/github.bulk.close_prs`
 - `POST /v1/dry-run/github.force-push`
 - `POST /v1/dry-run/github.merge`
 - `POST /v1/dry-run/github.repo.delete`
