@@ -8,21 +8,12 @@ import path from 'path';
 
 const SAFERUN_GITIGNORE_ENTRIES = [
   '',
-  '# SafeRun - security (never commit credentials)',
-  '.saferun/credentials',
-  '.saferun/secrets/',
-  '',
-  '# SafeRun - local cache and logs',
-  '.saferun/cache/',
-  '.saferun/*.log',
-  '.saferun/logs/',
+  '# SafeRun - ignore entire local config folder',
+  '.saferun/',
 ];
 
 const REQUIRED_ENTRIES = [
-  '.saferun/credentials',
-  '.saferun/secrets/',
-  '.saferun/cache/',
-  '.saferun/*.log',
+  '.saferun/',
 ];
 
 export interface GitignoreCheckResult {
