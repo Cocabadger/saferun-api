@@ -130,14 +130,7 @@ export class ApprovalFlow {
   private async waitForApprovalBackground(result: DryRunResult): Promise<ApprovalOutcome> {
     const approvalUrl = result.approvalUrl ?? 'https://app.saferun.dev';
 
-    // Show QR code for mobile scanning
-    try {
-      const qrcode = require('qrcode-terminal');
-      console.log(chalk.gray('\n📱 Scan with mobile:'));
-      qrcode.generate(approvalUrl, { small: true });
-    } catch {
-      // QR code optional, continue if fails
-    }
+    // QR code already shown in showPreview()
 
     const startTime = Date.now();
 
@@ -214,7 +207,8 @@ export class ApprovalFlow {
     }
 
     if (result.approvalUrl) {
-      console.log(`\n${chalk.gray('Approval URL:')} ${chalk.cyan(result.approvalUrl)}`);
+      console.log(`\n${chalk.gray('🌐 Approve or reject:')}`);
+      console.log(`   ${chalk.cyan(result.approvalUrl)}`);
     }
   }
 
@@ -271,14 +265,7 @@ export class ApprovalFlow {
   private async waitForApproval(result: DryRunResult): Promise<ApprovalOutcome> {
     const approvalUrl = result.approvalUrl ?? 'https://app.saferun.dev';
 
-    // Show QR code for mobile scanning
-    try {
-      const qrcode = require('qrcode-terminal');
-      console.log(chalk.gray('\n📱 Scan with mobile:'));
-      qrcode.generate(approvalUrl, { small: true });
-    } catch {
-      // QR code optional, continue if fails
-    }
+    // QR code already shown in showPreview()
 
     const startTime = Date.now();
     const maxAttempts = Math.ceil(this.timeout / this.pollInterval);
