@@ -108,13 +108,6 @@ export class ApprovalFlow {
         console.log(chalk.red('Invalid selection. Please choose one of the available options.'));
         continue;
       }
-
-      // For "Wait for auto-approval" option, just return - polling is already running
-      if (option.key === '4') {
-        console.log(chalk.gray('Already polling in background...'));
-        // Wait for the polling promise to complete
-        return new Promise(() => {}); // Never resolves - let polling win the race
-      }
       
       // For cancel, return immediately
       if (option.key === '5') {
@@ -422,8 +415,8 @@ export class ApprovalFlow {
     }
 
     // SECURITY: "Enter bypass code" option removed
+    // "Continue waiting" removed - polling already runs in background
 
-    options.push({ key: '4', label: chalk.gray('Wait for auto-approval'), action: () => this.waitForApproval(result) });
     options.push({ key: '5', label: chalk.red('Cancel operation'), action: async () => ApprovalOutcome.Cancelled });
 
     return options;
