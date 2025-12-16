@@ -20,6 +20,7 @@ import {
   getGlobalConfigDir,
   getCredentialsPath,
 } from '../utils/credentials';
+import { wrapperExists, checkBinaryWrapperInPath, getPathExportCommand } from '../utils/binary-wrapper';
 
 const SAFERUN_API_URL = 'https://saferun-api.up.railway.app';
 
@@ -45,6 +46,7 @@ export class DoctorCommand {
     await this.checkGitHubApp();
     await this.checkGitHooks();
     await this.checkShellWrapper();
+    await this.checkBinaryWrapper();
     // Note: .gitignore check removed - config is now in ~/.saferun/ (global)
     await this.checkFilePermissions();
 
@@ -425,6 +427,62 @@ export class DoctorCommand {
         status: 'warn',
         message: 'Not configured',
         detail: 'Run "saferun shell-init --auto" for extra protection',
+      });
+    }
+  }
+
+  private async checkBinaryWrapper(): Promise<void> {
+    const isRepo = await isGitRepository();
+    
+    if (!isRepo) {
+      this.checks.push({
+        name: 'Binary Wrapper',
+        status: 'skip',
+        message: 'Not in a git repository',
+      });
+      return;
+    }
+
+    const gitInfo = await getGitInfo();
+    if (!gitInfo) {
+      this.checks.push({
+        name: 'Binary Wrapper',
+        status: 'skip',
+        message: 'Could not get git info',
+      });
+      return;
+    }
+
+    // Check if wrapper file exists
+    const hasWrapper = wrapperExists(gitInfo.repoRoot);
+    
+    if (!hasWrapper) {
+      this.checks.push({
+        name: 'Binary Wrapper',
+        status: 'warn',
+        message: 'Not installed',
+        detail: 'Run "saferun init" to install protection against direct git calls',
+      });
+      return;
+    }
+
+    // Check if wrapper is in PATH
+    const pathCheck = await checkBinaryWrapperInPath(gitInfo.repoRoot);
+    
+    if (pathCheck.inPath) {
+      this.checks.push({
+        name: 'Binary Wrapper',
+        status: 'ok',
+        message: 'Active & in PATH',
+        detail: `which git → ${pathCheck.currentGit}`,
+      });
+    } else {
+      const exportCmd = getPathExportCommand(gitInfo.repoRoot);
+      this.checks.push({
+        name: 'Binary Wrapper',
+        status: 'warn',
+        message: 'Installed but NOT in PATH',
+        detail: `⚠️ Agents can bypass SafeRun! Run: ${exportCmd}`,
       });
     }
   }

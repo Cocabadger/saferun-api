@@ -7,6 +7,7 @@ import { loadGlobalConfig, saveGlobalConfig, setGlobalMode } from '../utils/glob
 import { registerProtectedRepo, isRepoProtectedSync } from '../utils/protected-repos';
 import { installHooks } from '../hooks/installer';
 import { SafeRunConfig, ProtectionMode } from '../utils/config';
+import { installBinaryWrapper, printBinaryWrapperInstructions } from '../utils/binary-wrapper';
 
 export interface InitOptions {
   auto: boolean;
@@ -32,13 +33,13 @@ export class InitCommand {
 
     // Load global config (not local!)
     let config = await loadGlobalConfig();
-    
+
     // Configure mode and branches
     config = await this.configure(config, gitInfo.repoRoot, options.auto, gitInfo.repoSlug, gitInfo.defaultBranch);
-    
+
     // Save to global config
     await saveGlobalConfig(config);
-    
+
     // Register repo in global protected repos registry
     await registerProtectedRepo(gitInfo.repoRoot, {
       github: gitInfo.repoSlug,
@@ -49,7 +50,10 @@ export class InitCommand {
 
     await this.configureAliases(gitInfo.repoRoot);
 
-    this.printSummary(config, hooksInfo.installed.length, gitInfo.gitDir, gitInfo.repoRoot);
+    // Install binary wrapper for agent protection
+    const wrapperInfo = await installBinaryWrapper(gitInfo.repoRoot);
+
+    this.printSummary(config, hooksInfo.installed.length, gitInfo.gitDir, gitInfo.repoRoot, wrapperInfo.installed);
   }
 
   private async configure(
@@ -141,10 +145,11 @@ export class InitCommand {
     await fs.promises.writeFile(backupPath, JSON.stringify(backup, null, 2));
   }
 
-  private async printSummary(config: SafeRunConfig, hooksInstalled: number, gitDir: string, repoRoot: string): Promise<void> {
+  private async printSummary(config: SafeRunConfig, hooksInstalled: number, gitDir: string, repoRoot: string, wrapperInstalled: boolean = false): Promise<void> {
     console.log(chalk.green('\n✅ SafeRun initialized successfully!\n'));
     console.log(chalk.gray('Mode:        '), chalk.bold(config.mode.toUpperCase()));
     console.log(chalk.gray('Git hooks:   '), hooksInstalled > 0 ? chalk.green(`${hooksInstalled} installed`) : chalk.yellow('none installed'));
+    console.log(chalk.gray('Binary wrap: '), wrapperInstalled ? chalk.green('✓ .saferun/bin/git') : chalk.yellow('not installed'));
     console.log(chalk.gray('Protected:   '), chalk.green('✓ Registered in global registry'));
     console.log(chalk.gray('Config:      '), chalk.cyan('~/.saferun/config.yml'));
 
@@ -153,7 +158,12 @@ export class InitCommand {
       console.log(chalk.gray('Hooks dir:   '), gitDir);
     }
 
-    console.log('\nNext steps:');
+    // Show critical binary wrapper instructions
+    if (wrapperInstalled) {
+      printBinaryWrapperInstructions(repoRoot);
+    }
+
+    console.log(chalk.white('Next steps:'));
     console.log(`  • Run ${chalk.cyan('saferun doctor')} to verify configuration`);
     console.log(`  • Run ${chalk.cyan('saferun config show')} to see current settings`);
     console.log(`  • Try a protected action (e.g. ${chalk.cyan('git reset --hard')}) to see SafeRun in action`);
