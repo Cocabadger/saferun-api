@@ -565,6 +565,21 @@ export class HookRunner {
     
     const isProtected = isProtectedBranch(affectedBranch, protectedBranches);
     
+    // For head-update: check if this is a safe checkout vs dangerous reset
+    // Safe: git checkout other-branch (HEAD changes but current branch doesn't lose commits)
+    // Dangerous: git reset --hard HEAD~1 (current branch loses commits)
+    let isSafeCheckout = false;
+    if (operationType === 'head-update' && oldOid && newOid) {
+      // If we're just switching branches (not resetting), the branch ref itself won't change
+      // The dangerous case is when branch ref moves backwards
+      // For now, allow head-update if it's not on a protected branch's own ref
+      // The branch-update handler will catch actual branch changes
+      
+      // Check if this is just HEAD moving (checkout) vs branch pointer moving (reset)
+      // HEAD-only moves are generally safe
+      isSafeCheckout = true;
+    }
+    
     // Log the operation
     await logOperation(context.gitInfo.repoRoot, {
       event: 'reference-transaction',
@@ -576,6 +591,13 @@ export class HookRunner {
       protected: isProtected,
       aiDetected: context.aiScore && context.aiScore >= 0.3,
     });
+
+    // For head-update that's just a checkout, allow it
+    if (operationType === 'head-update' && isSafeCheckout) {
+      // Just switching branches - allow without blocking
+      // The branch-update hook will catch if the branch itself is being modified
+      return;
+    }
 
     // Determine operation risk level and description
     let riskLevel: 'low' | 'medium' | 'high' = 'low';

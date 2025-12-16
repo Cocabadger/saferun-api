@@ -56,23 +56,30 @@ while IFS=' ' read -r OLD_OID NEW_OID REF_NAME; do
       BRANCH_NAME="${REF_NAME#refs/heads/}"
       
       if [ "$OPERATION" = "delete" ]; then
-        # Branch deletion (git branch -D)
+        # Branch deletion (git branch -D) - dangerous!
         saferun-hook reference-transaction "branch-delete" "$BRANCH_NAME" "$OLD_OID" "$NEW_OID"
         STATUS=$?
       elif [ "$OPERATION" = "update" ]; then
-        # Branch update (could be reset, rebase, merge)
+        # Branch update (could be reset, rebase, merge) - check it
         saferun-hook reference-transaction "branch-update" "$BRANCH_NAME" "$OLD_OID" "$NEW_OID"
         STATUS=$?
       else
-        # Branch creation - allow
+        # Branch creation (git checkout -b, git branch) - SAFE, allow
         STATUS=0
       fi
       ;;
     
     HEAD)
-      # HEAD changed - this is reset, checkout, etc.
-      saferun-hook reference-transaction "head-update" "HEAD" "$OLD_OID" "$NEW_OID"
-      STATUS=$?
+      # HEAD changed - could be checkout, reset, etc.
+      # Only dangerous if OLD_OID is valid (not null) - means we're moving away from something
+      if [ "$OLD_OID" = "$NULL_OID" ]; then
+        # Initial HEAD set or detached HEAD becoming attached - safe
+        STATUS=0
+      else
+        # HEAD moving from one commit to another - check if dangerous
+        saferun-hook reference-transaction "head-update" "HEAD" "$OLD_OID" "$NEW_OID"
+        STATUS=$?
+      fi
       ;;
     
     refs/tags/*)
