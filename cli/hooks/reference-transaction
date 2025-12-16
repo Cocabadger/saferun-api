@@ -1,0 +1,101 @@
+#!/bin/sh
+# SafeRun reference-transaction hook
+# Intercepts ALL ref changes: reset, branch -D, checkout, rebase, merge
+# This is the ONLY reliable protection against agents that bypass PATH/shell configs
+#
+# Git calls this hook with: reference-transaction <state>
+# States: "prepared", "committed", "aborted"
+# We only act on "prepared" (before the change is finalized)
+#
+# Input on stdin (one line per ref):
+#   <old-oid> <new-oid> <ref-name>
+
+STATE="$1"
+
+# Only intercept "prepared" state (before commit)
+# "committed" = too late, "aborted" = already cancelled
+if [ "$STATE" != "prepared" ]; then
+  exit 0
+fi
+
+# Expand PATH to find saferun-hook
+export PATH="/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin:$HOME/.nvm/versions/node/current/bin:$HOME/.npm-global/bin:$PATH"
+
+# Check if saferun-hook is available
+if ! command -v saferun-hook >/dev/null 2>&1; then
+  # Graceful degradation: if SafeRun not installed, allow operation
+  exit 0
+fi
+
+# Read all ref changes from stdin
+# Format: <old-oid> <new-oid> <ref-name>
+BLOCKED=0
+while IFS=' ' read -r OLD_OID NEW_OID REF_NAME; do
+  # Skip empty lines
+  [ -z "$REF_NAME" ] && continue
+  
+  # Detect operation type based on OIDs
+  # 0000... = null OID (create or delete)
+  NULL_OID="0000000000000000000000000000000000000000"
+  
+  if [ "$OLD_OID" = "$NULL_OID" ]; then
+    # Creating new ref (branch, tag) - usually safe
+    OPERATION="create"
+  elif [ "$NEW_OID" = "$NULL_OID" ]; then
+    # Deleting ref - dangerous!
+    OPERATION="delete"
+  else
+    # Updating ref - could be reset, checkout, rebase
+    OPERATION="update"
+  fi
+  
+  # Call SafeRun hook for dangerous operations
+  case "$REF_NAME" in
+    refs/heads/*)
+      # Branch reference changed
+      BRANCH_NAME="${REF_NAME#refs/heads/}"
+      
+      if [ "$OPERATION" = "delete" ]; then
+        # Branch deletion (git branch -D)
+        saferun-hook reference-transaction "branch-delete" "$BRANCH_NAME" "$OLD_OID" "$NEW_OID"
+        STATUS=$?
+      elif [ "$OPERATION" = "update" ]; then
+        # Branch update (could be reset, rebase, merge)
+        saferun-hook reference-transaction "branch-update" "$BRANCH_NAME" "$OLD_OID" "$NEW_OID"
+        STATUS=$?
+      else
+        # Branch creation - allow
+        STATUS=0
+      fi
+      ;;
+    
+    HEAD)
+      # HEAD changed - this is reset, checkout, etc.
+      saferun-hook reference-transaction "head-update" "HEAD" "$OLD_OID" "$NEW_OID"
+      STATUS=$?
+      ;;
+    
+    refs/tags/*)
+      # Tag operations - usually safe, but log them
+      STATUS=0
+      ;;
+    
+    *)
+      # Other refs - allow
+      STATUS=0
+      ;;
+  esac
+  
+  if [ $STATUS -ne 0 ]; then
+    BLOCKED=1
+    # Don't exit immediately - process all refs for logging
+  fi
+done
+
+# If any operation was blocked, abort the entire transaction
+if [ $BLOCKED -ne 0 ]; then
+  echo "🛡️  SafeRun: Operation blocked. Awaiting approval or denied by policy."
+  exit 1
+fi
+
+exit 0

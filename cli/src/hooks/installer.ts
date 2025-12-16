@@ -27,7 +27,7 @@ export interface InstallHooksResult {
   installed: HookManifestEntry[];
 }
 
-const DEFAULT_HOOKS = ['pre-push', 'pre-commit', 'post-checkout'];
+const DEFAULT_HOOKS = ['pre-push', 'pre-commit', 'post-checkout', 'reference-transaction'];
 const MANIFEST_FILENAME = 'hooks-manifest.json';
 const BACKUP_DIRNAME = 'hooks-backup';
 

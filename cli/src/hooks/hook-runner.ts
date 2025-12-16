@@ -112,6 +112,9 @@ export class HookRunner {
         case 'post-checkout':
           await this.handlePostCheckout(context);
           break;
+        case 'reference-transaction':
+          await this.handleReferenceTransaction(context);
+          break;
         default:
           break;
       }
@@ -527,6 +530,191 @@ export class HookRunner {
       to: newRef,
       flag,
     });
+  }
+
+  /**
+   * Handle reference-transaction hook
+   * This is called by Git for ANY ref change: reset, branch -D, checkout, rebase, merge
+   * It's the ONLY reliable way to intercept operations that bypass PATH/shell configs
+   * 
+   * Args format from shell hook:
+   *   [0] = operation type: "branch-delete", "branch-update", "head-update"
+   *   [1] = ref name (branch name or "HEAD")
+   *   [2] = old OID
+   *   [3] = new OID
+   */
+  private async handleReferenceTransaction(context: HookContext): Promise<void> {
+    const [operationType, refName, oldOid, newOid] = context.args;
+    
+    if (!operationType || !refName) {
+      return;
+    }
+
+    const repoSlug = context.config.github.repo === 'auto' 
+      ? context.gitInfo.repoSlug ?? 'unknown/repo' 
+      : context.config.github.repo;
+    
+    const currentBranch = await getCurrentBranch(context.gitInfo.repoRoot);
+    const protectedBranches = context.config.github.protected_branches ?? [];
+    
+    // Determine if this affects a protected branch
+    let affectedBranch = refName;
+    if (operationType === 'head-update') {
+      affectedBranch = currentBranch || 'unknown';
+    }
+    
+    const isProtected = isProtectedBranch(affectedBranch, protectedBranches);
+    
+    // Log the operation
+    await logOperation(context.gitInfo.repoRoot, {
+      event: 'reference-transaction',
+      repo: repoSlug,
+      operation: operationType,
+      ref: refName,
+      oldOid: oldOid?.substring(0, 8),
+      newOid: newOid?.substring(0, 8),
+      protected: isProtected,
+      aiDetected: context.aiScore && context.aiScore >= 0.3,
+    });
+
+    // Determine operation risk level and description
+    let riskLevel: 'low' | 'medium' | 'high' = 'low';
+    let operationDescription = '';
+    
+    switch (operationType) {
+      case 'branch-delete':
+        riskLevel = isProtected ? 'high' : 'medium';
+        operationDescription = `Delete branch: ${refName}`;
+        break;
+      case 'branch-update':
+        riskLevel = isProtected ? 'high' : 'medium';
+        operationDescription = `Update branch: ${refName} (${oldOid?.substring(0, 8)} → ${newOid?.substring(0, 8)})`;
+        break;
+      case 'head-update':
+        riskLevel = isProtected ? 'high' : 'medium';
+        operationDescription = `HEAD update on ${affectedBranch} (${oldOid?.substring(0, 8)} → ${newOid?.substring(0, 8)})`;
+        break;
+      default:
+        return; // Unknown operation, allow
+    }
+
+    // In monitor mode, just log
+    if (context.config.mode === 'monitor') {
+      console.log(chalk.cyan(`🔍 [Monitor] ${operationDescription}`));
+      return;
+    }
+
+    // In warn mode, show warning but allow
+    if (context.config.mode === 'warn') {
+      console.log(chalk.yellow(`⚠️  [Warning] ${operationDescription}`));
+      return;
+    }
+
+    // Block/Enforce mode on protected branches
+    if (isProtected && (context.config.mode === 'block' || context.config.mode === 'enforce')) {
+      console.log(chalk.red(`\n🛡️  SafeRun: Dangerous operation detected`));
+      console.log(chalk.yellow(`   Operation: ${operationDescription}`));
+      console.log(chalk.yellow(`   Branch: ${affectedBranch} (PROTECTED)`));
+      console.log(chalk.yellow(`   Risk Level: ${riskLevel.toUpperCase()}`));
+      
+      if (context.aiScore && context.aiScore >= 0.3) {
+        console.log(chalk.cyan(`   AI Agent: Detected (score: ${Math.round(context.aiScore * 100)}%)`));
+      }
+
+      // Map operation type to API operation type
+      let apiOperationType = 'reset_hard';
+      if (operationType === 'branch-delete') {
+        apiOperationType = 'branch_delete';
+      } else if (operationType === 'branch-update') {
+        apiOperationType = 'reset_hard'; // Most likely a reset
+      }
+
+      // For reference-transaction, use gitOperation API (same as interceptors)
+      try {
+        const dryRunResult = await context.client.gitOperation({
+          operationType: apiOperationType,
+          target: `${repoSlug}@${affectedBranch}`,
+          command: `git ${operationType.replace('-', ' ')} (via hook)`,
+          metadata: {
+            repo: repoSlug,
+            branch: affectedBranch,
+            oldOid: oldOid?.substring(0, 8),
+            newOid: newOid?.substring(0, 8),
+            refName,
+            aiDetected: context.aiScore && context.aiScore >= 0.3,
+          },
+          riskScore: riskLevel === 'high' ? 0.8 : 0.5,
+          humanPreview: operationDescription,
+          requiresApproval: true,
+          reasons: [`ref_${operationType}`, `protected_branch:${affectedBranch}`],
+        });
+
+        if (!dryRunResult.needsApproval) {
+          // Allowed by policy
+          console.log(chalk.green('✅ Operation allowed by policy'));
+          return;
+        }
+
+        // Needs approval - use approval flow
+        const approvalFlow = new ApprovalFlow({
+          client: context.client,
+          metrics: context.metrics,
+          config: context.config,
+          modeSettings: context.modeSettings,
+        });
+        
+        const outcome = await approvalFlow.requestApproval(dryRunResult);
+
+        if (outcome === ApprovalOutcome.Approved) {
+          console.log(chalk.green('✅ Operation approved'));
+          await context.metrics.track('operation_approved', {
+            hook: 'reference-transaction',
+            operation_type: operationType,
+            repo: repoSlug,
+            branch: affectedBranch,
+          }).catch(() => undefined);
+          return;
+        }
+
+        // Blocked
+        console.log(chalk.red('\n❌ Operation blocked by SafeRun'));
+        await context.metrics.track('operation_blocked', {
+          hook: 'reference-transaction',
+          operation_type: operationType,
+          repo: repoSlug,
+          branch: affectedBranch,
+          reason: 'cancelled',
+        }).catch(() => undefined);
+        
+        process.exit(1);
+      } catch (error) {
+        // SECURITY: Block operation when API unavailable (fail-secure)
+        // This is critical - we cannot allow dangerous operations without API verification
+        const message = error instanceof Error ? error.message : String(error);
+        console.error(chalk.red(`\n🚫 Operation blocked - SafeRun API unreachable`));
+        console.error(chalk.yellow(`   Cannot verify safety without API connection.`));
+        console.error(chalk.gray(`   Error: ${message}`));
+        
+        await context.metrics.track('operation_blocked', {
+          hook: 'reference-transaction',
+          operation_type: operationType,
+          repo: repoSlug,
+          branch: affectedBranch,
+          reason: 'api_unreachable',
+        }).catch(() => undefined);
+        
+        await logOperation(context.gitInfo.repoRoot, {
+          event: 'reference-transaction',
+          operation: operationType,
+          repo: repoSlug,
+          branch: affectedBranch,
+          outcome: 'blocked_api_error',
+          error: message,
+        });
+        
+        process.exit(1);
+      }
+    }
   }
 
   private handleAPIError(error: Error, config: SafeRunConfig): { shouldBlock: boolean; message: string } {
