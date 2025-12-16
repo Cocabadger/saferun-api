@@ -358,17 +358,43 @@ export class DoctorCommand {
 
     const manifest = await loadManifest(gitInfo.repoRoot);
     const hooks = await listHooks(gitInfo.gitDir);
+    
+    // Check for SafeRun hooks directly in .git/hooks (more reliable than manifest)
+    const expectedHooks = ['pre-push', 'pre-commit', 'post-checkout', 'reference-transaction'];
+    const saferunHooks: string[] = [];
+    
+    for (const hookName of expectedHooks) {
+      const hookPath = path.join(gitInfo.gitDir, 'hooks', hookName);
+      if (fs.existsSync(hookPath)) {
+        try {
+          const content = await fs.promises.readFile(hookPath, 'utf-8');
+          if (content.includes('SafeRun') || content.includes('saferun')) {
+            saferunHooks.push(hookName);
+          }
+        } catch {
+          // Ignore read errors
+        }
+      }
+    }
 
-    if (manifest?.hooks?.length) {
-      const saferunHooks = hooks.filter(h => 
-        manifest.hooks.some((m: any) => m.name === h)
-      );
+    if (saferunHooks.length >= 3) {
+      // Check if reference-transaction is present (critical for agent protection)
+      const hasRefTx = saferunHooks.includes('reference-transaction');
       
       this.checks.push({
         name: 'Git Hooks',
-        status: 'ok',
+        status: hasRefTx ? 'ok' : 'warn',
         message: `${saferunHooks.length} SafeRun hooks installed`,
-        detail: saferunHooks.join(', '),
+        detail: hasRefTx 
+          ? saferunHooks.join(', ')
+          : `${saferunHooks.join(', ')} (missing reference-transaction for full agent protection)`,
+      });
+    } else if (saferunHooks.length > 0) {
+      this.checks.push({
+        name: 'Git Hooks',
+        status: 'warn',
+        message: `Only ${saferunHooks.length} hooks installed`,
+        detail: 'Run "saferun init" to install full protection',
       });
     } else if (hooks.length > 0) {
       this.checks.push({
@@ -477,12 +503,12 @@ export class DoctorCommand {
         detail: `which git → ${pathCheck.currentGit}`,
       });
     } else {
-      const exportCmd = getPathExportCommand(gitInfo.repoRoot);
+      // Not critical anymore - reference-transaction hook provides full protection
       this.checks.push({
         name: 'Binary Wrapper',
-        status: 'warn',
-        message: 'Installed but NOT in PATH',
-        detail: `⚠️ Agents can bypass SafeRun! Run: ${exportCmd}`,
+        status: 'ok',
+        message: 'Installed (optional layer)',
+        detail: 'reference-transaction hook provides main protection',
       });
     }
   }
