@@ -16,9 +16,9 @@ export class HookCommand {
     // Check if repo is protected (using global registry)
     if (!isRepoProtectedSync(gitInfo.repoRoot)) {
       // Not protected - pass through
-      return runGitCommand(this.mapHandlerToGitCommand(handler, forwarded), { 
+      return runGitCommand(this.mapHandlerToGitCommand(handler, forwarded), {
         cwd: gitInfo.repoRoot,
-        disableAliases: [this.aliasName(handler)] 
+        disableAliases: [this.aliasName(handler)]
       });
     }
 

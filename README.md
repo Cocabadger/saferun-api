@@ -1,5 +1,7 @@
 # 🛡️ SafeRun
 
+> ⚠️ **Disclaimer:** This is an experimental tool built by a non-engineer to solve a non-engineer's fears. Use at your own risk.
+
 > **Stop AI agents from breaking production**
 
 [![npm version](https://img.shields.io/npm/v/@saferun/cli.svg)](https://www.npmjs.com/package/@saferun/cli)
