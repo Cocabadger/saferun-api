@@ -1,6 +1,6 @@
 # 🛡️ SafeRun
 
-> ⚠️ **Disclaimer:** This is an experimental tool built by a non-engineer to solve a non-engineer's fears. It handles sensitive API tokens. Use at your own risk.
+> ⚠️ **Disclaimer:** This is an experimental tool built by a non-engineer to solve a non-engineer's fears. It handles sensitive API tokens using AES-256-GCM encryption. Use at your own risk.
 
 > **Stop AI agents from breaking production**
 
