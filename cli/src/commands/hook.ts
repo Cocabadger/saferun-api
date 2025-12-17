@@ -59,6 +59,10 @@ export class HookCommand {
           const { interceptCommit } = await import('../interceptors/commit');
           return await interceptCommit(context);
         }
+        case 'git-rebase': {
+          const { interceptRebase } = await import('../interceptors/rebase');
+          return await interceptRebase(context);
+        }
         default: {
           console.warn(chalk.yellow(`Unknown SafeRun hook handler: ${handler}`));
           return runGitCommand(this.mapHandlerToGitCommand(handler, forwarded), {
@@ -84,6 +88,8 @@ export class HookCommand {
         return 'push';
       case 'git-commit':
         return 'commit';
+      case 'git-rebase':
+        return 'rebase';
       default:
         return handler;
     }
@@ -101,6 +107,8 @@ export class HookCommand {
         return ['push', ...args];
       case 'git-commit':
         return ['commit', ...args];
+      case 'git-rebase':
+        return ['rebase', ...args];
       default: {
         const command = handler.startsWith('git-') ? handler.slice(4) : handler;
         return [command, ...args];

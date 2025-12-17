@@ -1,4 +1,4 @@
-export type GitOperationType = 'push' | 'branch' | 'reset' | 'clean' | 'unknown';
+export type GitOperationType = 'push' | 'branch' | 'reset' | 'clean' | 'rebase' | 'unknown';
 
 export interface GitOperation {
   type: GitOperationType;
@@ -26,6 +26,8 @@ export class GitCommandParser {
         return this.parseReset(args);
       case 'clean':
         return this.parseClean(args);
+      case 'rebase':
+        return this.parseRebase(args);
       default:
         return {
           type: 'unknown',
@@ -197,6 +199,34 @@ export class GitCommandParser {
     if (args.includes('-d') || args.includes('--directories')) {
       operation.flags.push('directories');
     }
+
+    return operation;
+  }
+
+  parseRebase(args: string[]): GitOperation {
+    const operation: GitOperation = {
+      type: 'rebase',
+      action: 'rebase',
+      targets: [],
+      flags: [],
+      risk: 'medium',
+    };
+
+    const interactiveFlags = new Set(['-i', '--interactive']);
+
+    args.forEach((arg) => {
+      if (interactiveFlags.has(arg)) {
+        operation.flags.push('interactive');
+        operation.risk = 'high';
+      }
+      if (arg === '--onto') {
+        operation.flags.push('onto');
+        operation.risk = 'high';
+      }
+      if (!arg.startsWith('-')) {
+        operation.targets.push(arg);
+      }
+    });
 
     return operation;
   }

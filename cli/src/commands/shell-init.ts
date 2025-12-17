@@ -111,6 +111,11 @@ git() {
           return \$?
         fi
         ;;
+      rebase)
+        # Intercept all rebase operations (especially interactive)
+        saferun hook git-rebase "\${@:2}"
+        return \$?
+        ;;
       config)
         # Block attempts to disable hooks
         if [[ "\$all_args" == *"core.hooksPath"* ]]; then
@@ -182,6 +187,10 @@ function git --wraps git
           saferun hook git-clean $argv[2..-1]
           return $status
         end
+      case rebase
+        # Intercept all rebase operations
+        saferun hook git-rebase $argv[2..-1]
+        return $status
       case config
         if string match -q "*core.hooksPath*" $all_args
           echo "🛑 SafeRun: Blocked attempt to modify hooks path"
