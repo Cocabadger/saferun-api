@@ -164,9 +164,14 @@ export class ApprovalFlow {
           return ApprovalOutcome.Approved;
         }
       } catch (error) {
-        // Continue polling on transient errors
-        if (error instanceof Error && !error.message.includes('404')) {
-          // Log but continue
+        // Handle specific errors
+        if (error instanceof Error) {
+          if (error.message.includes('404')) {
+            // Operation not found/expired - stop polling
+            console.log(chalk.red('\n✗ Approval not found (may have expired)'));
+            return ApprovalOutcome.Cancelled;
+          }
+          // For transient errors (ECONNRESET, timeouts), continue polling silently
         }
       }
 
@@ -317,10 +322,14 @@ export class ApprovalFlow {
 
           // Still pending - continue polling
         } catch (error) {
-          // Continue polling on transient errors
-          if (error instanceof Error && !error.message.includes('404')) {
-            throw error;
+          // Continue polling on transient errors (ECONNRESET, network issues, etc.)
+          // Only abort on 404 (operation not found/expired)
+          if (error instanceof Error && error.message.includes('404')) {
+            spinner.fail(chalk.red('✗ Approval not found (may have expired)'));
+            return ApprovalOutcome.Cancelled;
           }
+          // For other errors (ECONNRESET, timeouts), log and continue polling
+          spinner.text = `${this.getWaitingText(attempt, maxAttempts, elapsed, remaining)} ${chalk.gray('(retrying...)')}`;
         }
 
         // Wait before next poll
