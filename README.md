@@ -25,7 +25,7 @@ Intercepts dangerous Git commands **before** they execute in your terminal:
 - `git push --force` / `git push -f` / `--force-with-lease`
 - `git reset --hard`
 - `git branch -D` / `git branch --delete --force`
-- `git clean -fd` (deletes untracked files)
+- `git clean -fd` (via CLI wrapper only — see Known Limitations)
 - `git commit --no-verify` (skips hooks)
 - Direct commits to `main` or `master` (protected branches)
 
@@ -174,7 +174,7 @@ Agent runs: git push --force origin main
 - `git push --force` / `git push -f` / `--force-with-lease`
 - `git reset --hard`
 - `git branch -D` / `git branch --delete --force`
-- `git clean -fd`
+- `git clean -fd` (via CLI wrapper only)
 - `git commit` with secrets (`.env`, `sk-`, `ghp_`)
 - Direct commits to `main` / `master`
 
@@ -357,15 +357,18 @@ SafeRun protects **Git ref-changing operations** using Git's `reference-transact
 - `git rebase` — rewrites branch history
 - `git checkout <branch>` — updates HEAD ref
 
+### ⚠️ Partial Protection
+
+- ✅ `git clean -fd` — caught by CLI wrapper, but ❌ missed by the core `reference-transaction` hook if the wrapper is bypassed
+
 ### ❌ Not Protected
 
-- `git clean -fd` — deletes files without ref change → *use `.gitignore`*
 - `rm -rf .git` — filesystem operation → *use Docker/sandbox*
 - Deleting hooks — filesystem operation → *use Docker/sandbox*
 
-**Why can't we protect `git clean -fd`?**
+**Why is `git clean -fd` only partially protected?**
 
-Git's `reference-transaction` hook only fires when refs (branches, tags, HEAD) change. `git clean` removes untracked files without touching any refs — Git simply doesn't call any hook.
+Git's `reference-transaction` hook only fires when refs (branches, tags, HEAD) change. `git clean` removes untracked files without touching any refs — Git simply doesn't call any hook. Our CLI wrapper catches it, but if an agent calls `/usr/bin/git clean` directly, the hook won't fire.
 
 **Adversarial AI agents:**
 
