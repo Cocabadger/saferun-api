@@ -49,12 +49,51 @@ saferun uninstall --global # Remove completely
 
 ## How It Works
 
-1. Shell wrapper intercepts dangerous Git commands
-2. SafeRun calculates risk score and detects AI agent
-3. Slack notification sent with Approve/Reject buttons
-4. You approve → command executes. You reject → command blocked.
+SafeRun uses **multiple layers** of protection:
+
+1. **Shell Wrapper** — Intercepts `git` commands in interactive shells
+2. **Git Hooks** — `pre-commit`, `pre-push`, `post-checkout`
+3. **reference-transaction Hook** — Intercepts ALL ref changes at Git core level (Git 2.29+)
+
+The `reference-transaction` hook is the **most reliable** layer — it catches operations even when AI agents call `/usr/bin/git` directly, bypassing shell aliases and PATH wrappers.
+
+```
+AI Agent → /usr/bin/git reset --hard → Git internals → reference-transaction hook → SafeRun blocks!
+```
+
+When a dangerous operation is detected:
+1. SafeRun calculates risk score and detects AI agent
+2. Slack notification sent with Approve/Reject buttons
+3. You approve → command executes. You reject → command blocked.
 
 Approval timeout: 2 hours.
+
+## Requirements
+
+- **Node.js** 18+
+- **Git** 2.29+ (for `reference-transaction` hook)
+- **Slack** workspace with bot token
+
+## Known Limitations (Help Wanted! 🙏)
+
+SafeRun protects **Git ref-changing operations**. Some operations are outside our scope:
+
+**✅ Protected Operations** (ref-changing):
+- `git reset --hard` — changes branch ref
+- `git branch -D` — deletes branch ref  
+- `git push --force` — changes remote ref
+- `git rebase` — rewrites branch ref
+- `git checkout` to different branch — updates HEAD ref
+
+**❌ Not Protected** (no ref change):
+- `git clean -fd` — deletes untracked files only → *use `.gitignore`*
+- `rm -rf .git` — filesystem operation → *use Docker/sandbox*
+- Deleting `.git/hooks/` — filesystem operation → *use Docker/sandbox*
+
+**Why can't we protect `git clean`?**
+Git's `reference-transaction` hook only fires when refs change. `git clean` deletes untracked files without touching refs.
+
+**Community contributions welcome!** If you know how to intercept these operations, please open an issue or PR.
 
 ## Documentation
 

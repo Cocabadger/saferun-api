@@ -10,7 +10,7 @@
 
 **Solution:** SafeRun intercepts dangerous operations, blocks execution, sends Slack notification with context → you approve or reject from your phone.
 
-> **v0.6.10 Public Beta** — Actively maintained. Core functionality stable. [Report issues →](https://github.com/Cocabadger/saferun-api/issues)
+> **v0.6.19 Public Beta** — Actively maintained. Core functionality stable. [Report issues →](https://github.com/Cocabadger/saferun-api/issues)
 
 ---
 
@@ -45,6 +45,12 @@ Monitors GitHub events even if CLI is bypassed:
 ---
 
 ## ⚡ Quick Start (5 minutes)
+
+### Requirements
+
+- **Node.js** 18+
+- **Git** 2.29+ (for `reference-transaction` hook — critical for AI agent protection)
+- **Slack** workspace (for approval notifications)
 
 ### Step 1: Install CLI
 
@@ -334,6 +340,38 @@ saferun doctor  # Check shell wrapper status
 ```bash
 saferun status -n 50  # Last 50 operations
 ```
+
+---
+
+## ⚠️ Known Limitations (Help Wanted!)
+
+SafeRun protects **Git ref-changing operations** using Git's `reference-transaction` hook (Git 2.29+). Some operations are outside our current scope:
+
+### ✅ Protected Operations
+
+- `git reset --hard` — changes branch ref
+- `git branch -D` — deletes branch ref
+- `git push --force` — changes remote ref
+- `git rebase` — rewrites branch history
+- `git checkout <branch>` — updates HEAD ref
+
+### ❌ Not Protected
+
+- `git clean -fd` — deletes files without ref change → *use `.gitignore`*
+- `rm -rf .git` — filesystem operation → *use Docker/sandbox*
+- Deleting hooks — filesystem operation → *use Docker/sandbox*
+
+**Why can't we protect `git clean -fd`?**
+
+Git's `reference-transaction` hook only fires when refs (branches, tags, HEAD) change. `git clean` removes untracked files without touching any refs — Git simply doesn't call any hook.
+
+**Adversarial AI agents:**
+
+During testing, we observed AI agents attempting to bypass protection by:
+- Calling `/usr/bin/git` directly (✅ now blocked via `reference-transaction`)
+- Suggesting to delete hooks (❌ requires OS-level sandboxing)
+
+**Community contributions welcome!** If you know how to intercept these edge cases, please [open an issue](https://github.com/Cocabadger/saferun-api/issues) or PR.
 
 ---
 
