@@ -3,14 +3,16 @@ Slack OAuth Router for SafeRun
 Handles "Add to Slack" OAuth flow with CSRF protection via state parameter.
 
 Flow:
-1. CLI/Landing → GET /api/auth/slack?api_key=xxx
-2. Backend generates state (UUID), stores in DB, redirects to Slack OAuth
+1. CLI/Landing → GET /auth/slack/start?session=xxx (encrypted session token)
+2. Backend decrypts session, generates state (UUID), stores in DB, redirects to Slack
 3. User clicks "Allow" in Slack
-4. Slack → GET /api/auth/slack/callback?code=xxx&state=xxx
+4. Slack → GET /auth/slack/callback?code=xxx&state=xxx
 5. Backend verifies state, exchanges code for bot_token, stores encrypted in DB
 """
 import os
 import uuid
+import json
+import base64
 import httpx
 import logging
 from datetime import datetime, timezone, timedelta
@@ -27,7 +29,7 @@ SLACK_CLIENT_ID = os.getenv("SLACK_CLIENT_ID")
 SLACK_CLIENT_SECRET = os.getenv("SLACK_CLIENT_SECRET")
 SLACK_REDIRECT_URI = os.getenv(
     "SLACK_REDIRECT_URI",
-    "https://saferun-api.up.railway.app/api/auth/slack/callback"
+    "https://saferun-api.up.railway.app/auth/slack/callback"  # No /api prefix!
 )
 
 # Scopes needed for SafeRun:
@@ -36,20 +38,47 @@ SLACK_REDIRECT_URI = os.getenv(
 SLACK_SCOPES = "chat:write"
 
 
-@router.get("")
+def create_session_token(api_key: str) -> str:
+    """Create encrypted session token containing api_key."""
+    payload = json.dumps({"api_key": api_key, "ts": datetime.now(timezone.utc).isoformat()})
+    return crypto.encrypt_token(payload)
+
+
+def verify_session_token(session: str) -> str:
+    """Verify and decrypt session token, return api_key."""
+    try:
+        decrypted = crypto.decrypt_token(session)
+        if not decrypted:
+            return None
+        payload = json.loads(decrypted)
+        # Check timestamp is within 10 minutes
+        ts = datetime.fromisoformat(payload["ts"])
+        if datetime.now(timezone.utc) - ts > timedelta(minutes=10):
+            return None
+        return payload.get("api_key")
+    except Exception:
+        return None
+
+
+@router.get("/start")
 async def slack_oauth_start(
-    api_key: str = Query(..., description="SafeRun API key to link Slack installation")
+    session: str = Query(..., description="Encrypted session token")
 ):
     """
-    Start Slack OAuth flow.
+    Start Slack OAuth flow (secure version - no api_key in URL).
     
-    Generates CSRF state, stores it in DB, redirects to Slack authorization page.
+    Session token is encrypted and contains api_key inside.
     """
     if not SLACK_CLIENT_ID:
         raise HTTPException(
             status_code=503,
             detail="Slack OAuth not configured. Set SLACK_CLIENT_ID environment variable."
         )
+    
+    # Decrypt session to get api_key
+    api_key = verify_session_token(session)
+    if not api_key:
+        raise HTTPException(status_code=401, detail="Invalid or expired session")
     
     # Verify API key exists
     key_data = db.get_api_key(api_key)
@@ -74,6 +103,19 @@ async def slack_oauth_start(
     logger.info(f"Starting Slack OAuth for api_key={api_key[:10]}...")
     
     return RedirectResponse(url=slack_auth_url)
+
+
+# Legacy endpoint for backward compatibility (will be removed)
+@router.get("")
+async def slack_oauth_start_legacy(
+    api_key: str = Query(..., description="SafeRun API key to link Slack installation")
+):
+    """
+    Start Slack OAuth flow (legacy - api_key in URL).
+    Redirects to /start with encrypted session.
+    """
+    session = create_session_token(api_key)
+    return RedirectResponse(url=f"/auth/slack/start?session={session}")
 
 
 @router.get("/callback")
