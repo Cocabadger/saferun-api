@@ -571,6 +571,15 @@ def validate_api_key(api_key: str) -> Optional[Dict[str, Any]]:
     )
     return updated
 
+
+def get_api_key(api_key: str) -> Optional[Dict[str, Any]]:
+    """Get API key info by key value."""
+    return fetchone(
+        "SELECT * FROM api_keys WHERE api_key = %s AND is_active = 1",
+        (api_key,)
+    )
+
+
 def get_api_key_by_email(email: str) -> Optional[Dict[str, Any]]:
     """Get API key info by email."""
     return fetchone(
