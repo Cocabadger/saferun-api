@@ -198,6 +198,38 @@ def init_db():
     END $$;
     """)
 
+    # Create Slack OAuth state table (for CSRF protection)
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS oauth_states(
+        state TEXT PRIMARY KEY,
+        api_key TEXT NOT NULL,
+        created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+        expires_at TIMESTAMP NOT NULL,
+        used BOOLEAN DEFAULT FALSE,
+        FOREIGN KEY (api_key) REFERENCES api_keys(api_key) ON DELETE CASCADE
+    );
+    
+    CREATE INDEX IF NOT EXISTS idx_oauth_states_expires ON oauth_states(expires_at);
+    """)
+
+    # Create Slack installations table (OAuth tokens)
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS slack_installations(
+        id SERIAL PRIMARY KEY,
+        api_key TEXT UNIQUE NOT NULL,
+        team_id TEXT NOT NULL,
+        team_name TEXT,
+        bot_token TEXT NOT NULL,
+        bot_user_id TEXT,
+        channel_id TEXT,
+        installed_at TIMESTAMP NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
+        FOREIGN KEY (api_key) REFERENCES api_keys(api_key) ON DELETE CASCADE
+    );
+    
+    CREATE INDEX IF NOT EXISTS idx_slack_installations_team ON slack_installations(team_id);
+    """)
+
     conn.commit()
     conn.close()
 
@@ -791,3 +823,156 @@ def get_approval_token_info(token: str) -> Optional[Dict[str, Any]]:
         FROM approval_tokens
         WHERE token=%s
     """, (token,))
+
+
+# =============================================================================
+# Slack OAuth Functions
+# =============================================================================
+
+def store_oauth_state(state: str, api_key: str, expires_minutes: int = 10):
+    """
+    Store OAuth state for CSRF protection.
+    
+    Args:
+        state: UUID state parameter
+        api_key: API key to link after OAuth completes
+        expires_minutes: TTL for state (default 10 min)
+    """
+    expires_at = now_utc() + timedelta(minutes=expires_minutes)
+    
+    exec("""
+        INSERT INTO oauth_states(state, api_key, created_at, expires_at, used)
+        VALUES (%s, %s, NOW(), %s, FALSE)
+        ON CONFLICT (state) DO UPDATE SET
+            api_key = EXCLUDED.api_key,
+            expires_at = EXCLUDED.expires_at,
+            used = FALSE
+    """, (state, api_key, expires_at))
+
+
+def verify_oauth_state(state: str) -> Optional[Dict[str, Any]]:
+    """
+    Verify OAuth state is valid and not expired.
+    
+    Returns: Dict with api_key if valid, None otherwise
+    """
+    row = fetchone("""
+        SELECT state, api_key, expires_at, used
+        FROM oauth_states
+        WHERE state = %s
+    """, (state,))
+    
+    if not row:
+        return None
+    
+    if row['used']:
+        return None  # Already used
+    
+    # Check expiration
+    expires_at = parse_dt(row['expires_at']) if isinstance(row['expires_at'], str) else row['expires_at']
+    if expires_at.tzinfo is None:
+        expires_at = expires_at.replace(tzinfo=timezone.utc)
+    
+    if now_utc() > expires_at:
+        return None  # Expired
+    
+    return {"api_key": row['api_key']}
+
+
+def mark_oauth_state_used(state: str):
+    """Mark OAuth state as used."""
+    exec("""
+        UPDATE oauth_states SET used = TRUE
+        WHERE state = %s
+    """, (state,))
+
+
+def cleanup_expired_oauth_states():
+    """Delete expired OAuth states (housekeeping)."""
+    exec("""
+        DELETE FROM oauth_states
+        WHERE expires_at < NOW() OR used = TRUE
+    """)
+
+
+def store_slack_installation(
+    api_key: str,
+    team_id: str,
+    team_name: str,
+    bot_token: str,
+    bot_user_id: str = None,
+    channel_id: str = None
+):
+    """
+    Store Slack installation with encrypted bot token.
+    
+    Upserts: If api_key already has installation, updates it.
+    """
+    # Encrypt bot token before storing
+    encrypted_token = crypto.encrypt_token(bot_token)
+    
+    exec("""
+        INSERT INTO slack_installations(
+            api_key, team_id, team_name, bot_token, bot_user_id, channel_id, installed_at, updated_at
+        )
+        VALUES (%s, %s, %s, %s, %s, %s, NOW(), NOW())
+        ON CONFLICT (api_key) DO UPDATE SET
+            team_id = EXCLUDED.team_id,
+            team_name = EXCLUDED.team_name,
+            bot_token = EXCLUDED.bot_token,
+            bot_user_id = EXCLUDED.bot_user_id,
+            channel_id = EXCLUDED.channel_id,
+            updated_at = NOW()
+    """, (api_key, team_id, team_name, encrypted_token, bot_user_id, channel_id))
+
+
+def get_slack_installation(api_key: str) -> Optional[Dict[str, Any]]:
+    """
+    Get Slack installation for API key.
+    
+    Returns: Dict with decrypted bot_token, or None if not found
+    """
+    row = fetchone("""
+        SELECT api_key, team_id, team_name, bot_token, bot_user_id, channel_id, installed_at
+        FROM slack_installations
+        WHERE api_key = %s
+    """, (api_key,))
+    
+    if not row:
+        return None
+    
+    # Decrypt bot token
+    decrypted_token = crypto.decrypt_token(row['bot_token'])
+    if not decrypted_token:
+        # Decryption failed - token may be corrupted
+        return None
+    
+    return {
+        "api_key": row['api_key'],
+        "team_id": row['team_id'],
+        "team_name": row['team_name'],
+        "bot_token": decrypted_token,
+        "bot_user_id": row['bot_user_id'],
+        "channel_id": row['channel_id'],
+        "installed_at": row['installed_at']
+    }
+
+
+def delete_slack_installation(api_key: str) -> bool:
+    """
+    Delete Slack installation for API key.
+    
+    Returns: True if deleted, False if not found
+    """
+    row = fetchone("""
+        SELECT api_key FROM slack_installations WHERE api_key = %s
+    """, (api_key,))
+    
+    if not row:
+        return False
+    
+    exec("""
+        DELETE FROM slack_installations WHERE api_key = %s
+    """, (api_key,))
+    
+    return True

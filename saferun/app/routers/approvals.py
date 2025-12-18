@@ -35,6 +35,85 @@ class ApprovalActionResponse(BaseModel):
     message: str
 
 
+class ChangeStatusResponse(BaseModel):
+    """Response for CLI polling endpoint."""
+    change_id: str
+    status: str
+    execution_allowed: bool
+    message: Optional[str] = None
+
+
+@router.get("/v1/changes/{change_id}/status", response_model=ChangeStatusResponse)
+async def get_change_status_for_polling(
+    change_id: str,
+    api_key: str = Header(..., alias="X-API-Key")
+) -> ChangeStatusResponse:
+    """
+    Get change status for CLI polling.
+    
+    This endpoint is designed for CLI polling during approval wait:
+    - Returns execution_allowed=True when CLI can proceed with operation
+    - Returns execution_allowed=False when CLI should keep waiting or abort
+    
+    Status meanings:
+    - pending: waiting for approval → execution_allowed=False
+    - approved: approved, CLI can execute → execution_allowed=True
+    - rejected: rejected by admin → execution_allowed=False (abort)
+    - expired: timeout reached → execution_allowed=False (abort)
+    - failed: operation failed → execution_allowed=False
+    """
+    from datetime import datetime, timezone
+    
+    storage = storage_manager.get_storage()
+    
+    # Verify ownership
+    rec = verify_change_ownership(change_id, api_key, storage)
+    
+    status = rec.get("status", "pending")
+    requires_approval = bool(rec.get("requires_approval"))
+    
+    # Check if approval expired (2 hour timeout)
+    expires_at = rec.get("expires_at")
+    if expires_at and status == "pending":
+        if isinstance(expires_at, str):
+            expires_dt = datetime.fromisoformat(expires_at.replace('Z', '+00:00'))
+        else:
+            expires_dt = expires_at
+        
+        if expires_dt.tzinfo is None:
+            expires_dt = expires_dt.replace(tzinfo=timezone.utc)
+        
+        now = datetime.now(timezone.utc)
+        
+        if now > expires_dt:
+            storage.set_change_status(change_id, "expired")
+            status = "expired"
+    
+    # Determine if CLI can execute
+    if status == "approved" or (status == "pending" and not requires_approval):
+        execution_allowed = True
+        message = "Operation approved. You may proceed."
+    elif status == "rejected":
+        execution_allowed = False
+        message = "Operation rejected by administrator."
+    elif status == "expired":
+        execution_allowed = False
+        message = "Operation expired. Please try again."
+    elif status == "pending":
+        execution_allowed = False
+        message = "Waiting for approval..."
+    else:
+        execution_allowed = False
+        message = f"Operation status: {status}"
+    
+    return ChangeStatusResponse(
+        change_id=change_id,
+        status=status,
+        execution_allowed=execution_allowed,
+        message=message
+    )
+
+
 @router.get("/approvals/{change_id}", response_model=ApprovalDetailResponse)
 async def get_approval_details(
     change_id: str,

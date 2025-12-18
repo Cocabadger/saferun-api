@@ -14,6 +14,7 @@ from .routers.git_operations import router as git_router
 from .routers.auth import router as auth_router
 from .routers.approvals import router as approvals_router
 from .routers.slack import router as slack_router
+from .routers.slack_oauth import router as slack_oauth_router
 from .routers.settings import router as settings_router
 from saferun import __version__ as SR_VERSION
 from . import storage as storage_manager
@@ -174,6 +175,7 @@ app.include_router(metrics_router)
 app.include_router(auth_router)  # Auth doesn't require API key
 app.include_router(approvals_router)  # Approvals for web dashboard
 app.include_router(slack_router)  # Slack notifications (not a provider)
+app.include_router(slack_oauth_router)  # Slack OAuth "Add to Slack"
 app.include_router(settings_router)  # User settings
 
 # GitHub webhooks - Level 3 Protection
