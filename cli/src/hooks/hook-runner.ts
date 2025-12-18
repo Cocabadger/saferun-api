@@ -12,6 +12,7 @@ import {
   getCurrentBranch,
   GitEnvironmentInfo,
   matchesBranchPattern,
+  getGitAuthor,
 } from '../utils/git';
 import { loadConfig, SafeRunConfig, ModeSettings, OperationRuleConfig } from '../utils/config';
 import { MetricsCollector } from '../utils/metrics';
@@ -229,6 +230,12 @@ export class HookRunner {
       } else {
         // Regular push - check if protected branch requires approval
         if (protectedBranch) {
+          // Get git author for Banking Grade notifications
+          const prePushGitAuthor = await getGitAuthor(context.gitInfo.repoRoot);
+          const prePushSourceType = (context.aiScore && context.aiScore >= 0.3) 
+            ? (context.aiInfo?.agentType || 'agent')
+            : 'cli';
+          
           // Protected branch push requires approval
           dryRun = await context.client.gitOperation({
             operationType: 'push_protected',
@@ -238,6 +245,10 @@ export class HookRunner {
               repo: repoSlug,
               branch,
               protectedBranch: true,
+              // Banking Grade fields
+              git_author: prePushGitAuthor?.name,
+              git_email: prePushGitAuthor?.email,
+              source: prePushSourceType,
             },
             riskScore: 0.5, // Medium risk
             humanPreview: `Push to protected branch ${branch}`,
@@ -730,6 +741,14 @@ export class HookRunner {
       // Build reasons array
       const reasons = [`${apiOperationType}_detected`, `protected_branch:${affectedBranch}`];
 
+      // Get git author for Banking Grade notifications
+      const gitAuthor = await getGitAuthor(context.gitInfo.repoRoot);
+      
+      // Determine source type (cli vs agent)
+      const sourceType = (context.aiScore && context.aiScore >= 0.3) 
+        ? (context.aiInfo?.agentType || 'agent')
+        : 'cli';
+
       // For reference-transaction, use gitOperation API (same as interceptors)
       try {
         const dryRunResult = await context.client.gitOperation({
@@ -744,6 +763,10 @@ export class HookRunner {
             refName,
             aiDetected: context.aiScore && context.aiScore >= 0.3,
             reflogAction: reflogAction || undefined,
+            // Banking Grade fields
+            git_author: gitAuthor?.name,
+            git_email: gitAuthor?.email,
+            source: sourceType,
           },
           riskScore: getRiskScore(),
           humanPreview: operationDescription,

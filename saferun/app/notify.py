@@ -80,7 +80,7 @@ class Notifier:
             logger.warning("[SLACK] No bot token available - notification not sent")
 
     async def _send_slack_bot(self, payload: Dict[str, Any], text: str, bot_token: str, channel: str, event_type: str = "dry_run") -> None:
-        """Send via Slack Bot API with interactive buttons"""
+        """Send via Slack Bot API with interactive buttons - Banking Grade format"""
         change_id = payload.get("change_id")
         approve_url = payload.get("approve_url")
         revert_url = payload.get("revert_url")
@@ -90,9 +90,16 @@ class Notifier:
         provider = payload.get("provider", "unknown")
         target_id = payload.get("target_id", "")
         
+        # Banking Grade: Extract risk_reasons from payload
+        risk_reasons = payload.get("risk_reasons", [])
+        summary_json = payload.get("summary_json", {})
+        
         # Determine operation type and repository from metadata/payload
         operation_display = title  # Default to title
         repository_name = title
+        branch_name = None
+        git_author = None
+        source_type = "cli"  # Default to CLI
         
         # For GitHub, parse operation type from metadata (stored in change_data or extras)
         if provider == "github":
@@ -113,20 +120,27 @@ class Notifier:
             operation_type = metadata.get("operation_type")
             item_type = metadata.get("type")  # For bulk operations
             
+            # Banking Grade: Extract author and source
+            git_author = metadata.get("git_author") or metadata.get("author") or metadata.get("sender")
+            source_type = metadata.get("source", "cli")  # cli, agent, sdk, webhook
+            branch_name = metadata.get("name") or metadata.get("branch")
+            
             # Extract repo name from target_id (format: owner/repo or owner/repo#branch)
             if target_id:
                 if "#" in target_id:
                     repository_name = target_id.split("#")[0]
+                    # Also extract branch from target_id if not in metadata
+                    if not branch_name:
+                        branch_name = target_id.split("#")[1] if "#" in target_id else None
                 elif "/" in target_id:
                     repository_name = target_id
             
             # Determine operation display text based on operation_type or object_type
             # Check full operation_type first (github_force_push, github_pr_merge, etc.)
             if operation_type == "delete_repo" or operation_type == "github_repo_delete":
-                operation_display = "Repository DELETE (PERMANENT)"
+                operation_display = "🔴 Repository DELETE (PERMANENT)"
             elif operation_type == "github_force_push" or operation_type == "force_push":
-                branch_name = metadata.get("name") or metadata.get("branch", "branch")
-                operation_display = f"Force Push: {branch_name}"
+                operation_display = f"⚠️ Force Push"
             elif operation_type == "github_pr_merge" or object_type == "merge":
                 # Check if merging to main/default
                 if metadata.get("isTargetDefault"):
@@ -136,10 +150,9 @@ class Notifier:
                     operation_display = f"Merge to {target_branch}"
             elif operation_type == "github_branch_delete" or (object_type == "branch" and operation_type != "github_force_push"):
                 if metadata.get("isDefault"):
-                    operation_display = "Delete Main Branch"
+                    operation_display = "🔴 Delete Main Branch"
                 else:
-                    branch_name = metadata.get("name") or metadata.get("branch", "branch")
-                    operation_display = f"Delete Branch: {branch_name}"
+                    operation_display = f"Delete Branch"
             elif object_type == "repository":
                 # Check operation_type for archive vs unarchive
                 if operation_type == "github_repo_unarchive":
@@ -153,7 +166,7 @@ class Notifier:
                 records_affected = metadata.get("records_affected", 0)
                 operation_display = f"Close {records_affected} Pull Requests"
             else:
-                operation_display = f"GitHub Operation: {title}"
+                operation_display = f"Git Operation: {title}"
 
         # Provider emoji mapping
         provider_emoji = {
@@ -161,33 +174,50 @@ class Notifier:
             "notion": "📝",
             "airtable": "🗂️"
         }.get(provider.lower(), "🔧")
+        
+        # Source badge mapping
+        source_badge = {
+            "cli": "💻 Git CLI",
+            "agent": "🤖 AI Agent",
+            "sdk": "📦 SafeRun SDK",
+            "webhook": "🌐 GitHub Webhook",
+            "gemini": "🤖 Gemini CLI",
+            "claude": "🤖 Claude Code"
+        }.get(source_type.lower(), f"🔧 {source_type}")
+        
+        # Risk level emoji for header
+        risk_emoji = "🔴" if risk_score >= 0.7 else "🟡" if risk_score >= 0.4 else "🟢"
 
-        # Different header based on event type
+        # Different header based on event type and risk level
         if event_type == "executed_with_revert":
             header_text = "✅ Action Executed"
         elif event_type == "failed":
             header_text = "❌ Operation Failed"
+        elif risk_score >= 0.7:
+            header_text = f"{risk_emoji} HIGH RISK - Approval Required"
+        elif risk_score >= 0.4:
+            header_text = f"{risk_emoji} Medium Risk - Approval Required"
         else:
             header_text = "🛡️ SafeRun Approval Required"
 
-        # Build fields based on provider
-        fields = []
-        if provider == "github" and repository_name != operation_display:
-            # For GitHub, show Provider, Repository, Operation separately
-            fields.extend([
-                {"type": "mrkdwn", "text": f"*Provider:*\n{provider_emoji} {provider.capitalize()}"},
-                {"type": "mrkdwn", "text": f"*Repository:*\n{repository_name}"},
-                {"type": "mrkdwn", "text": f"*Operation:*\n{operation_display}"},
-                {"type": "mrkdwn", "text": f"*Risk Score:*\n{risk_score * 10:.1f}/10"}  # risk_score stored as 0-1, display as 0-10
-            ])
-        else:
-            # For other providers or fallback, use original layout
-            fields.extend([
-                {"type": "mrkdwn", "text": f"*Provider:*\n{provider_emoji} {provider.capitalize()}"},
-                {"type": "mrkdwn", "text": f"*Operation:*\n{operation_display}"},
-                {"type": "mrkdwn", "text": f"*Risk Score:*\n{risk_score * 10:.1f}/10"},  # risk_score stored as 0-1, display as 0-10
-                {"type": "mrkdwn", "text": f"*Change ID:*\n`{change_id}`"}
-            ])
+        # Build fields - Banking Grade format
+        fields = [
+            {"type": "mrkdwn", "text": f"*Provider:*\n{provider_emoji} {provider.capitalize()}"},
+            {"type": "mrkdwn", "text": f"*Repository:*\n`{repository_name}`"},
+            {"type": "mrkdwn", "text": f"*Operation:*\n{operation_display}"},
+            {"type": "mrkdwn", "text": f"*Risk Score:*\n{risk_emoji} {risk_score * 10:.1f}/10"},  # risk_score stored as 0-1, display as 0-10
+        ]
+        
+        # Add branch if available
+        if branch_name:
+            fields.append({"type": "mrkdwn", "text": f"*Branch:*\n`{branch_name}`"})
+        
+        # Add source
+        fields.append({"type": "mrkdwn", "text": f"*Source:*\n{source_badge}"})
+        
+        # Add author if available
+        if git_author:
+            fields.append({"type": "mrkdwn", "text": f"*Author:*\n@{git_author}"})
 
         blocks = [
             {
@@ -202,6 +232,25 @@ class Notifier:
                 "fields": fields
             }
         ]
+        
+        # Banking Grade: Add risk reasons as bullet points
+        if risk_reasons:
+            # Format reasons nicely
+            formatted_reasons = []
+            for reason in risk_reasons:
+                # Clean up reason string
+                clean_reason = reason.replace("github:", "").replace("github_", "").replace("policy:", "📋 ").replace("_", " ")
+                clean_reason = clean_reason.title()
+                formatted_reasons.append(f"• {clean_reason}")
+            
+            reasons_text = "\n".join(formatted_reasons)
+            blocks.append({
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": f"*⚠️ Risk Factors:*\n{reasons_text}"
+                }
+            })
 
         # Web UI dashboard link removed - all approvals happen in Slack
         
@@ -427,6 +476,16 @@ class Notifier:
         await self._retry(do)
 
     async def publish(self, event: str, change: Dict[str, Any], extras: Optional[Dict[str, Any]] = None, api_key: str = None) -> None:
+        # Parse summary_json if it's a JSON string
+        summary_json = change.get("summary_json")
+        if isinstance(summary_json, str):
+            try:
+                summary_json = json.loads(summary_json)
+            except Exception:
+                summary_json = {}
+        elif not summary_json:
+            summary_json = {}
+        
         payload = {
             "event": event,
             "change_id": change.get("change_id"),
@@ -446,6 +505,9 @@ class Notifier:
             "extras": extras,  # Include full extras for fallback metadata access
             "ts": change.get("ts") or change.get("created_at"),
             "meta": (extras or {}).get("meta", {}),
+            # Banking Grade fields from summary_json
+            "risk_reasons": summary_json.get("reasons", []),
+            "summary_json": summary_json,
         }
 
         # Add user-specific webhook if provided

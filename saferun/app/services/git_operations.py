@@ -81,6 +81,7 @@ async def build_git_operation_dryrun(req: GitOperationDryRunRequest, api_key: st
         "human_preview": human_preview,
         "webhook_url": req.webhook_url,
         "api_key": api_key,  # User isolation (Phase 1.4)
+        "metadata": req.metadata,  # Banking Grade: Pass through git_author, source, etc.
     }
 
     storage.save_change(change_id, change_data, ttl_seconds)

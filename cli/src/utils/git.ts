@@ -243,3 +243,30 @@ export async function pathExists(filePath: string): Promise<boolean> {
     return false;
   }
 }
+
+/**
+ * Get current git user name and email
+ */
+export async function getGitAuthor(cwd = process.cwd()): Promise<{ name: string; email: string } | undefined> {
+  try {
+    // First check environment variables (used by AI agents/tooling)
+    const envName = process.env.GIT_AUTHOR_NAME || process.env.GIT_COMMITTER_NAME;
+    const envEmail = process.env.GIT_AUTHOR_EMAIL || process.env.GIT_COMMITTER_EMAIL;
+    
+    if (envName && envEmail) {
+      return { name: envName, email: envEmail };
+    }
+    
+    // Fallback to git config
+    const name = (await execGit(['config', 'user.name'], { cwd })).trim();
+    const email = (await execGit(['config', 'user.email'], { cwd })).trim();
+    
+    if (name && email) {
+      return { name, email };
+    }
+    
+    return undefined;
+  } catch {
+    return undefined;
+  }
+}
