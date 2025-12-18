@@ -39,14 +39,23 @@ SLACK_SCOPES = "chat:write"
 
 
 def create_session_token(api_key: str) -> str:
-    """Create encrypted session token containing api_key."""
+    """Create encrypted session token containing api_key (URL-safe)."""
     payload = json.dumps({"api_key": api_key, "ts": datetime.now(timezone.utc).isoformat()})
-    return crypto.encrypt_token(payload)
+    encrypted = crypto.encrypt_token(payload)
+    # Make URL-safe: replace + with -, / with _, remove =
+    return encrypted.replace('+', '-').replace('/', '_').rstrip('=')
 
 
 def verify_session_token(session: str) -> str:
     """Verify and decrypt session token, return api_key."""
     try:
+        # Restore from URL-safe format
+        session = session.replace('-', '+').replace('_', '/')
+        # Add padding back
+        padding = 4 - len(session) % 4
+        if padding != 4:
+            session += '=' * padding
+        
         decrypted = crypto.decrypt_token(session)
         if not decrypted:
             return None
@@ -56,7 +65,8 @@ def verify_session_token(session: str) -> str:
         if datetime.now(timezone.utc) - ts > timedelta(minutes=10):
             return None
         return payload.get("api_key")
-    except Exception:
+    except Exception as e:
+        logger.error(f"Session verification failed: {e}")
         return None
 
 
