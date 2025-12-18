@@ -105,17 +105,40 @@ async def slack_oauth_start(
     return RedirectResponse(url=slack_auth_url)
 
 
-# Legacy endpoint for backward compatibility (will be removed)
-@router.get("")
-async def slack_oauth_start_legacy(
-    api_key: str = Query(..., description="SafeRun API key to link Slack installation")
+from fastapi import Header
+from pydantic import BaseModel
+
+class SlackOAuthUrlResponse(BaseModel):
+    url: str
+    expires_in: int = 600  # 10 minutes
+
+
+@router.post("/session")
+async def create_slack_oauth_url(
+    api_key: str = Header(..., alias="X-API-Key", description="SafeRun API key")
 ):
     """
-    Start Slack OAuth flow (legacy - api_key in URL).
-    Redirects to /start with encrypted session.
+    Generate secure Slack OAuth URL with encrypted session.
+    
+    API key is passed in header (not URL), returned URL has encrypted session token.
+    Use this from CLI/SDK to get a safe URL for the user.
     """
+    # Verify API key exists
+    key_data = db.get_api_key(api_key)
+    if not key_data:
+        raise HTTPException(status_code=401, detail="Invalid API key")
+    
     session = create_session_token(api_key)
-    return RedirectResponse(url=f"/auth/slack/start?session={session}")
+    base_url = os.getenv("SAFERUN_API_URL", "https://saferun-api.up.railway.app")
+    
+    return SlackOAuthUrlResponse(
+        url=f"{base_url}/auth/slack/start?session={session}",
+        expires_in=600
+    )
+
+
+# Legacy endpoint - REMOVED for security (api_key should not be in URL)
+# Use POST /auth/slack/session instead
 
 
 @router.get("/callback")
