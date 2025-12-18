@@ -16,7 +16,7 @@ import base64
 import httpx
 import logging
 from datetime import datetime, timezone, timedelta
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import RedirectResponse, HTMLResponse
 from .. import db_adapter as db
 from .. import crypto
@@ -231,18 +231,27 @@ async def slack_oauth_callback(
 
 @router.get("/status")
 async def slack_oauth_status(
-    api_key: str = Query(..., description="SafeRun API key")
+    request: Request,
+    api_key: str = Query(None, description="SafeRun API key")
 ):
     """
     Check if Slack is connected for an API key.
     
     Used by CLI polling to detect when OAuth flow completes.
+    API key can be provided via query param or X-API-Key header.
     """
-    key_data = db.get_api_key(api_key)
+    # Get API key from header or query param
+    header_key = request.headers.get("X-API-Key")
+    key = header_key or api_key
+    
+    if not key:
+        raise HTTPException(status_code=401, detail="API key required")
+    
+    key_data = db.get_api_key(key)
     if not key_data:
         raise HTTPException(status_code=401, detail="Invalid API key")
     
-    installation = db.get_slack_installation(api_key)
+    installation = db.get_slack_installation(key)
     
     if installation:
         return {

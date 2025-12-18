@@ -111,16 +111,33 @@ async def handle_slack_interaction(request: Request, background_tasks: Backgroun
     if response_url:
         import httpx
         
-        # Default message for approve/reject
+        # Get change details for better message
+        storage = storage_manager.get_storage()
+        change = storage.get_change(change_id)
+        operation_info = ""
+        if change:
+            provider = change.get("provider", "unknown")
+            target_id = change.get("target_id", "")
+            title = change.get("title", "Operation")
+            operation_info = f"\n📋 *Operation:* {title}\n🎯 *Target:* {target_id}"
+        
+        # Use emoji and clear formatting
+        if "approved" in message.lower():
+            status_emoji = "✅"
+            status_text = "APPROVED"
+        else:
+            status_emoji = "❌" 
+            status_text = "REJECTED"
+        
         update_payload = {
             "replace_original": True,
-            "text": f"{message} (by @{user_name})",
+            "text": f"{status_emoji} Change {status_text} by @{user_name}",
             "blocks": [
                 {
                     "type": "section",
                     "text": {
                         "type": "mrkdwn",
-                        "text": f"*{message}*\nActioned by: @{user_name}\nChange ID: `{change_id}`"
+                        "text": f"{status_emoji} *Change {status_text}*\n\n👤 *By:* @{user_name}{operation_info}\n🔑 *Change ID:* `{change_id}`"
                     }
                 }
             ]

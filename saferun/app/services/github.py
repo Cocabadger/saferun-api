@@ -147,14 +147,16 @@ def verify_webhook_signature(payload: bytes, signature: str) -> bool:
     Returns:
         bool: True if signature is valid
     """
-    if not GITHUB_WEBHOOK_SECRET:
+    # Read secret at runtime (allows testing with mocked env)
+    webhook_secret = os.getenv("GITHUB_WEBHOOK_SECRET", "")
+    if not webhook_secret:
         raise ValueError("GITHUB_WEBHOOK_SECRET not configured")
     
     if not signature or not signature.startswith("sha256="):
         return False
     
     expected_signature = "sha256=" + hmac.new(
-        GITHUB_WEBHOOK_SECRET.encode(),
+        webhook_secret.encode(),
         payload,
         hashlib.sha256
     ).hexdigest()

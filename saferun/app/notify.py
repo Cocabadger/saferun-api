@@ -39,28 +39,45 @@ class Notifier:
         return None
 
     async def send_slack(self, payload: Dict[str, Any], text: str, api_key: str = None, event_type: str = "dry_run") -> None:
-        # Get user-specific settings if api_key provided
-        user_settings = None
+        """
+        Send Slack notification using OAuth bot token from slack_installations.
+        
+        Priority:
+        1. OAuth token from slack_installations (new flow via "Add to Slack")
+        2. Legacy: user_notification_settings (manual token entry - deprecated)
+        3. Fallback: global env vars (for testing)
+        """
+        from . import db_adapter as db
+        
+        bot_token = None
+        channel = "#saferun-alerts"
+        
         if api_key:
-            from . import db_adapter as db
-            user_settings = db.get_notification_settings(api_key)
-
-        # Use user settings if available and enabled, otherwise fall back to global env vars
-        if user_settings and user_settings.get("slack_enabled"):
-            bot_token = user_settings.get("slack_bot_token")
-            webhook_url = user_settings.get("slack_webhook_url")
-            channel = user_settings.get("slack_channel", "#saferun-alerts")
-
-            if bot_token:
-                await self._send_slack_bot(payload, text, bot_token, channel, event_type)
-            elif webhook_url:
-                await self._send_slack_webhook(payload, text, webhook_url, event_type)
-        elif SLACK_BOT_TOKEN or SLACK_URL:
-            # Fallback to global env vars
-            if SLACK_BOT_TOKEN:
-                await self._send_slack_bot(payload, text, SLACK_BOT_TOKEN, SLACK_CHANNEL, event_type)
-            elif SLACK_URL:
-                await self._send_slack_webhook(payload, text, SLACK_URL, event_type)
+            # Priority 1: OAuth installation (new flow)
+            slack_installation = db.get_slack_installation(api_key)
+            if slack_installation:
+                bot_token = slack_installation.get("bot_token")
+                channel = slack_installation.get("channel_id") or "#saferun-alerts"
+                logger.info(f"[SLACK] Using OAuth bot token for {slack_installation.get('team_name')}")
+            else:
+                # Priority 2: Legacy user settings (deprecated)
+                user_settings = db.get_notification_settings(api_key)
+                if user_settings and user_settings.get("slack_enabled"):
+                    bot_token = user_settings.get("slack_bot_token")
+                    channel = user_settings.get("slack_channel", "#saferun-alerts")
+                    if bot_token:
+                        logger.info("[SLACK] Using legacy bot token from user settings")
+        
+        # Priority 3: Global env var (testing/fallback)
+        if not bot_token and SLACK_BOT_TOKEN:
+            bot_token = SLACK_BOT_TOKEN
+            channel = SLACK_CHANNEL
+            logger.info("[SLACK] Using global env SLACK_BOT_TOKEN")
+        
+        if bot_token:
+            await self._send_slack_bot(payload, text, bot_token, channel, event_type)
+        else:
+            logger.warning("[SLACK] No bot token available - notification not sent")
 
     async def _send_slack_bot(self, payload: Dict[str, Any], text: str, bot_token: str, channel: str, event_type: str = "dry_run") -> None:
         """Send via Slack Bot API with interactive buttons"""
@@ -234,16 +251,36 @@ class Notifier:
                 # Get approval URL with token from extras (includes authentication)
                 approve_url = payload.get("approve_url")
                 
+                # Interactive buttons - no redirect to browser needed!
+                # Approve/Reject happens directly in Slack via action_id
+                blocks.append({
+                    "type": "actions",
+                    "elements": [
+                        {
+                            "type": "button",
+                            "text": {"type": "plain_text", "text": "✅ Approve"},
+                            "style": "primary",
+                            "action_id": "approve_change",
+                            "value": change_id
+                        },
+                        {
+                            "type": "button",
+                            "text": {"type": "plain_text", "text": "❌ Reject"},
+                            "style": "danger",
+                            "action_id": "reject_change",
+                            "value": change_id
+                        }
+                    ]
+                })
+                
+                # Also add a "View Details" link for those who want more info
                 if approve_url:
-                    # Add single action button with token-authenticated URL
                     blocks.append({
-                        "type": "actions",
+                        "type": "context",
                         "elements": [
                             {
-                                "type": "button",
-                                "text": {"type": "plain_text", "text": "🛡️ Review & Approve"},
-                                "style": "primary",
-                                "url": approve_url
+                                "type": "mrkdwn",
+                                "text": f"<{approve_url}|📋 View full details in dashboard>"
                             }
                         ]
                     })
@@ -371,258 +408,6 @@ class Notifier:
             
             logger.info(f"[SLACK SUCCESS] Message {'updated' if existing_message_ts else 'sent'} to {channel}")
             return resp
-        await self._retry(do)
-
-    async def _send_slack_webhook(self, payload: Dict[str, Any], text: str, webhook_url: str, event_type: str = "dry_run") -> None:
-        """Fallback: Send via Incoming Webhook (simple, no interactivity)"""
-        change_id = payload.get("change_id")
-        approve_url = payload.get("approve_url")
-        revert_url = payload.get("revert_url")
-        revert_window_hours = payload.get("revert_window_hours")
-        risk_score = payload.get("risk_score", 0.0)
-        title = payload.get("title", "Unknown operation")
-        provider = payload.get("provider", "unknown")
-        target_id = payload.get("target_id", "")
-        
-        # Determine operation type and repository from metadata/payload
-        operation_display = title  # Default to title
-        repository_name = title
-        
-        # For GitHub, parse operation type from metadata
-        if provider == "github":
-            metadata = payload.get("metadata", {})
-            if not metadata:
-                extras = payload.get("extras", {})
-                metadata = extras.get("metadata", {})
-            
-            # Parse metadata if it's a JSON string from storage
-            if isinstance(metadata, str):
-                try:
-                    metadata = json.loads(metadata)
-                except Exception:
-                    metadata = {}
-            
-            object_type = metadata.get("object")
-            
-            # Extract repo name from target_id
-            if target_id:
-                if "#" in target_id:
-                    repository_name = target_id.split("#")[0]
-                elif "/" in target_id:
-                    repository_name = target_id
-            
-            # Determine operation display text - check operation_type first!
-            op_type = metadata.get("operation_type", "")
-            
-            if object_type == "repository":
-                # Check operation_type to distinguish between archive, unarchive and delete
-                if op_type == "delete_repo" or op_type == "github_repo_delete":
-                    operation_display = "🔴 Repository Deletion (PERMANENT)"
-                elif op_type == "github_repo_unarchive":
-                    operation_display = "Unarchive Repository"
-                elif op_type == "github_repo_archive":
-                    operation_display = "Archive Repository"
-                else:
-                    operation_display = "Repository Operation"
-            elif object_type == "branch":
-                branch_name = metadata.get("name") or metadata.get("branch", "branch")
-                # Check operation_type to distinguish between delete and force push
-                if op_type == "github_force_push":
-                    operation_display = f"Force Push: {branch_name}"
-                elif op_type == "github_branch_delete":
-                    operation_display = f"Delete Branch: {branch_name}"
-                else:
-                    # Fallback - check if it looks like delete
-                    operation_display = f"Branch Operation: {branch_name}"
-            elif object_type == "merge" or op_type == "github_pr_merge":
-                if metadata.get("isTargetDefault"):
-                    operation_display = "Merge to Main Branch"
-                else:
-                    operation_display = "Merge to Branch"
-            else:
-                operation_display = f"GitHub Operation: {title}"
-
-        # Header text based on event type
-        if event_type == "executed_with_revert":
-            header_text = "✅ Action Executed"
-        else:
-            header_text = "🛡️ SafeRun Approval Required"
-
-        # Build fields based on provider
-        fields = []
-        if provider == "github" and repository_name != operation_display:
-            # For GitHub, show Provider, Repository, Operation separately
-            fields = [
-                {"type": "mrkdwn", "text": f"*Provider:*\n🐙 {provider.capitalize()}"},
-                {"type": "mrkdwn", "text": f"*Repository:*\n{repository_name}"},
-                {"type": "mrkdwn", "text": f"*Operation:*\n{operation_display}"},
-                {"type": "mrkdwn", "text": f"*Risk Score:*\n{risk_score * 10:.1f}/10"}  # risk_score stored as 0-1, display as 0-10
-            ]
-        else:
-            # For other providers or fallback
-            fields = [
-                {"type": "mrkdwn", "text": f"*Operation:*\n{operation_display}"},
-                {"type": "mrkdwn", "text": f"*Risk Score:*\n{risk_score * 10:.1f}/10"}  # risk_score stored as 0-1, display as 0-10
-            ]
-        
-        blocks = [
-            {
-                "type": "header",
-                "text": {
-                    "type": "plain_text",
-                    "text": header_text
-                }
-            },
-            {
-                "type": "section",
-                "fields": fields
-            }
-        ]
-
-        # Add CRITICAL WARNING for repository deletion
-        if provider == "github":
-            metadata = payload.get("metadata", {})
-            if isinstance(metadata, str):
-                try:
-                    metadata = json.loads(metadata)
-                except Exception:
-                    metadata = {}
-            op_type = metadata.get("operation_type", "")
-            if op_type == "delete_repo":
-                blocks.append({
-                    "type": "section",
-                    "text": {
-                        "type": "mrkdwn",
-                        "text": (
-                            "🔴 *CRITICAL WARNING - PERMANENT OPERATION*\n\n"
-                            "*This operation is IRREVERSIBLE:*\n"
-                            "• All repository data will be permanently deleted\n"
-                            "• All issues, pull requests, and wikis will be lost\n"
-                            "• All Git history will be destroyed\n"
-                            "• Repository cannot be recovered after deletion\n\n"
-                            "⚠️ *Note:* This operation requires `delete_repo` scope in GitHub PAT\n"
-                            "If PAT lacks this permission, the operation will fail with 403/404 error."
-                        )
-                    }
-                })
-
-        # For executed_with_revert, show revert instructions
-        if event_type == "executed_with_revert" and revert_url:
-            # Success message based on operation_type (not display text!)
-            op_type = metadata.get("operation_type", "")
-            
-            if op_type == "github_repo_archive":
-                success_msg = "*Repository archived successfully.*"
-            elif op_type == "github_repo_unarchive":
-                success_msg = "*Repository unarchived successfully.*"
-            elif op_type == "github_branch_delete":
-                success_msg = "*Branch deleted successfully.*"
-            elif op_type == "github_force_push":
-                success_msg = "*Force push executed successfully.*"
-            elif op_type == "github_pr_merge":
-                success_msg = "*Pull request merged successfully.*"
-            elif op_type == "github_repo_delete":
-                success_msg = "*Repository deleted successfully. (PERMANENT)*"
-            else:
-                # Fallback - check display text
-                if "Archive" in operation_display:
-                    success_msg = "*Repository archived successfully.*"
-                elif "Unarchive" in operation_display:
-                    success_msg = "*Repository unarchived successfully.*"
-                else:
-                    success_msg = "*Operation completed successfully.*"
-            
-            blocks.append({
-                "type": "section",
-                "text": {
-                    "type": "mrkdwn",
-                    "text": f"{success_msg}\nYou have *{revert_window_hours} hours* to revert this action if needed."
-                }
-            })
-            
-            # Add revert instructions with curl command
-            revert_operation = "Repository Unarchive" if "Archive" in operation_display else "Branch Restore"
-            
-            # Create proper curl command with API key requirement
-            curl_command = f"curl -X POST '{revert_url}' \\\n  -H 'x-api-key: YOUR_SAFERUN_API_KEY' \\\n  -H 'Content-Type: application/json' \\\n  -d '{{\"github_token\": \"YOUR_GITHUB_TOKEN\"}}'"
-            
-            blocks.append({
-                "type": "section",
-                "text": {
-                    "type": "mrkdwn",
-                    "text": f"*:arrows_counterclockwise: Revert Available:* {revert_operation}\n\n```{curl_command}```\n\n:warning: *Important:* Use the same SafeRun API key from your original request"
-                }
-            })
-        elif approve_url:
-            # Add expiration info BEFORE approval URL for dry_run/approval_required events
-            expires_at = payload.get("expires_at")
-            if expires_at and event_type in ("dry_run", "approval_required"):
-                try:
-                    # Parse expires_at timestamp
-                    if isinstance(expires_at, str):
-                        expires_dt = datetime.fromisoformat(expires_at.replace('Z', '+00:00'))
-                    else:
-                        expires_dt = expires_at
-                    
-                    if expires_dt:
-                        # Calculate remaining time
-                        now = datetime.now(timezone.utc)
-                        if expires_dt.tzinfo is None:
-                            expires_dt = expires_dt.replace(tzinfo=timezone.utc)
-                        remaining = expires_dt - now
-                        remaining_minutes = int(remaining.total_seconds() / 60)
-                        
-                        if remaining_minutes > 0:
-                            hours = remaining_minutes // 60
-                            minutes = remaining_minutes % 60
-                            time_str = f"{hours}h {minutes}m" if hours > 0 else f"{minutes} minutes"
-                            
-                            blocks.append({
-                                "type": "section",
-                                "text": {
-                                    "type": "mrkdwn",
-                                    "text": f"⏰ *Expires in:* {time_str}"
-                                }
-                            })
-                except Exception as e:
-                    print(f"⚠️ Failed to parse expires_at in CLI notification: {e}")
-            
-            # Add approve URL for dry_run events
-            blocks.append({
-                "type": "section",
-                "text": {
-                    "type": "mrkdwn",
-                    "text": f"*Approval URL:*\n<{approve_url}|View Details>"
-                }
-            })
-
-        # Webhook only supports URL buttons (not interactive)
-        if change_id and event_type != "executed_with_revert":
-            api_base = os.getenv("APP_BASE_URL", "http://localhost:8500")
-            blocks.append({
-                "type": "actions",
-                "elements": [
-                    {
-                        "type": "button",
-                        "text": {"type": "plain_text", "text": "✅ Approve"},
-                        "style": "primary",
-                        "url": f"{api_base}/approvals/{change_id}",
-                    },
-                    {
-                        "type": "button",
-                        "text": {"type": "plain_text", "text": "❌ Reject"},
-                        "style": "danger",
-                        "url": f"{api_base}/approvals/{change_id}",
-                    }
-                ]
-            })
-
-        body = {
-            "text": text,
-            "blocks": blocks
-        }
-
-        async def do(): return await self.client.post(webhook_url, json=body)
         await self._retry(do)
 
     async def send_custom_webhook(self, webhook_url: str, payload: Dict[str, Any]) -> None:

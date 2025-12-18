@@ -175,23 +175,23 @@ export class SetupCommand {
   }
 
   /**
-   * Step 2: Configure Slack notifications
+   * Step 2: Configure Slack notifications via OAuth
    */
   private async stepSlack(): Promise<void> {
     console.log(chalk.bold('\nStep 2/6: Slack Notifications'));
     console.log(chalk.gray('─'.repeat(40)));
     console.log(chalk.yellow('⚠️  Slack is REQUIRED for security alerts (force push, branch delete, etc.)\n'));
 
-    // Check if already configured
+    // Check if already configured via OAuth
     const slackStatus = await this.checkSlackStatus();
     if (slackStatus.configured) {
-      console.log(chalk.green(`✓ Slack already configured: ${slackStatus.channel || 'webhook'}`));
+      console.log(chalk.green(`✓ Slack already connected: ${slackStatus.teamName || slackStatus.channel || 'configured'}`));
       this.slackConfigured = true;
       
       const { reconfigure } = await inquirer.prompt([{
         type: 'confirm',
         name: 'reconfigure',
-        message: 'Reconfigure Slack?',
+        message: 'Reconnect Slack?',
         default: false,
       }]);
 
@@ -204,106 +204,60 @@ export class SetupCommand {
     const { method } = await inquirer.prompt([{
       type: 'list',
       name: 'method',
-      message: 'Choose Slack setup method:',
+      message: 'Connect Slack:',
       choices: [
-        { name: '🔗 Open browser to create Slack App (recommended)', value: 'browser' },
-        { name: '📝 Enter existing tokens', value: 'manual' },
+        { name: '🔗 Add to Slack (recommended, one-click setup)', value: 'oauth' },
         { name: '⏭️  Skip for now (⚠️ you won\'t receive alerts!)', value: 'skip' },
       ],
     }]);
 
     if (method === 'skip') {
       console.log(chalk.yellow('\n⚠️  Skipping Slack. You won\'t receive security alerts!'));
-      console.log(chalk.gray('   Run "saferun config slack" later to configure.\n'));
+      console.log(chalk.gray('   Run "saferun setup" later to connect.\n'));
       return;
     }
 
-    if (method === 'browser') {
-      console.log(chalk.cyan('\n📋 How to create Slack App:\n'));
-      console.log('  1. Click ' + chalk.bold('"Create New App"') + ' → "From scratch"');
-      console.log('  2. Name it ' + chalk.bold('"SafeRun"') + ' and select your workspace');
-      console.log('');
-      console.log(chalk.bold('  To get Bot Token:'));
-      console.log('  3. Go to ' + chalk.bold('"OAuth & Permissions"') + ' in left menu');
-      console.log('  4. Scroll to ' + chalk.bold('"Scopes"') + ' → Add Bot Token Scopes:');
-      console.log(chalk.gray('     • chat:write (send messages)'));
-      console.log(chalk.gray('     • chat:write.public (post to any channel)'));
-      console.log('  5. Click ' + chalk.bold('"Install to Workspace"') + ' at top');
-      console.log('  6. Copy ' + chalk.bold('"Bot User OAuth Token"') + ' (starts with xoxb-)');
-      console.log('');
-      console.log(chalk.bold('  To get Webhook URL (optional but recommended):'));
-      console.log('  7. Go to ' + chalk.bold('"Incoming Webhooks"') + ' in left menu');
-      console.log('  8. Toggle ON, click "Add New Webhook to Workspace"');
-      console.log('  9. Select channel (e.g., #saferun-alerts)');
-      console.log('  10. Copy the webhook URL');
-      console.log('');
-      
-      await this.openBrowser(SLACK_APP_URL);
+    // OAuth flow
+    console.log(chalk.cyan('\n📋 Connecting Slack via OAuth:\n'));
+    console.log('  1. Browser will open Slack authorization page');
+    console.log('  2. Click ' + chalk.bold('"Allow"') + ' to grant SafeRun access');
+    console.log('  3. You\'ll see "Slack Connected!" confirmation');
+    console.log('');
+
+    // Get OAuth URL from backend
+    const oauthUrl = await this.getSlackOAuthUrl();
+    if (!oauthUrl) {
+      console.log(chalk.red('❌ Failed to get authorization URL. Please try again later.'));
+      return;
     }
 
-    // Bot Token (required)
-    console.log(chalk.cyan('\n📋 Bot Token is REQUIRED to send notifications\n'));
-    const { botToken } = await inquirer.prompt([{
-      type: 'password',
-      name: 'botToken',
-      message: 'Paste your Bot User OAuth Token (xoxb-...):',
-      mask: '*',
-      validate: (value: string) => {
-        if (!value) return 'Bot Token is required';
-        if (!value.startsWith('xoxb-')) {
-          return 'Invalid token. Bot Token should start with xoxb-';
-        }
-        return true;
-      },
-    }]);
-
-    // Channel
-    const { channel } = await inquirer.prompt([{
-      type: 'input',
-      name: 'channel',
-      message: 'Slack channel for alerts:',
-      default: '#saferun-alerts',
-      validate: (value: string) => {
-        if (!value.startsWith('#') && !value.startsWith('@')) {
-          return 'Channel should start with # or @';
-        }
-        return true;
-      },
-    }]);
-
-    // Webhook URL (optional)
-    const { useWebhook } = await inquirer.prompt([{
+    const { openBrowser } = await inquirer.prompt([{
       type: 'confirm',
-      name: 'useWebhook',
-      message: 'Do you also have a Webhook URL? (optional, for backup)',
-      default: false,
+      name: 'openBrowser',
+      message: 'Open Slack authorization in browser?',
+      default: true,
     }]);
 
-    let webhookUrl = '';
-    if (useWebhook) {
-      const response = await inquirer.prompt([{
-        type: 'input',
-        name: 'webhookUrl',
-        message: 'Paste your Slack webhook URL:',
-        validate: (value: string) => {
-          if (value && !value.startsWith('https://hooks.slack.com/')) {
-            return 'Invalid URL. Should start with https://hooks.slack.com/';
-          }
-          return true;
-        },
-      }]);
-      webhookUrl = response.webhookUrl;
+    if (openBrowser) {
+      await this.openBrowser(oauthUrl);
+    } else {
+      console.log(chalk.cyan('\nOpen this URL manually:'));
+      console.log(chalk.bold(oauthUrl) + '\n');
     }
 
-    // Configure via API
-    const success = await this.configureSlack(botToken, channel, webhookUrl);
-    if (success) {
-      console.log(chalk.green('\n✓ Slack configured!'));
-      console.log(chalk.gray('  Test by triggering a SafeRun operation (e.g., git push --force)'));
-      
+    console.log(chalk.yellow('\n⏳ Waiting for Slack authorization...'));
+    console.log(chalk.gray('   (Press Ctrl+C to cancel)\n'));
+
+    // Poll for completion
+    const connected = await this.pollSlackConnection();
+    
+    if (connected) {
+      console.log(chalk.green('\n✓ Slack connected successfully!'));
+      console.log(chalk.gray('  Notifications will be sent to your Slack workspace.'));
       this.slackConfigured = true;
     } else {
-      console.log(chalk.red('\n❌ Failed to configure Slack. Run "saferun config slack" to try again.'));
+      console.log(chalk.yellow('\n⚠️  Slack connection timed out.'));
+      console.log(chalk.gray('   Run "saferun setup" again to retry.'));
     }
     
     console.log('');
@@ -633,16 +587,33 @@ export class SetupCommand {
     }
   }
 
-  private async checkSlackStatus(): Promise<{ configured: boolean; channel?: string }> {
+  private async checkSlackStatus(): Promise<{ configured: boolean; channel?: string; teamName?: string }> {
     if (!this.apiKey) return { configured: false };
     
     try {
-      const response = await fetch(`${SAFERUN_API_URL}/v1/settings/notifications`, {
+      // Check OAuth installation first
+      const response = await fetch(`${SAFERUN_API_URL}/auth/slack/status`, {
         headers: { 'X-API-Key': this.apiKey },
       });
       
       if (response.ok) {
         const data = await response.json();
+        if (data.connected) {
+          return {
+            configured: true,
+            teamName: data.team_name,
+            channel: data.channel_id,
+          };
+        }
+      }
+      
+      // Fallback: check legacy notification settings
+      const legacyResponse = await fetch(`${SAFERUN_API_URL}/v1/settings/notifications`, {
+        headers: { 'X-API-Key': this.apiKey },
+      });
+      
+      if (legacyResponse.ok) {
+        const data = await legacyResponse.json();
         return {
           configured: data.slack_enabled === true,
           channel: data.slack_channel,
@@ -655,34 +626,58 @@ export class SetupCommand {
     return { configured: false };
   }
 
-  private async configureSlack(botToken: string, channel: string, webhookUrl?: string): Promise<boolean> {
-    if (!this.apiKey) return false;
+  /**
+   * Get OAuth URL from backend
+   */
+  private async getSlackOAuthUrl(): Promise<string | null> {
+    if (!this.apiKey) return null;
     
     try {
-      const body: Record<string, any> = {
-        slack_enabled: true,
-        slack_bot_token: botToken,
-        slack_channel: channel,
-        notification_channels: ['slack'],
-      };
-      
-      if (webhookUrl) {
-        body.slack_webhook_url = webhookUrl;
-      }
-
-      const response = await fetch(`${SAFERUN_API_URL}/v1/settings/notifications`, {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-API-Key': this.apiKey,
-        },
-        body: JSON.stringify(body),
+      const response = await fetch(`${SAFERUN_API_URL}/auth/slack/session`, {
+        method: 'POST',
+        headers: { 'X-API-Key': this.apiKey },
       });
       
-      return response.ok;
+      if (response.ok) {
+        const data = await response.json();
+        return data.url;
+      }
     } catch {
-      return false;
+      // Ignore errors
     }
+    
+    return null;
+  }
+
+  /**
+   * Poll for Slack OAuth completion
+   */
+  private async pollSlackConnection(timeoutMs: number = 120000): Promise<boolean> {
+    const startTime = Date.now();
+    const pollInterval = 2000; // 2 seconds
+    
+    while (Date.now() - startTime < timeoutMs) {
+      try {
+        const response = await fetch(`${SAFERUN_API_URL}/auth/slack/status`, {
+          headers: { 'X-API-Key': this.apiKey },
+        });
+        
+        if (response.ok) {
+          const data = await response.json();
+          if (data.connected) {
+            return true;
+          }
+        }
+      } catch {
+        // Ignore errors, keep polling
+      }
+      
+      // Wait before next poll
+      await new Promise(resolve => setTimeout(resolve, pollInterval));
+      process.stdout.write('.');
+    }
+    
+    return false;
   }
 
   private async sendTestSlack(): Promise<void> {
