@@ -38,88 +38,12 @@ SLACK_REDIRECT_URI = os.getenv(
 SLACK_SCOPES = "chat:write"
 
 
-def create_session_token(api_key: str) -> str:
-    """Create encrypted session token containing api_key (URL-safe)."""
-    payload = json.dumps({"api_key": api_key, "ts": datetime.now(timezone.utc).isoformat()})
-    encrypted = crypto.encrypt_token(payload)
-    # Make URL-safe: replace + with -, / with _, remove =
-    return encrypted.replace('+', '-').replace('/', '_').rstrip('=')
-
-
-def verify_session_token(session: str) -> str:
-    """Verify and decrypt session token, return api_key."""
-    try:
-        # Restore from URL-safe format
-        session = session.replace('-', '+').replace('_', '/')
-        # Add padding back
-        padding = 4 - len(session) % 4
-        if padding != 4:
-            session += '=' * padding
-        
-        decrypted = crypto.decrypt_token(session)
-        if not decrypted:
-            return None
-        payload = json.loads(decrypted)
-        # Check timestamp is within 10 minutes
-        ts = datetime.fromisoformat(payload["ts"])
-        if datetime.now(timezone.utc) - ts > timedelta(minutes=10):
-            return None
-        return payload.get("api_key")
-    except Exception as e:
-        logger.error(f"Session verification failed: {e}")
-        return None
-
-
-@router.get("/start")
-async def slack_oauth_start(
-    session: str = Query(..., description="Encrypted session token")
-):
-    """
-    Start Slack OAuth flow (secure version - no api_key in URL).
-    
-    Session token is encrypted and contains api_key inside.
-    """
-    if not SLACK_CLIENT_ID:
-        raise HTTPException(
-            status_code=503,
-            detail="Slack OAuth not configured. Set SLACK_CLIENT_ID environment variable."
-        )
-    
-    # Decrypt session to get api_key
-    api_key = verify_session_token(session)
-    if not api_key:
-        raise HTTPException(status_code=401, detail="Invalid or expired session")
-    
-    # Verify API key exists
-    key_data = db.get_api_key(api_key)
-    if not key_data:
-        raise HTTPException(status_code=401, detail="Invalid API key")
-    
-    # Generate state for CSRF protection
-    state = str(uuid.uuid4())
-    
-    # Store state in DB with TTL (10 minutes)
-    db.store_oauth_state(state, api_key, expires_minutes=10)
-    
-    # Build Slack OAuth URL
-    slack_auth_url = (
-        "https://slack.com/oauth/v2/authorize"
-        f"?client_id={SLACK_CLIENT_ID}"
-        f"&scope={SLACK_SCOPES}"
-        f"&redirect_uri={SLACK_REDIRECT_URI}"
-        f"&state={state}"
-    )
-    
-    logger.info(f"Starting Slack OAuth for api_key={api_key[:10]}...")
-    
-    return RedirectResponse(url=slack_auth_url)
-
-
 from fastapi import Header
 from pydantic import BaseModel
 
 class SlackOAuthUrlResponse(BaseModel):
     url: str
+    state: str
     expires_in: int = 600  # 10 minutes
 
 
@@ -128,23 +52,64 @@ async def create_slack_oauth_url(
     api_key: str = Header(..., alias="X-API-Key", description="SafeRun API key")
 ):
     """
-    Generate secure Slack OAuth URL with encrypted session.
+    Generate Slack OAuth URL with short state token.
     
-    API key is passed in header (not URL), returned URL has encrypted session token.
-    Use this from CLI/SDK to get a safe URL for the user.
+    API key is passed in header (secure), returned URL has short UUID state.
+    State is stored in DB and links back to api_key.
     """
+    if not SLACK_CLIENT_ID:
+        raise HTTPException(
+            status_code=503,
+            detail="Slack OAuth not configured"
+        )
+    
     # Verify API key exists
     key_data = db.get_api_key(api_key)
     if not key_data:
         raise HTTPException(status_code=401, detail="Invalid API key")
     
-    session = create_session_token(api_key)
+    # Generate short state UUID (stored in DB, links to api_key)
+    state = str(uuid.uuid4())
+    db.store_oauth_state(state, api_key, expires_minutes=10)
+    
     base_url = os.getenv("SAFERUN_API_URL", "https://saferun-api.up.railway.app")
     
     return SlackOAuthUrlResponse(
-        url=f"{base_url}/auth/slack/start?session={session}",
+        url=f"{base_url}/auth/slack/start?state={state}",
+        state=state,
         expires_in=600
     )
+
+
+@router.get("/start")
+async def slack_oauth_start_with_state(
+    state: str = Query(..., description="State UUID from /session endpoint")
+):
+    """
+    Start Slack OAuth flow using state from DB.
+    
+    State was created by POST /session and links to user's api_key.
+    """
+    if not SLACK_CLIENT_ID:
+        raise HTTPException(status_code=503, detail="Slack OAuth not configured")
+    
+    # Verify state exists and is valid
+    oauth_state = db.verify_oauth_state(state)
+    if not oauth_state:
+        raise HTTPException(status_code=401, detail="Invalid or expired state")
+    
+    # Build Slack OAuth URL (reuse same state)
+    slack_auth_url = (
+        "https://slack.com/oauth/v2/authorize"
+        f"?client_id={SLACK_CLIENT_ID}"
+        f"&scope={SLACK_SCOPES}"
+        f"&redirect_uri={SLACK_REDIRECT_URI}"
+        f"&state={state}"
+    )
+    
+    logger.info(f"Starting Slack OAuth with state={state[:8]}...")
+    
+    return RedirectResponse(url=slack_auth_url)
 
 
 # Legacy endpoint - REMOVED for security (api_key should not be in URL)
