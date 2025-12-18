@@ -12,6 +12,12 @@
 
 STATE="$1"
 
+# Skip if operation was already approved by shell interceptor
+# This prevents double-approval when both shell wrapper and reference-transaction fire
+if [ -n "$SAFERUN_APPROVED_CHANGE_ID" ]; then
+  exit 0
+fi
+
 # Only intercept "prepared" state (before commit)
 # "committed" = too late, "aborted" = already cancelled
 if [ "$STATE" != "prepared" ]; then

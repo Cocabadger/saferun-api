@@ -176,9 +176,12 @@ export async function interceptBranchDelete(context: InterceptorContext): Promis
 
   // Execute git branch delete for approved branches
   if (approvals.length > 0) {
+    // Pass approved changeId to env so reference-transaction hook skips duplicate approval
+    const approvedChangeId = approvals[0].changeId;
     const exitCode = await runGitCommand(['branch', ...context.args], {
       cwd: context.gitInfo.repoRoot,
       disableAliases: ['branch'],
+      env: { SAFERUN_APPROVED_CHANGE_ID: approvedChangeId },
     });
 
     // Log execution results

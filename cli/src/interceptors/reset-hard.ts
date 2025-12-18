@@ -74,11 +74,11 @@ export async function interceptReset(context: InterceptorContext): Promise<numbe
     : 'Reset --hard will overwrite working tree and index.';
 
   const actionOverride = rule?.max_commits_back && commitsBack > rule.max_commits_back ? 'require_approval' : rule?.action;
-  
+
   // DEBUG: временный лог для диагностики
-  
+
   const enforcement = resolveEnforcement(context.modeSettings, actionOverride, 'warn');
-  
+
 
   if (enforcement.action === 'allow' || enforcement.action === 'warn') {
     if (enforcement.action === 'warn' || context.modeSettings?.show_warnings) {
@@ -202,9 +202,13 @@ export async function interceptReset(context: InterceptorContext): Promise<numbe
     return 1;
   }
 
+  // Pass approved changeId to env so reference-transaction hook skips duplicate approval
+  const approvedChangeId = approvals.length > 0 ? approvals[0].changeId : undefined;
+
   const exitCode = await runGitCommand(['reset', ...context.args], {
     cwd: context.gitInfo.repoRoot,
     disableAliases: ['reset'],
+    env: approvedChangeId ? { SAFERUN_APPROVED_CHANGE_ID: approvedChangeId } : undefined,
   });
 
   for (const approval of approvals) {

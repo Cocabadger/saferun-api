@@ -552,6 +552,13 @@ export class HookRunner {
       return;
     }
 
+    // Skip if this operation was already approved by shell interceptor
+    // This prevents double-approval when both shell wrapper and reference-transaction fire
+    const approvedChangeId = process.env.SAFERUN_APPROVED_CHANGE_ID;
+    if (approvedChangeId) {
+      return;
+    }
+
     const repoSlug = context.config.github.repo === 'auto' 
       ? context.gitInfo.repoSlug ?? 'unknown/repo' 
       : context.config.github.repo;

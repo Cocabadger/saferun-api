@@ -64,24 +64,13 @@ export class ApprovalFlow {
       return this.waitForApproval(result);
     }
 
-    // Interactive mode - start polling immediately in background
-    // User can approve via Slack/Web while we show options
-    const pollingPromise = this.waitForApprovalBackground(result);
-    
-    // Show options menu
-    const options = this.buildOptions(result, approvalUrl);
-    this.printOptions(options);
-    console.log(chalk.gray('\n💡 Approve in Slack or Web - CLI will auto-detect'));
+    // Interactive mode - Slack-first UX
+    // Just poll in background, user approves via Slack buttons
+    console.log(chalk.gray('\n   ⏳ Waiting for approval... (timeout: 2h)\n'));
 
     try {
-      // Race between user input and background polling
-      const userInputPromise = this.waitForUserInput(options, result, approvalUrl);
-      
-      const outcome = await Promise.race([pollingPromise, userInputPromise]);
-      
-      // Clean up - cancel the other promise
-      this.cancelPolling = true;
-      
+      // Simple polling - user approves via Slack
+      const outcome = await this.waitForApproval(result);
       return outcome;
     } finally {
       this.close();
@@ -187,15 +176,15 @@ export class ApprovalFlow {
   }
 
   private showPreview(result: DryRunResult): void {
-    const riskColor = getRiskColor(result.riskScore);
     console.log(chalk.bold('\n═══════════════════════════════════'));
     console.log(chalk.bold('  🛡️  SafeRun Protection Active'));
     console.log(chalk.bold('═══════════════════════════════════'));
 
     console.log(`\n${chalk.gray('Operation:')} ${result.humanPreview || 'Unknown operation'}`);
     // Risk score comes as 0-1 from API, convert to 0-10 for display
-    const displayScore = (result.riskScore * 10).toFixed(1);
-    console.log(`${chalk.gray('Risk Score:')} ${riskColor(`${displayScore}/10`)}`);
+    const displayScore = result.riskScore * 10;
+    const riskColor = getRiskColor(displayScore);
+    console.log(`${chalk.gray('Risk Score:')} ${riskColor(`${displayScore.toFixed(1)}/10`)}`);
 
     if (result.reasons.length > 0) {
       console.log(`\n${chalk.gray('Reasons:')}`);
@@ -204,10 +193,9 @@ export class ApprovalFlow {
       }
     }
 
-    if (result.approvalUrl) {
-      console.log(`\n${chalk.gray('🌐 Approve or reject:')}`);
-      console.log(`   ${chalk.cyan(result.approvalUrl)}`);
-    }
+    // Slack-first: show notification sent message instead of URL
+    console.log(`\n${chalk.magenta('📩 Approval request sent to Slack')}`);
+    console.log(chalk.gray('   Check your Slack for approval buttons'));
   }
 
   private async browserApproval(result: DryRunResult, url: string): Promise<ApprovalOutcome> {
