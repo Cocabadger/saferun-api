@@ -153,6 +153,7 @@ class GitOperationDryRunRequest(BaseModel):
         "branch_delete",
         "hard_reset",
         "reset_hard",
+        "destructive_history_rewrite",
         "clean",
         "rebase",
         "cherry_pick",

@@ -650,14 +650,16 @@ export class HookRunner {
       let apiOperationType = 'reset_hard';
       let commandDisplay = `git ${operationType.replace('-', ' ')} (via hook)`;
       
-      // GIT_REFLOG_ACTION contains the command name (e.g., "reset", "rebase", "pull", "checkout", "merge")
+      // GIT_REFLOG_ACTION contains the command name (e.g., "reset", "rebase (start)", "pull", "checkout", "merge")
       const reflogAction = process.env.GIT_REFLOG_ACTION?.toLowerCase() || '';
-      const gitDir = process.env.GIT_DIR || '.git';
+      const gitDir = process.env.GIT_DIR || path.join(context.gitInfo.repoRoot, '.git');
+      const resolvedGitDir = path.isAbsolute(gitDir) ? gitDir : path.join(context.gitInfo.repoRoot, gitDir);
       
-      // Detect rebase
-      const isRebase = fs.existsSync(path.join(context.gitInfo.repoRoot, gitDir, 'rebase-merge')) ||
-                       fs.existsSync(path.join(context.gitInfo.repoRoot, gitDir, 'rebase-apply')) ||
-                       reflogAction.includes('rebase');
+      // Detect rebase - check multiple indicators
+      const rebaseMergeExists = fs.existsSync(path.join(resolvedGitDir, 'rebase-merge'));
+      const rebaseApplyExists = fs.existsSync(path.join(resolvedGitDir, 'rebase-apply'));
+      const reflogHasRebase = reflogAction.includes('rebase');
+      const isRebase = rebaseMergeExists || rebaseApplyExists || reflogHasRebase;
       
       // Detect other operations from GIT_REFLOG_ACTION
       const isReset = reflogAction.startsWith('reset') || reflogAction.includes('reset');
@@ -693,17 +695,19 @@ export class HookRunner {
           apiOperationType = 'checkout';
           commandDisplay = 'git checkout (via hook)';
         } else {
-          // Default to reset_hard for unknown branch updates on protected branches
-          apiOperationType = 'reset_hard';
+          // Default to destructive_history_rewrite for unknown branch updates on protected branches
+          // This covers operations we can't precisely identify (rebase, reset, etc.)
+          apiOperationType = 'destructive_history_rewrite';
           commandDisplay = reflogAction 
             ? `git ${reflogAction} (via hook)`
-            : 'git branch update (via hook)';
+            : 'git history change (via hook)';
         }
       }
 
       // Calculate risk score based on operation type
       const getRiskScore = (): number => {
         switch (apiOperationType) {
+          case 'destructive_history_rewrite': return 0.85;
           case 'reset_hard': return 0.85;
           case 'rebase': return 0.85;
           case 'branch_delete': return 0.7;
