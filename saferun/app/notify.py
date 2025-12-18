@@ -203,15 +203,7 @@ class Notifier:
             }
         ]
 
-        # Add approve URL for web view (only for dry_run events, not approval_required)
-        if approve_url and event_type == "dry_run":
-            blocks.append({
-                "type": "section",
-                "text": {
-                    "type": "mrkdwn",
-                    "text": f"<{approve_url}|🌐 View in Dashboard>"
-                }
-            })
+        # Web UI dashboard link removed - all approvals happen in Slack
         
         # Add expiration info for approval-required operations
         if event_type in ("dry_run", "approval_required"):
@@ -273,17 +265,7 @@ class Notifier:
                     ]
                 })
                 
-                # Also add a "View Details" link for those who want more info
-                if approve_url:
-                    blocks.append({
-                        "type": "context",
-                        "elements": [
-                            {
-                                "type": "mrkdwn",
-                                "text": f"<{approve_url}|📋 View full details in dashboard>"
-                            }
-                        ]
-                    })
+                # Web UI link removed - approvals happen directly via Slack buttons above
             elif event_type == "executed_with_revert":
                 # Determine success message based on operation type and item type
                 item_type = payload.get("item_type", "repository")
