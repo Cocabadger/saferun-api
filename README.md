@@ -20,7 +20,7 @@
 
 SafeRun protects at **every level** — whether the operation comes from terminal, API, or GitHub directly:
 
-### Layer 1: CLI Shell Wrapper
+### Layer 1: Shell Wrapper
 Intercepts dangerous Git commands **before** they execute in your terminal:
 - `git push --force` / `git push -f` / `--force-with-lease`
 - `git reset --hard`
@@ -29,20 +29,18 @@ Intercepts dangerous Git commands **before** they execute in your terminal:
 - `git commit --no-verify` (skips hooks)
 - Direct commits to `main` or `master` (protected branches)
 
-### Layer 2: REST API (for automation tools)
-Requires approval before executing via API:
-- **Repository:** Archive, Unarchive, Delete (permanent!), Transfer ownership, Change visibility (private↔public)
-- **Branch:** Delete, Force push
-- **Pull Request:** Merge (especially to main/master)
-- **GitHub Actions:** Create/delete secrets, Update workflow files
-- **Security:** Update/delete branch protection rules
+### Layer 2: Core Git Hook
+Uses the Git 2.29+ `reference-transaction` hook to catch operations at the core level. This catches agents that try to bypass shell aliases by calling `/usr/bin/git` directly:
+- `git rebase` — rewrites branch history (detected via state-change)
+- `git reset --hard` — changes branch ref
+- `git push --force` — changes remote ref
+- Direct commits to protected branches
 
-### Layer 3: GitHub Webhooks (catches everything else)
-Monitors GitHub events even if CLI is bypassed:
+### Layer 3: GitHub Webhooks
+Real-time Slack alerts & one-click recovery for remote accidents (requires GitHub App):
 - Force pushes made directly on GitHub
 - Branch deletions via GitHub UI
 - Merges from other machines/tools
-- Any operation that bypasses CLI protection
 
 ---
 
@@ -70,7 +68,7 @@ saferun setup        # Run wizard from here
 The wizard guides you through **4 steps**:
 
 #### Step 2.1: API Key
-- Go to [saferun.dev](https://saferun.dev) (or saferun-landing.vercel.app)
+- Go to [saferun-landing.vercel.app](https://saferun-landing.vercel.app)
 - Sign up with GitHub or email
 - Copy your API key (starts with `sr_...`)
 - Paste it in the wizard
@@ -200,7 +198,6 @@ Agent runs: git push --force origin main
 
 *   **Revert Force Push:** Detects forced updates and allows restoring previous SHA.
 *   **Restore Deleted Branch:** Detects deletion and offers "Restore" button.
-*   **Secret Leak Revert:** Detects if a secret was pushed and offers instant revert.
 
 ### Where Data is Stored
 
