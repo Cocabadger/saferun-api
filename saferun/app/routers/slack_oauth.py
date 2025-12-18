@@ -160,7 +160,8 @@ async def slack_oauth_callback(
     
     # Exchange code for access token
     try:
-        async with httpx.AsyncClient() as client:
+        # Fix #1: Add explicit timeout to prevent hanging on slow Slack responses
+        async with httpx.AsyncClient(timeout=10.0) as client:
             response = await client.post(
                 "https://slack.com/api/oauth.v2.access",
                 data={
@@ -175,9 +176,16 @@ async def slack_oauth_callback(
             
             if not data.get("ok"):
                 error_msg = data.get("error", "Unknown error")
-                logger.error(f"Slack OAuth token exchange failed: {error_msg}")
+                # Fix #3: Log detailed error but show generic message to user
+                logger.error(f"Slack OAuth token exchange failed: {error_msg}, full response: {data}")
+                # Map known errors to user-friendly messages
+                user_message = {
+                    "invalid_code": "Authorization code expired. Please try again.",
+                    "code_already_used": "Authorization already completed. Please try again.",
+                    "invalid_client_id": "Server configuration error. Please contact support.",
+                }.get(error_msg, "Failed to complete authorization. Please try again.")
                 return HTMLResponse(
-                    content=_error_page(f"Failed to complete authorization: {error_msg}"),
+                    content=_error_page(user_message),
                     status_code=400
                 )
             
@@ -195,11 +203,40 @@ async def slack_oauth_callback(
             
             logger.info(f"Slack OAuth success: team={team_name} ({team_id})")
             
+    except httpx.TimeoutException:
+        logger.error("Timeout during Slack OAuth token exchange")
+        return HTMLResponse(
+            content=_error_page("Slack is responding slowly. Please try again."),
+            status_code=504
+        )
     except httpx.HTTPError as e:
         logger.error(f"HTTP error during Slack OAuth: {e}")
         return HTMLResponse(
             content=_error_page("Network error while contacting Slack. Please try again."),
             status_code=502
+        )
+    
+    # Fix #2: Mark state as used FIRST to prevent replay attacks
+    # If this fails, we haven't stored the token yet - safe state
+    try:
+        db.mark_oauth_state_used(state)
+    except Exception as e:
+        logger.error(f"Failed to mark OAuth state as used: {e}")
+        return HTMLResponse(
+            content=_error_page("Database error. Please try again."),
+            status_code=500
+        )
+    
+    # Fix #4: Check if team_id is already connected to another api_key
+    existing_installation = db.get_slack_installation_by_team(team_id)
+    if existing_installation and existing_installation.get("api_key") != api_key:
+        logger.warning(f"Workspace {team_name} ({team_id}) already connected to another account")
+        return HTMLResponse(
+            content=_error_page(
+                f"Workspace '{team_name}' is already connected to another SafeRun account. "
+                "Please disconnect it first or use the same API key."
+            ),
+            status_code=409
         )
     
     # Store installation in DB (encrypted)
@@ -212,9 +249,6 @@ async def slack_oauth_callback(
             bot_user_id=bot_user_id,
             channel_id=channel_id
         )
-        
-        # Mark OAuth state as used
-        db.mark_oauth_state_used(state)
         
         logger.info(f"Slack installation stored for api_key={api_key[:10]}..., team={team_name}")
         

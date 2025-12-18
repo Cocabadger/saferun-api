@@ -229,6 +229,16 @@ def init_db():
     
     CREATE INDEX IF NOT EXISTS idx_slack_installations_team ON slack_installations(team_id);
     """)
+    
+    # Add UNIQUE constraint on team_id (one workspace per account, prevent hijacking)
+    # Using DO NOTHING to handle case where constraint already exists
+    try:
+        cur.execute("""
+        ALTER TABLE slack_installations 
+        ADD CONSTRAINT slack_installations_team_id_unique UNIQUE (team_id);
+        """)
+    except Exception:
+        pass  # Constraint may already exist
 
     conn.commit()
     conn.close()
@@ -963,6 +973,30 @@ def get_slack_installation(api_key: str) -> Optional[Dict[str, Any]]:
         "bot_token": decrypted_token,
         "bot_user_id": row['bot_user_id'],
         "channel_id": row['channel_id'],
+        "installed_at": row['installed_at']
+    }
+
+
+def get_slack_installation_by_team(team_id: str) -> Optional[Dict[str, Any]]:
+    """
+    Get Slack installation by team_id.
+    
+    Used to check if a workspace is already connected to another account.
+    Returns: Dict with api_key and team info (no token), or None if not found
+    """
+    row = fetchone("""
+        SELECT api_key, team_id, team_name, installed_at
+        FROM slack_installations
+        WHERE team_id = %s
+    """, (team_id,))
+    
+    if not row:
+        return None
+    
+    return {
+        "api_key": row['api_key'],
+        "team_id": row['team_id'],
+        "team_name": row['team_name'],
         "installed_at": row['installed_at']
     }
 
