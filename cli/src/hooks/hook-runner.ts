@@ -1,4 +1,6 @@
 import chalk from 'chalk';
+import fs from 'fs';
+import path from 'path';
 
 import { createSafeRunClient } from '../utils/api-client';
 import { OperationCache } from '../utils/cache';
@@ -644,11 +646,27 @@ export class HookRunner {
       }
 
       // Map operation type to API operation type
+      // Try to detect the actual git command from environment or parent process
       let apiOperationType = 'reset_hard';
+      let commandDisplay = `git ${operationType.replace('-', ' ')} (via hook)`;
+      
+      // Check if this is a rebase operation
+      const gitDir = process.env.GIT_DIR || '.git';
+      const isRebase = fs.existsSync(path.join(context.gitInfo.repoRoot, gitDir, 'rebase-merge')) ||
+                       fs.existsSync(path.join(context.gitInfo.repoRoot, gitDir, 'rebase-apply')) ||
+                       process.env.GIT_REFLOG_ACTION?.includes('rebase');
+      
       if (operationType === 'branch-delete') {
         apiOperationType = 'branch_delete';
+        commandDisplay = 'git branch -D (via hook)';
       } else if (operationType === 'branch-update') {
-        apiOperationType = 'reset_hard'; // Most likely a reset
+        if (isRebase) {
+          apiOperationType = 'rebase';
+          commandDisplay = 'git rebase (via hook)';
+        } else {
+          apiOperationType = 'reset_hard';
+          commandDisplay = 'git reset --hard (via hook)';
+        }
       }
 
       // For reference-transaction, use gitOperation API (same as interceptors)
@@ -656,7 +674,7 @@ export class HookRunner {
         const dryRunResult = await context.client.gitOperation({
           operationType: apiOperationType,
           target: `${repoSlug}@${affectedBranch}`,
-          command: `git ${operationType.replace('-', ' ')} (via hook)`,
+          command: commandDisplay,
           metadata: {
             repo: repoSlug,
             branch: affectedBranch,
@@ -665,10 +683,12 @@ export class HookRunner {
             refName,
             aiDetected: context.aiScore && context.aiScore >= 0.3,
           },
-          riskScore: riskLevel === 'high' ? 0.8 : 0.5,
+          riskScore: isRebase ? 0.85 : (riskLevel === 'high' ? 0.8 : 0.5),
           humanPreview: operationDescription,
           requiresApproval: true,
-          reasons: [`ref_${operationType}`, `protected_branch:${affectedBranch}`],
+          reasons: isRebase 
+            ? ['rebase_detected', `protected_branch:${affectedBranch}`]
+            : [`ref_${operationType}`, `protected_branch:${affectedBranch}`],
         });
 
         if (!dryRunResult.needsApproval) {
