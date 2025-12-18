@@ -73,6 +73,8 @@ The wizard guides you through **4 steps**:
 - Copy your API key (starts with `sr_...`)
 - Paste it in the wizard
 
+> **Note:** SafeRun uses a hybrid architecture. The **Dashboard** (for API keys) is hosted at `saferun-landing.vercel.app`, while the **Processing Engine** (API) runs on `saferun-api.up.railway.app`.
+
 #### Step 2.2: Slack Notifications (Required!)
 You need **three things** from Slack:
 
@@ -92,6 +94,8 @@ You need **three things** from Slack:
    - Bot will post approval requests there
 
 > ⚠️ **No Slack = No notifications!** You won't see approval requests without Slack configured.
+
+> 💡 **Note:** We are working on a one-click Slack installation. For now, manual setup is required to ensure you own your data and tokens.
 
 #### Step 2.3: GitHub App
 Install the SafeRun GitHub App to enable webhook protection:
@@ -124,49 +128,34 @@ Expected: SafeRun blocks the command, sends Slack notification, waits for your a
 ## 🔧 How It Works
 
 ```
-Agent runs: git push --force origin main
+Agent runs: git push --force
                     │
                     ▼
 ┌───────────────────────────────────────┐
-│  Shell Wrapper (Layer 1)              │
-│  Detects dangerous command            │
-│  Identifies AI agent (Cursor, etc.)   │
-└───────────────────────────────────────┘
-                    │
-                    ▼
-┌───────────────────────────────────────┐
-│  SafeRun CLI                          │
-│  • Calculates risk score (0-10)       │
-│  • Extracts context (repo, branch)    │
-│  • Sends request to SafeRun API       │
-└───────────────────────────────────────┘
-                    │
-                    ▼
-┌───────────────────────────────────────┐
-│  SafeRun API                          │
-│  • Creates approval record (24h TTL)  │
-│  • Sends Slack notification           │
-│  • Waits for human decision           │
-└───────────────────────────────────────┘
-                    │
-                    ▼
-┌───────────────────────────────────────┐
-│  Slack                                │
-│  Shows: repo, branch, command,        │
-│         risk score, agent name        │
-│  Buttons: [Approve] [Reject]          │
-└───────────────────────────────────────┘
-                    │
-        ┌───────────┴───────────┐
-        ▼                       ▼
-   ✅ Approved            ❌ Rejected
-   CLI executes           CLI blocks
-   the command            returns error
+│ Layer 1: Shell Wrapper (Alias)        │ <── Intercepts CLI command
+└────────────────────┬──────────────────┘
+                         │
+          ┌──────────────┴──────────────┐
+          ▼                             ▼
+┌───────────────────────────────────────┐ ┌───────────────────────────┐
+│ Layer 2: Core Git Hook                │ │ Layer 3: Webhooks/API     │
+│ (reference-transaction)               │ │ Monitoring Remote Events  │
+└────────────────────────┬──────────────┘ └─────────────┬─────────────┘
+                    │                                   │
+                    ▼                                   ▼
+          ┌─────────────────────────────────────────────┐
+          │ SafeRun API (Railway) -> Risk Analysis      │
+          └─────────────────────┬───────────────────────┘
+                                │
+                                ▼
+          ┌─────────────────────────────────────────────┐
+          │ Slack Notification & Human Approval         │
+          └─────────────────────────────────────────────┘
 ```
 
 ## 🔥 Comprehensive Capability Matrix
 
-### 💻 Layer 1: CLI (Local Protection)
+### 💻 Layer 1: Shell Wrapper (Local Protection)
 *Intercepts git commands on your machine.*
 
 - `git push --force` / `git push -f` / `--force-with-lease`
@@ -176,7 +165,15 @@ Agent runs: git push --force origin main
 - `git commit` with secrets (`.env`, `sk-`, `ghp_`)
 - Direct commits to `main` / `master`
 
-### 🤖 Layer 2: API (Autonomous Agents)
+### 🔩 Layer 2: Core Git Hook
+*Catches agents that bypass shell aliases by calling `/usr/bin/git` directly.*
+
+- `git rebase` — rewrites branch history (detected via state-change)
+- `git reset --hard` — changes branch ref
+- `git push --force` — changes remote ref
+- Direct commits to protected branches
+
+### 🤖 REST API (for Autonomous Agents)
 *Endpoints for your bots (n8n, LangChain) to execute safely.*
 
 **Operational Endpoints (Execute after Approval):**
@@ -193,7 +190,7 @@ Agent runs: git push --force origin main
 *   `POST /v1/dry-run/github.actions.secret.create`
 *   `POST /v1/dry-run/github.workflow.update`
 
-### 🚨 Layer 3: Webhooks (Recovery)
+### 🚨 Layer 3: GitHub Webhooks (Recovery)
 *Watches GitHub events to revert accidents.*
 
 *   **Revert Force Push:** Detects forced updates and allows restoring previous SHA.
