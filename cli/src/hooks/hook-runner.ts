@@ -650,11 +650,22 @@ export class HookRunner {
       let apiOperationType = 'reset_hard';
       let commandDisplay = `git ${operationType.replace('-', ' ')} (via hook)`;
       
-      // Check if this is a rebase operation
+      // GIT_REFLOG_ACTION contains the command name (e.g., "reset", "rebase", "pull", "checkout", "merge")
+      const reflogAction = process.env.GIT_REFLOG_ACTION?.toLowerCase() || '';
       const gitDir = process.env.GIT_DIR || '.git';
+      
+      // Detect rebase
       const isRebase = fs.existsSync(path.join(context.gitInfo.repoRoot, gitDir, 'rebase-merge')) ||
                        fs.existsSync(path.join(context.gitInfo.repoRoot, gitDir, 'rebase-apply')) ||
-                       process.env.GIT_REFLOG_ACTION?.includes('rebase');
+                       reflogAction.includes('rebase');
+      
+      // Detect other operations from GIT_REFLOG_ACTION
+      const isReset = reflogAction.startsWith('reset') || reflogAction.includes('reset');
+      const isCheckout = reflogAction.startsWith('checkout') || reflogAction.includes('checkout');
+      const isMerge = reflogAction.startsWith('merge') || reflogAction.includes('merge');
+      const isPull = reflogAction.startsWith('pull') || reflogAction.includes('pull');
+      const isAmend = reflogAction.includes('amend');
+      const isCherry = reflogAction.includes('cherry');
       
       if (operationType === 'branch-delete') {
         apiOperationType = 'branch_delete';
@@ -663,11 +674,50 @@ export class HookRunner {
         if (isRebase) {
           apiOperationType = 'rebase';
           commandDisplay = 'git rebase (via hook)';
-        } else {
+        } else if (isReset) {
           apiOperationType = 'reset_hard';
           commandDisplay = 'git reset --hard (via hook)';
+        } else if (isAmend) {
+          apiOperationType = 'commit_amend';
+          commandDisplay = 'git commit --amend (via hook)';
+        } else if (isCherry) {
+          apiOperationType = 'cherry_pick';
+          commandDisplay = 'git cherry-pick (via hook)';
+        } else if (isMerge) {
+          apiOperationType = 'merge';
+          commandDisplay = 'git merge (via hook)';
+        } else if (isPull) {
+          apiOperationType = 'pull';
+          commandDisplay = 'git pull (via hook)';
+        } else if (isCheckout) {
+          apiOperationType = 'checkout';
+          commandDisplay = 'git checkout (via hook)';
+        } else {
+          // Default to reset_hard for unknown branch updates on protected branches
+          apiOperationType = 'reset_hard';
+          commandDisplay = reflogAction 
+            ? `git ${reflogAction} (via hook)`
+            : 'git branch update (via hook)';
         }
       }
+
+      // Calculate risk score based on operation type
+      const getRiskScore = (): number => {
+        switch (apiOperationType) {
+          case 'reset_hard': return 0.85;
+          case 'rebase': return 0.85;
+          case 'branch_delete': return 0.7;
+          case 'commit_amend': return 0.6;
+          case 'cherry_pick': return 0.5;
+          case 'merge': return 0.5;
+          case 'pull': return 0.4;
+          case 'checkout': return 0.3;
+          default: return riskLevel === 'high' ? 0.8 : 0.5;
+        }
+      };
+      
+      // Build reasons array
+      const reasons = [`${apiOperationType}_detected`, `protected_branch:${affectedBranch}`];
 
       // For reference-transaction, use gitOperation API (same as interceptors)
       try {
@@ -682,13 +732,12 @@ export class HookRunner {
             newOid: newOid?.substring(0, 8),
             refName,
             aiDetected: context.aiScore && context.aiScore >= 0.3,
+            reflogAction: reflogAction || undefined,
           },
-          riskScore: isRebase ? 0.85 : (riskLevel === 'high' ? 0.8 : 0.5),
+          riskScore: getRiskScore(),
           humanPreview: operationDescription,
           requiresApproval: true,
-          reasons: isRebase 
-            ? ['rebase_detected', `protected_branch:${affectedBranch}`]
-            : [`ref_${operationType}`, `protected_branch:${affectedBranch}`],
+          reasons,
         });
 
         if (!dryRunResult.needsApproval) {
