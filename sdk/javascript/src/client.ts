@@ -26,6 +26,7 @@ export interface DryRunPayload extends Record<string, any> {
   target_id?: string;
   webhook_url?: string;
   policy?: Record<string, any>;
+  metadata?: Record<string, unknown>;
 }
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -86,12 +87,14 @@ export class SafeRunClient {
     githubToken: string;
     webhookUrl?: string;
     policy?: Record<string, unknown>;
+    metadata?: Record<string, unknown>;
   }): Promise<DryRunResult> {
     return this.dryRun("github_delete_branch", {
       token: params.githubToken,
       target_id: `${params.repo}#${params.branch}`,
       webhook_url: params.webhookUrl,
       policy: params.policy,
+      metadata: params.metadata,
     });
   }
 
@@ -118,6 +121,7 @@ export class SafeRunClient {
     reason?: string;
     webhookUrl?: string;
     policy?: Record<string, unknown>;
+    metadata?: Record<string, unknown>;
   }): Promise<DryRunResult> {
     return this.dryRun("github_force_push", {
       token: params.githubToken,
@@ -125,6 +129,7 @@ export class SafeRunClient {
       reason: params.reason,
       webhook_url: params.webhookUrl,
       policy: params.policy,
+      metadata: params.metadata,
     });
   }
 

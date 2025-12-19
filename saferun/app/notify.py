@@ -5,6 +5,241 @@ import httpx
 
 logger = logging.getLogger(__name__)
 
+# Human-readable risk reason descriptions for Slack notifications
+# Maps internal reason codes to clear explanations for security admins
+RISK_REASON_DESCRIPTIONS = {
+    # ===========================================
+    # CLI Git Operations (reset, clean, rebase, etc.)
+    # ===========================================
+    
+    # Reset Hard
+    "reset_hard": "🔴 Reset --hard discards ALL uncommitted changes and resets history",
+    "hard_reset": "🔴 Hard reset - working directory and index will be overwritten",
+    
+    # Force Push (CLI)
+    "force_push": "🔴 Force push rewrites remote history - other developers may lose work",
+    "force_push_main": "🔴 Force push to main/master - production branch history at risk",
+    "force_push_protected": "🔴 Force push to protected branch - bypasses branch protection",
+    
+    # Branch Delete (CLI)
+    "branch_delete": "⚠️ Branch deletion - local/remote branch will be removed",
+    "branch_delete_main": "🔴 Deleting main/master branch - critical for team workflow",
+    "branch_delete_remote": "⚠️ Remote branch deletion - affects all collaborators",
+    
+    # Clean
+    "clean": "⚠️ Git clean removes untracked files permanently",
+    "clean_force": "🔴 Git clean -f removes untracked files without confirmation",
+    "clean_directories": "⚠️ Git clean -d also removes untracked directories",
+    
+    # Rebase
+    "rebase": "⚠️ Rebase rewrites commit history - may require force push",
+    "rebase_interactive": "⚠️ Interactive rebase - modifying commit sequence",
+    "rebase_onto_main": "⚠️ Rebasing onto main - history will be rewritten",
+    
+    # Cherry-pick
+    "cherry_pick": "Cherry-pick - copying commit to another branch",
+    
+    # Destructive operations
+    "destructive_history_rewrite": "🔴 History rewrite operation - cannot be easily undone",
+    
+    # ===========================================
+    # GitHub API Operations
+    # ===========================================
+    
+    # CRITICAL - Irreversible operations
+    "github_irreversible_repo_deletion": "🔴 Repository deletion is PERMANENT - all code, issues, PRs will be lost forever",
+    "github_repository_deleted": "🔴 Repository was deleted - IRREVERSIBLE operation",
+    "github_repo_transfer_irreversible": "🔴 Repository transfer to another owner - cannot be undone without their consent",
+    "github_making_repo_public_permanent": "🔴 Making repository PUBLIC - code will be visible to everyone on the internet",
+    "github:irreversible_operation": "🔴 This operation cannot be easily undone",
+
+    # HIGH - Force push and history rewriting
+    "github_force_push": "⚠️ Force push detected - rewrites Git history, can lose commits",
+    "github_force_push_danger": "⚠️ Force push rewrites commit history - other developers may lose work",
+    "github_force_push_to_main": "🔴 Force push to main/master - rewrites production branch history",
+
+    # HIGH - Branch operations
+    "github_default_branch": "⚠️ Operation on default/main branch",
+    "github_default_branch_deletion": "🔴 Deleting the default branch - breaks all clones and CI/CD",
+    "github_delete_main_branch": "🔴 Deleting main/master branch - catastrophic for team workflow",
+    "github_branch_delete": "⚠️ Branch deletion - cannot be recovered without reflog",
+    "github:main_branch_protection": "⚠️ Operation affects main branch protection",
+
+    # HIGH - Merge operations
+    "github_merge_to_main": "⚠️ Merge to main/master - changes go directly to production branch",
+    "github_merge_without_review": "🟡 Merged without code review - no peer verification",
+    "github_merge_operation": "Merge operation - combining branch histories",
+    "github_merge": "Pull request merge",
+
+    # HIGH - Security-critical operations
+    "github_secret_cicd_access": "🔴 CI/CD secret modification - could expose credentials or compromise pipeline",
+    "github_secret_critical_name": "🔴 Modifying production/AWS/database secret",
+    "github_secret_deletion": "⚠️ Deleting CI/CD secret - may break deployments",
+    "github_secret_critical_deletion": "🔴 Deleting critical production secret",
+    "github_workflow_code_execution": "🔴 Workflow modification - can execute arbitrary code in CI/CD",
+    "github_workflow_suspicious_patterns": "🔴 Workflow contains suspicious patterns (curl, eval, exec)",
+
+    # HIGH - Branch protection
+    "github_branch_protection_weakening": "🔴 Weakening branch protection rules - reduces security guardrails",
+    "github_removing_reviews_main_branch": "🔴 Removing required reviews on main branch",
+    "github_branch_protection_removal": "🔴 Removing branch protection entirely",
+    "github_removing_protection_main_branch": "🔴 Removing protection from main/master branch",
+
+    # MEDIUM - Other operations
+    "github_repository_archived": "⚠️ Repository archived - becomes read-only",
+    "github_tag_delete": "⚠️ Tag deletion - may break release references",
+    "github_large_push": "🟡 Large push (>10 commits) - significant codebase change",
+    "github_making_repo_private": "🟡 Making repository private - may break external integrations",
+    "github:reversible_operation": "✅ This operation can be reverted",
+
+    # LOW - Heuristics
+    "github_name_keywords": "🟡 Repository name contains sensitive keywords (prod, infra, deploy)",
+    "github_recent_commit": "Recently modified repository",
+
+    # Airtable reasons
+    "airtable_title_keywords": "⚠️ Record contains sensitive business data (customer, contract, pricing)",
+    "airtable_recently_edited": "🟡 Recently edited record - may have unsaved dependencies",
+    "airtable_high_linked_count": "⚠️ Record has many linked records - deletion cascades to related data",
+}
+
+
+def generate_command_preview(operation_type: str, metadata: dict, target_id: str = "") -> Optional[str]:
+    """
+    Generate a human-readable command preview for Slack notifications.
+    Shows what command/action is being executed.
+    """
+    if not operation_type:
+        return None
+
+    branch = metadata.get("name") or metadata.get("branch") or ""
+    sha = metadata.get("sha") or metadata.get("commit_sha") or ""
+    before_sha = metadata.get("before_sha") or ""
+    after_sha = metadata.get("after_sha") or ""
+    merge_sha = metadata.get("merge_commit_sha") or ""
+    source_branch = metadata.get("source_branch") or ""
+    target_branch = metadata.get("target_branch") or ""
+
+    # Extract repo from target_id
+    repo = target_id.split("#")[0] if "#" in target_id else target_id
+
+    # Truncate SHA to 7 chars for display
+    sha_short = sha[:7] if sha else ""
+    before_short = before_sha[:7] if before_sha else ""
+    after_short = after_sha[:7] if after_sha else ""
+    merge_short = merge_sha[:7] if merge_sha else ""
+
+    op = operation_type.lower()
+
+    # Force push
+    if "force_push" in op:
+        if before_short and after_short:
+            return f"`git push --force origin {branch}`\n`{before_short}` → `{after_short}`"
+        elif branch:
+            return f"`git push --force origin {branch}`"
+        return "`git push --force`"
+
+    # Branch delete
+    if "branch_delete" in op or "delete_branch" in op:
+        if sha_short:
+            return f"`git branch -D {branch}`\nLast commit: `{sha_short}`"
+        return f"`git branch -D {branch}`"
+
+    # Repository delete
+    if "repo_delete" in op or "repository_delete" in op:
+        return f"🔴 `gh repo delete {repo} --yes`\n*PERMANENT - cannot be undone*"
+
+    # Repository archive
+    if "repo_archive" in op or "repository_archive" in op:
+        return f"`gh repo archive {repo}`"
+
+    # Repository unarchive
+    if "repo_unarchive" in op:
+        return f"`gh repo unarchive {repo}`"
+
+    # PR merge
+    if "pr_merge" in op or "merge" in op:
+        if source_branch and target_branch:
+            cmd = f"`git merge {source_branch}` → `{target_branch}`"
+            if merge_short:
+                cmd += f"\nMerge commit: `{merge_short}`"
+            return cmd
+        elif merge_short:
+            return f"Merge commit: `{merge_short}`"
+
+    # Repository transfer
+    if "repo_transfer" in op:
+        return f"🔴 `gh repo transfer {repo} <new-owner>`"
+
+    # Secret operations
+    if "secret" in op:
+        secret_name = metadata.get("secret_name", "SECRET_NAME")
+        if "delete" in op:
+            return f"`gh secret delete {secret_name}`"
+        return f"`gh secret set {secret_name}`"
+
+    # Workflow operations
+    if "workflow" in op:
+        return "`.github/workflows/*.yml` modification"
+
+    # Branch protection
+    if "branch_protection" in op:
+        if "delete" in op or "removal" in op:
+            return f"Remove branch protection rules from `{branch or 'main'}`"
+        return f"Modify branch protection rules for `{branch or 'main'}`"
+
+    # Visibility change
+    if "visibility" in op or "making_repo" in op:
+        if "public" in op:
+            return f"🔴 `gh repo edit {repo} --visibility public`"
+        return f"`gh repo edit {repo} --visibility private`"
+
+    # ===========================================
+    # CLI Git Operations (from interceptors)
+    # ===========================================
+    
+    # Check if we have a command in metadata (from CLI)
+    command = metadata.get("command", "")
+    if command:
+        # Already has a command from CLI - use it
+        target = metadata.get("target") or target_id
+        commits_discarded = metadata.get("commitsDiscarded", 0)
+        
+        # Reset hard
+        if op == "reset_hard" or op == "hard_reset":
+            preview = f"`{command}`"
+            if commits_discarded and commits_discarded > 0:
+                preview += f"\n⚠️ Discards ~{commits_discarded} commit(s)"
+            return preview
+        
+        # Clean
+        if op == "clean":
+            return f"`{command}`\n⚠️ Removes untracked files permanently"
+        
+        # Rebase
+        if op == "rebase":
+            return f"`{command}`\n⚠️ Rewrites commit history"
+        
+        # Cherry-pick
+        if op == "cherry_pick":
+            return f"`{command}`"
+        
+        # Destructive history rewrite
+        if "destructive" in op or "history_rewrite" in op:
+            return f"`{command}`\n🔴 Cannot be undone"
+        
+        # Generic CLI command with command
+        return f"`{command}`"
+    
+    # Fallback for operations without command in metadata
+    # Reset hard without explicit command
+    if op == "reset_hard" or op == "hard_reset":
+        target = metadata.get("target") or target_id
+        if target:
+            return f"`git reset --hard {target}`"
+        return "`git reset --hard`"
+
+    return None
+
 TIMEOUT = float(os.getenv("NOTIFY_TIMEOUT_MS", "2000")) / 1000.0
 RETRY = int(os.getenv("NOTIFY_RETRY", "1"))
 SLACK_URL = os.getenv("SLACK_WEBHOOK_URL")
@@ -94,6 +329,37 @@ class Notifier:
         risk_reasons = payload.get("risk_reasons", [])
         summary_json = payload.get("summary_json", {})
         
+        # Try to get metadata from various sources
+        metadata = payload.get("metadata", {})
+        if not metadata:
+            extras = payload.get("extras", {})
+            metadata = extras.get("metadata", {})
+        
+        # Parse metadata if it's a JSON string from storage
+        if isinstance(metadata, str):
+            try:
+                metadata = json.loads(metadata)
+            except Exception:
+                metadata = {}
+        
+        # Also check summary_json for additional metadata (CLI operations store metadata there)
+        if isinstance(summary_json, dict):
+            # For Git CLI operations, metadata is nested in summary_json.metadata
+            summary_metadata = summary_json.get("metadata", {})
+            if isinstance(summary_metadata, dict):
+                # Merge summary_json.metadata into metadata (summary takes precedence for CLI)
+                if not metadata:
+                    metadata = summary_metadata
+                else:
+                    # Merge: summary_metadata values override if metadata is sparse
+                    for key, value in summary_metadata.items():
+                        if key not in metadata or not metadata.get(key):
+                            metadata[key] = value
+            
+            # Merge risk_reasons from summary_json if not in payload
+            if not risk_reasons and summary_json.get("reasons"):
+                risk_reasons = summary_json.get("reasons", [])
+        
         # Determine operation type and repository from metadata/payload
         operation_display = title  # Default to title
         repository_name = title
@@ -101,21 +367,62 @@ class Notifier:
         git_author = None
         source_type = "cli"  # Default to CLI
         
-        # For GitHub, parse operation type from metadata (stored in change_data or extras)
-        if provider == "github":
-            # Try to get metadata from change record first, then from extras
-            metadata = payload.get("metadata", {})
-            if not metadata:
-                extras = payload.get("extras", {})
-                metadata = extras.get("metadata", {})
+        # ===========================================
+        # Handle Git CLI Operations (provider == "git")
+        # ===========================================
+        if provider == "git":
+            # Get operation details from metadata (sent by CLI interceptors)
+            operation_type = metadata.get("operation_type") or summary_json.get("operation_type", "")
+            command = metadata.get("command") or summary_json.get("command", "")
             
-            # Parse metadata if it's a JSON string from storage
-            if isinstance(metadata, str):
-                try:
-                    metadata = json.loads(metadata)
-                except Exception:
-                    metadata = {}
+            # Extract repo from metadata or target
+            repo = metadata.get("repo") or ""
+            if not repo and target_id:
+                # target_id format: "owner/repo@ref" or just "ref"
+                if "@" in target_id:
+                    repo = target_id.split("@")[0]
+                elif "/" in target_id:
+                    repo = target_id.split("#")[0] if "#" in target_id else target_id
+            repository_name = repo if repo else "local repo"
             
+            # Extract target ref (branch, commit, etc.)
+            target_ref = metadata.get("target") or ""
+            if not target_ref and "@" in target_id:
+                target_ref = target_id.split("@")[1]
+            branch_name = target_ref if target_ref else None
+            
+            # Get author and source
+            git_author = metadata.get("git_author") or metadata.get("author")
+            source_type = metadata.get("source", "cli")
+            
+            # Operation display based on operation_type
+            op_lower = operation_type.lower() if operation_type else ""
+            if op_lower == "reset_hard" or op_lower == "hard_reset":
+                commits = metadata.get("commitsDiscarded", 0)
+                if commits > 0:
+                    operation_display = f"🔴 Reset --hard ({commits} commits)"
+                else:
+                    operation_display = "🔴 Reset --hard"
+            elif op_lower == "force_push":
+                operation_display = "🔴 Force Push"
+            elif op_lower == "branch_delete":
+                operation_display = "⚠️ Delete Branch"
+            elif op_lower == "clean":
+                operation_display = "⚠️ Git Clean"
+            elif op_lower == "rebase":
+                operation_display = "⚠️ Rebase"
+            elif op_lower == "cherry_pick":
+                operation_display = "Cherry-pick"
+            elif "destructive" in op_lower:
+                operation_display = "🔴 Destructive Operation"
+            else:
+                # Format operation_type as title
+                operation_display = operation_type.replace("_", " ").title() if operation_type else title
+        
+        # ===========================================
+        # Handle GitHub API Operations (provider == "github")
+        # ===========================================
+        elif provider == "github":
             object_type = metadata.get("object")
             operation_type = metadata.get("operation_type")
             item_type = metadata.get("type")  # For bulk operations
@@ -171,6 +478,7 @@ class Notifier:
         # Provider emoji mapping
         provider_emoji = {
             "github": "🐙",
+            "git": "🔧",
             "notion": "📝",
             "airtable": "🗂️"
         }.get(provider.lower(), "🔧")
@@ -219,6 +527,15 @@ class Notifier:
         if git_author:
             fields.append({"type": "mrkdwn", "text": f"*Author:*\n@{git_author}"})
 
+        # Add client hostname if available (from CLI/SDK)
+        client_hostname = metadata.get("client_hostname") if metadata else None
+        client_username = metadata.get("client_username") if metadata else None
+        if client_hostname:
+            host_display = f"`{client_hostname}`"
+            if client_username:
+                host_display = f"`{client_username}@{client_hostname}`"
+            fields.append({"type": "mrkdwn", "text": f"*Host:*\n{host_display}"})
+
         blocks = [
             {
                 "type": "header",
@@ -233,22 +550,68 @@ class Notifier:
             }
         ]
         
-        # Banking Grade: Add risk reasons as bullet points
+        # Banking Grade: Add risk reasons as detailed bullet points
         if risk_reasons:
-            # Format reasons nicely
             formatted_reasons = []
             for reason in risk_reasons:
-                # Clean up reason string
-                clean_reason = reason.replace("github:", "").replace("github_", "").replace("policy:", "📋 ").replace("_", " ")
-                clean_reason = clean_reason.title()
-                formatted_reasons.append(f"• {clean_reason}")
-            
+                # Use human-readable description if available
+                if reason in RISK_REASON_DESCRIPTIONS:
+                    formatted_reasons.append(f"• {RISK_REASON_DESCRIPTIONS[reason]}")
+                elif reason.startswith("policy:"):
+                    # Format policy reasons specially
+                    policy_rule = reason.replace("policy:", "").replace("_", " ").title()
+                    formatted_reasons.append(f"• 📋 Policy: {policy_rule}")
+                elif reason.startswith("commits_discarded:"):
+                    # Dynamic reason: commits_discarded:N
+                    try:
+                        count = int(reason.split(":")[1])
+                        formatted_reasons.append(f"• ⚠️ Will discard {count} commit(s)")
+                    except (ValueError, IndexError):
+                        formatted_reasons.append(f"• ⚠️ Will discard commits")
+                elif reason.startswith("commits_over_limit:"):
+                    # Dynamic reason: commits_over_limit:N
+                    try:
+                        limit = int(reason.split(":")[1])
+                        formatted_reasons.append(f"• 🔴 Exceeds safe limit of {limit} commits")
+                    except (ValueError, IndexError):
+                        formatted_reasons.append(f"• 🔴 Exceeds safe commit limit")
+                else:
+                    # Fallback: clean up unknown reasons
+                    clean_reason = reason.replace("github:", "").replace("github_", "").replace("_", " ")
+                    formatted_reasons.append(f"• {clean_reason.title()}")
+
             reasons_text = "\n".join(formatted_reasons)
             blocks.append({
                 "type": "section",
                 "text": {
                     "type": "mrkdwn",
                     "text": f"*⚠️ Risk Factors:*\n{reasons_text}"
+                }
+            })
+
+        # Add blast radius context if available
+        records_affected = metadata.get("records_affected") if metadata else None
+        if not records_affected and summary_json:
+            records_affected = summary_json.get("records_affected") or summary_json.get("affected_count")
+
+        if records_affected and int(records_affected) > 1:
+            blocks.append({
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": f"*💥 Blast Radius:* Affects *{records_affected}* items"
+                }
+            })
+
+        # Add command preview (what's being executed)
+        operation_type = metadata.get("operation_type") if metadata else None
+        command_preview = generate_command_preview(operation_type, metadata or {}, target_id)
+        if command_preview:
+            blocks.append({
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": f"*💻 Command:*\n{command_preview}"
                 }
             })
 
@@ -654,9 +1017,32 @@ def format_slack_message(action, user_email: str, source: str = "github_webhook"
             "text": f"*Branch:*\n`{action.branch_name}`"
         })
     
-    # Add risk reasons if available
+    # Add risk reasons with human-readable descriptions
     if action.risk_reasons:
-        reasons_text = "\n".join([f"• {r.replace('github_', '').replace('_', ' ').title()}" for r in action.risk_reasons])
+        formatted_reasons = []
+        for reason in action.risk_reasons:
+            if reason in RISK_REASON_DESCRIPTIONS:
+                formatted_reasons.append(f"• {RISK_REASON_DESCRIPTIONS[reason]}")
+            elif reason.startswith("policy:"):
+                policy_rule = reason.replace("policy:", "").replace("_", " ").title()
+                formatted_reasons.append(f"• 📋 Policy: {policy_rule}")
+            elif reason.startswith("commits_discarded:"):
+                try:
+                    count = int(reason.split(":")[1])
+                    formatted_reasons.append(f"• ⚠️ Will discard {count} commit(s)")
+                except (ValueError, IndexError):
+                    formatted_reasons.append(f"• ⚠️ Will discard commits")
+            elif reason.startswith("commits_over_limit:"):
+                try:
+                    limit = int(reason.split(":")[1])
+                    formatted_reasons.append(f"• 🔴 Exceeds safe limit of {limit} commits")
+                except (ValueError, IndexError):
+                    formatted_reasons.append(f"• 🔴 Exceeds safe commit limit")
+            else:
+                clean_reason = reason.replace("github_", "").replace("_", " ")
+                formatted_reasons.append(f"• {clean_reason.title()}")
+
+        reasons_text = "\n".join(formatted_reasons)
         message["blocks"].append({
             "type": "section",
             "text": {
@@ -664,7 +1050,22 @@ def format_slack_message(action, user_email: str, source: str = "github_webhook"
                 "text": f"*⚠️ Risk Factors:*\n{reasons_text}"
             }
         })
-    
+
+    # Add command preview for webhook events
+    command_preview = generate_command_preview(
+        action.operation_type,
+        metadata,
+        action.repo_name or ""
+    )
+    if command_preview:
+        message["blocks"].append({
+            "type": "section",
+            "text": {
+                "type": "mrkdwn",
+                "text": f"*💻 Command:*\n{command_preview}"
+            }
+        })
+
     # Add CRITICAL warning for repository deletion
     if "repo.delete" in action.operation_type.lower() or "repo_delete" in action.operation_type.lower():
         message["blocks"].append({

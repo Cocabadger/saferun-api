@@ -3,6 +3,7 @@ import { ApprovalFlow, ApprovalOutcome } from '../utils/approval-flow';
 import { getAheadBehind, resolveCommit, runGitCommand } from '../utils/git';
 import { logOperation } from '../utils/logger';
 import { ModeSettings, OperationRuleConfig } from '../utils/config';
+import { withSystemMetadata } from '../utils/system-info';
 import { InterceptorContext } from './types';
 
 interface ResetParams {
@@ -104,11 +105,13 @@ export async function interceptReset(context: InterceptorContext): Promise<numbe
       operationType: 'reset_hard',
       target: `${repoSlug}@${targetRef}`,
       command: `git reset --hard ${targetRef}`,
-      metadata: {
+      metadata: withSystemMetadata({
         repo: repoSlug,
         target: targetRef,
         commitsDiscarded: commitsBack,
-      },
+        source: 'cli',
+        operation_type: 'reset_hard',
+      }),
       riskScore: riskScore / 10,
       humanPreview,
       requiresApproval: enforcement.requiresApproval || enforcement.shouldBlock,

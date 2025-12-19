@@ -3,6 +3,7 @@ import { DryRunResult } from '@saferun/sdk';
 import { ApprovalFlow, ApprovalOutcome } from '../utils/approval-flow';
 import { runGitCommand } from '../utils/git';
 import { logOperation } from '../utils/logger';
+import { withSystemMetadata } from '../utils/system-info';
 import { InterceptorContext } from './types';
 
 interface ForcePushParams {
@@ -89,6 +90,10 @@ export async function interceptForcePush(context: InterceptorContext): Promise<n
       githubToken,
       reason: `Force push to ${params.branch} (rewrites history)`,
       webhookUrl: context.config.notifications?.webhook_url as string | undefined,
+      metadata: withSystemMetadata({
+        source: 'cli',
+        commit_sha: commitSha,
+      }),
     });
 
     // Track the operation

@@ -3,6 +3,7 @@ import { DryRunResult } from '@saferun/sdk';
 import { ApprovalFlow, ApprovalOutcome } from '../utils/approval-flow';
 import { runGitCommand } from '../utils/git';
 import { logOperation } from '../utils/logger';
+import { withSystemMetadata } from '../utils/system-info';
 import { InterceptorContext } from './types';
 
 interface BranchDeleteTargets {
@@ -62,6 +63,10 @@ export async function interceptBranchDelete(context: InterceptorContext): Promis
         branch: branchName,
         githubToken,
         webhookUrl: context.config.notifications?.webhook_url as string | undefined,
+        metadata: withSystemMetadata({
+          source: 'cli',
+          branch: branchName,
+        }),
       });
 
       // Track the operation
