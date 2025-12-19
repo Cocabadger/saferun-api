@@ -115,11 +115,15 @@ export class ApprovalFlow {
     // QR code already shown in showPreview()
 
     const startTime = Date.now();
+    let currentPollInterval = this.pollInterval;
 
     // Silent polling - no spinner since user is looking at menu
     while (!this.cancelPolling && Date.now() - startTime < this.timeout) {
       try {
         const status = await this.client.getApprovalStatus(result.changeId);
+
+        // Reset backoff on successful response
+        currentPollInterval = this.pollInterval;
 
         // Check final success statuses first
         if (status.status === 'executed' || status.status === 'applied') {
@@ -160,12 +164,13 @@ export class ApprovalFlow {
             console.log(chalk.red('\n✗ Approval not found (may have expired)'));
             return ApprovalOutcome.Cancelled;
           }
-          // For transient errors (ECONNRESET, timeouts), continue polling silently
+          // For transient errors (ECONNRESET, timeouts), apply exponential backoff
+          currentPollInterval = Math.min(currentPollInterval * 1.5, 30_000); // Cap at 30s
         }
       }
 
       // Wait before next poll
-      await new Promise(resolve => setTimeout(resolve, this.pollInterval));
+      await new Promise(resolve => setTimeout(resolve, currentPollInterval));
     }
 
     // Timeout or cancelled

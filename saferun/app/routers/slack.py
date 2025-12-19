@@ -10,10 +10,40 @@ logger = logging.getLogger(__name__)
 
 SLACK_SIGNING_SECRET = os.getenv("SLACK_SIGNING_SECRET")
 
+# Optional: Admin whitelist - only these Slack user IDs can approve/reject
+# Format: comma-separated user IDs, e.g. "U12345,U67890"
+SLACK_ADMIN_WHITELIST = os.getenv("SLACK_ADMIN_WHITELIST", "").split(",") if os.getenv("SLACK_ADMIN_WHITELIST") else []
+
 def verify_slack_signature(request_body: bytes, timestamp: str, signature: str) -> bool:
-    """Verify request came from Slack"""
+    """
+    Verify request came from Slack using HMAC-SHA256 signature.
+    
+    SECURITY: In production, SLACK_SIGNING_SECRET MUST be configured.
+    Without it, any attacker can forge Slack requests.
+    """
     if not SLACK_SIGNING_SECRET:
-        return True  # Skip verification if no secret configured
+        # SECURITY FIX: Log warning and reject in production
+        # Only allow unsigned requests in development for testing
+        import os as os_module
+        is_production = os_module.getenv("RAILWAY_ENVIRONMENT") or os_module.getenv("RENDER") or os_module.getenv("VERCEL")
+        if is_production:
+            logger.error("[SECURITY] SLACK_SIGNING_SECRET not configured in production! Rejecting request.")
+            return False
+        else:
+            logger.warning("[SECURITY] SLACK_SIGNING_SECRET not configured - skipping signature verification (dev mode only)")
+            return True
+    
+    # Check timestamp to prevent replay attacks (5 min window)
+    import time
+    try:
+        request_timestamp = int(timestamp)
+        current_time = int(time.time())
+        if abs(current_time - request_timestamp) > 300:  # 5 minutes
+            logger.warning(f"[SECURITY] Slack request timestamp too old: {abs(current_time - request_timestamp)}s")
+            return False
+    except (ValueError, TypeError):
+        logger.warning("[SECURITY] Invalid Slack timestamp")
+        return False
 
     sig_basestring = f"v0:{timestamp}:{request_body.decode('utf-8')}"
     expected_signature = "v0=" + hmac.new(
@@ -23,6 +53,19 @@ def verify_slack_signature(request_body: bytes, timestamp: str, signature: str) 
     ).hexdigest()
 
     return hmac.compare_digest(expected_signature, signature)
+
+
+def is_admin_allowed(user_id: str) -> bool:
+    """
+    Check if user is allowed to approve/reject changes.
+    
+    If SLACK_ADMIN_WHITELIST is configured, only listed users can act.
+    If not configured, all users can act (default behavior).
+    """
+    if not SLACK_ADMIN_WHITELIST or SLACK_ADMIN_WHITELIST == [""]:
+        return True  # No whitelist = all users allowed
+    
+    return user_id in SLACK_ADMIN_WHITELIST
 
 @router.post("/interactions")
 async def handle_slack_interaction(request: Request, background_tasks: BackgroundTasks):
@@ -78,9 +121,26 @@ async def handle_slack_interaction(request: Request, background_tasks: Backgroun
     action_id = action.get("action_id")
     change_id = action.get("value")
     user = payload.get("user", {})
+    user_id = user.get("id", "")
     user_name = user.get("name", "unknown")
     response_url = payload.get("response_url")
     trigger_id = payload.get("trigger_id")  # For opening modals
+
+    # SECURITY: Check admin whitelist if configured
+    if action_id in ("approve_change", "reject_change", "revert_change") or action_id.startswith("revert_action_"):
+        if not is_admin_allowed(user_id):
+            logger.warning(f"[SECURITY] User {user_name} ({user_id}) not in admin whitelist, rejecting action")
+            # Send ephemeral error message to user
+            if response_url:
+                import httpx
+                error_payload = {
+                    "response_type": "ephemeral",
+                    "replace_original": False,
+                    "text": "⛔ You are not authorized to approve/reject SafeRun operations. Contact your admin."
+                }
+                async with httpx.AsyncClient(timeout=5.0) as client:
+                    await client.post(response_url, json=error_payload)
+            return JSONResponse({"ok": True})
 
     # Handle revert action - open modal for GitHub token input
     if action_id.startswith("revert_action_"):
@@ -143,7 +203,7 @@ async def handle_slack_interaction(request: Request, background_tasks: Backgroun
             ]
         }
         
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(timeout=10.0) as client:
             await client.post(response_url, json=update_payload)
 
     return JSONResponse({"ok": True})
@@ -355,7 +415,7 @@ async def open_revert_modal(trigger_id: str, change_id: str, payload: dict) -> J
     
     # Open modal using Slack API
     import httpx
-    async with httpx.AsyncClient() as client:
+    async with httpx.AsyncClient(timeout=10.0) as client:
         response = await client.post(
             "https://slack.com/api/views.open",
             headers={
@@ -408,11 +468,10 @@ async def handle_modal_submission(payload: dict) -> JSONResponse:
     # Call revert endpoint with github_token
     import httpx
     try:
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(timeout=30.0) as client:
             response = await client.post(
                 f"https://saferun-api.up.railway.app/webhooks/github/revert/{change_id}",
-                json={"github_token": github_token},
-                timeout=30.0
+                json={"github_token": github_token}
             )
             
             if response.status_code == 200:

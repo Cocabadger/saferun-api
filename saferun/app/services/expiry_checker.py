@@ -50,21 +50,44 @@ async def check_expired_operations():
         return []
 
 
+async def cleanup_oauth_states():
+    """
+    Cleanup expired and used OAuth states from the database.
+    
+    SECURITY: OAuth states should have short TTL (10 min) to prevent replay attacks.
+    This function removes states that are either:
+    - Expired (created more than 10 minutes ago)
+    - Already used (OAuth flow completed)
+    """
+    try:
+        db.cleanup_expired_oauth_states()
+        logger.debug("OAuth states cleanup completed")
+    except Exception as e:
+        logger.error(f"OAuth states cleanup error: {e}", exc_info=True)
+
+
 async def expiry_checker_loop():
     """
     Run expiry check every 5 minutes.
     This background task continuously monitors for operations that have exceeded
     their revert_window without approval and auto-expires them.
+    
+    Also cleans up expired OAuth states for security.
     """
     logger.info("Expiry checker started - checking every 5 minutes")
     
     while True:
         try:
+            # Check expired operations
             expired_ids = await check_expired_operations()
             if expired_ids:
                 logger.info(f"Expiry check complete: {len(expired_ids)} operations expired")
             else:
                 logger.debug("Expiry check complete: no expired operations")
+            
+            # Cleanup expired OAuth states (security housekeeping)
+            await cleanup_oauth_states()
+            
         except Exception as e:
             logger.error(f"Expiry checker loop error: {e}", exc_info=True)
         

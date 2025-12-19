@@ -204,7 +204,7 @@ export async function interceptReset(context: InterceptorContext): Promise<numbe
 
   // Pass approved changeId to env so reference-transaction hook skips duplicate approval
   const approvedChangeId = approvals.length > 0 ? approvals[0].changeId : undefined;
-
+  console.error(`DEBUG: approvals.length=${approvals.length}, approvedChangeId=${approvedChangeId}`);
   const exitCode = await runGitCommand(['reset', ...context.args], {
     cwd: context.gitInfo.repoRoot,
     disableAliases: ['reset'],
