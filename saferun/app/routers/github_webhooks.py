@@ -18,7 +18,7 @@ from ..services.github import (
     create_revert_commit,
     get_deleted_branch_sha
 )
-from ..notify import send_to_slack, format_slack_message
+from ..notify import notifier  # Use OAuth-based notifier instead of legacy webhooks
 
 router = APIRouter(prefix="/webhooks/github", tags=["github_webhooks"])
 
@@ -299,11 +299,13 @@ async def github_webhook_event(
                         ]
                     }
                     
-                    success = await send_to_slack(slack_webhook_url, completion_message)
-                    if success:
-                        print(f"✅ Completion notification sent for {recent_executed_op['change_id']}")
-                    else:
-                        print(f"❌ Failed to send completion notification")
+                    # Send via OAuth-based notifier (uses slack_installations table)
+                    await notifier.publish(
+                        event="executed_with_revert",
+                        change=recent_executed_op,
+                        api_key=user_api_key
+                    )
+                    print(f"✅ Completion notification sent for {recent_executed_op['change_id']}")
                 except Exception as e:
                     print(f"❌ Error sending completion notification: {e}")
                     import traceback
@@ -318,7 +320,6 @@ async def github_webhook_event(
     installation_id = payload.get("installation", {}).get("id")
     user_email = None
     user_api_key = None
-    slack_webhook_url = None
     
     if installation_id:
         # Try to find user by installation_id
@@ -332,11 +333,6 @@ async def github_webhook_event(
             user_row = db.fetchone("SELECT email FROM api_keys WHERE api_key=%s", (user_api_key,))
             if user_row:
                 user_email = user_row.get("email")
-                # Get Slack webhook from notification settings (using db_adapter for proper decryption)
-                from ..db_adapter import get_notification_settings
-                notif_settings = get_notification_settings(user_api_key)
-                if notif_settings and notif_settings.get("slack_enabled"):
-                    slack_webhook_url = notif_settings.get("slack_webhook_url")
     
     if not user_email:
         user_email = sender_login
@@ -428,37 +424,26 @@ async def github_webhook_event(
         "installation_id": installation_id
     })
     
-    # Send Slack notification if user has webhook configured
-    if slack_webhook_url:
+    # Send Slack notification via OAuth-based notifier (uses slack_installations table)
+    if user_api_key:
         try:
-            # Create mock action object for formatting
-            class MockAction:
-                def __init__(self, data, token=None):
-                    self.id = change_id
-                    summary_json = change.get("summary_json", "{}")
-                    summary = json.loads(summary_json) if isinstance(summary_json, str) else summary_json
-                    self.operation_type = summary.get("operation_type", "")
-                    self.repo_name = summary.get("repo_name", "")
-                    self.branch_name = summary.get("branch_name", "")
-                    self.risk_score = normalized_risk_score  # Use normalized (0-1) for display
-                    self.risk_reasons = reasons
-                    self.metadata = summary
-                    self.expires_at = data.get("expires_at")  # Add expires_at for Slack formatting
-                    self.approval_token = token  # NEW: approval token for revert button
+            # Determine event type for notifier
+            notify_event = "dry_run" if risk_score >= 7.0 else "executed_with_revert"
             
-            mock_action = MockAction(change, approval_token)
-            slack_message = format_slack_message(
-                action=mock_action,
-                user_email=user_email,
-                source="github_webhook",
-                event_type=event_type
+            await notifier.publish(
+                event=notify_event,
+                change=change,
+                extras={
+                    "approve_url": f"/api/github/approve/{change_id}?token={approval_token}" if approval_token else None,
+                    "meta": {
+                        "source": "github_webhook",
+                        "event_type": event_type,
+                        "sender": sender_login
+                    }
+                },
+                api_key=user_api_key
             )
-            
-            success = await send_to_slack(slack_webhook_url, slack_message)
-            if success:
-                print(f"✅ Slack notification sent for change {change_id}")
-            else:
-                print(f"❌ Failed to send Slack notification for change {change_id}")
+            print(f"✅ Slack notification sent for change {change_id}")
         except Exception as e:
             print(f"❌ Error sending Slack notification: {e}")
             import traceback
@@ -797,104 +782,22 @@ async def revert_github_action(
         # Add audit log
         db.insert_audit(change_id, "reverted", {"revert_type": revert_action["type"]})
         
-        # Send Slack notification for successful revert
+        # Send Slack notification for successful revert via OAuth notifier
         change_api_key = change.get("api_key")
         if change_api_key:
             try:
-                notif_row = db.fetchone(
-                    "SELECT slack_webhook_url, slack_enabled FROM user_notification_settings WHERE api_key=%s",
-                    (change_api_key,)
+                # Update change with revert info for notifier
+                change["status"] = "reverted"
+                await notifier.publish(
+                    event="reverted",
+                    change=change,
+                    extras={
+                        "revert_type": revert_action["type"],
+                        "revert_action": revert_action
+                    },
+                    api_key=change_api_key
                 )
-                if notif_row and notif_row.get("slack_enabled") and notif_row.get("slack_webhook_url"):
-                    slack_webhook_url = notif_row.get("slack_webhook_url")
-                    
-                    # Get user email
-                    user_row = db.fetchone(
-                        "SELECT email FROM api_keys WHERE api_key=%s",
-                        (change_api_key,)
-                    )
-                    user_email = user_row.get("email") if user_row else "Unknown"
-                    
-                    # Format message based on revert type
-                    revert_type = revert_action["type"]
-                    revert_type_label = {
-                        "branch_restore": "Branch Restored",
-                        "force_push_revert": "Force Push Reverted",
-                        "merge_revert": "Merge Reverted",
-                        "repository_unarchive": "Repository Unarchived"
-                    }.get(revert_type, "Reverted")
-                    
-                    # Build message blocks based on operation type
-                    if revert_type == "merge_revert":
-                        # Special message for merge revert with force update info
-                        before_sha = revert_action.get('before_sha', 'unknown')[:7]
-                        slack_message = {
-                            "text": f"✅ {revert_type_label} - Branch Force Updated",
-                            "blocks": [
-                                {
-                                    "type": "header",
-                                    "text": {
-                                        "type": "plain_text",
-                                        "text": f"🔄 SafeRun Revert - {revert_type_label}",
-                                        "emoji": True
-                                    }
-                                },
-                                {
-                                    "type": "section",
-                                    "fields": [
-                                        {"type": "mrkdwn", "text": f"*Repository:*\n{revert_action.get('owner')}/{revert_action.get('repo')}"},
-                                        {"type": "mrkdwn", "text": f"*Branch:*\n{revert_action.get('branch')}"},
-                                        {"type": "mrkdwn", "text": f"*Reverted by:*\n{user_email}"},
-                                        {"type": "mrkdwn", "text": f"*Change ID:*\n{change_id[:8]}..."}
-                                    ]
-                                },
-                                {
-                                    "type": "section",
-                                    "text": {
-                                        "type": "mrkdwn",
-                                        "text": (
-                                            "*✅ Branch force-updated to pre-merge state*\n"
-                                            f"Branch `{revert_action.get('branch')}` reset to commit `{before_sha}` (state before merge).\n\n"
-                                            "*⚠️ Important:*\n"
-                                            "• Merge commit has been REMOVED from history (destructive operation)\n"
-                                            "• Anyone who pulled the merge will have diverged history\n"
-                                            "• Team members may need to reset their local branches\n"
-                                            "• This does NOT prevent future unauthorized merges\n\n"
-                                            "*🛡️ Recommendation:*\n"
-                                            f"Enable Branch Protection to prevent future unauthorized merges:\n"
-                                            f"https://github.com/{revert_action.get('owner')}/{revert_action.get('repo')}/settings/branches"
-                                        )
-                                    }
-                                }
-                            ]
-                        }
-                    else:
-                        # Standard revert message for other operations
-                        slack_message = {
-                            "text": f"✅ {revert_type_label} Successfully",
-                            "blocks": [
-                                {
-                                    "type": "header",
-                                    "text": {
-                                        "type": "plain_text",
-                                        "text": f"✅ SafeRun Revert - {revert_type_label}",
-                                        "emoji": True
-                                    }
-                                },
-                                {
-                                    "type": "section",
-                                    "fields": [
-                                        {"type": "mrkdwn", "text": f"*Repository:*\n{revert_action.get('owner')}/{revert_action.get('repo')}"},
-                                        {"type": "mrkdwn", "text": f"*Branch:*\n{revert_action.get('branch')}"},
-                                        {"type": "mrkdwn", "text": f"*Restored by:*\n{user_email}"},
-                                        {"type": "mrkdwn", "text": f"*Change ID:*\n{change_id[:8]}..."}
-                                    ]
-                                }
-                            ]
-                        }
-                    
-                    await send_to_slack(slack_webhook_url, slack_message)
-                    print(f"✅ Sent revert success notification to Slack for {user_email}")
+                print(f"✅ Sent revert success notification to Slack")
             except Exception as e:
                 print(f"⚠️ Failed to send Slack notification for revert: {e}")
         

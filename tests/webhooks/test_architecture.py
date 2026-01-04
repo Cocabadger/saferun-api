@@ -116,14 +116,13 @@ def test_function_signatures():
     else:
         print("✅ calculate_github_risk_score signature OK")
     
-    # Check format_slack_message
-    sig = inspect.signature(notify.format_slack_message)
-    params = list(sig.parameters.keys())
-    expected = ['action', 'user_email', 'source', 'event_type']
-    if params != expected:
-        checks.append(f"❌ format_slack_message params: expected {expected}, got {params}")
+    # REMOVED: format_slack_message was deleted as part of Cloud-First security migration
+    # All Slack notifications now use OAuth tokens via notifier.publish()
+    # Check notifier instance exists
+    if hasattr(notify, 'notifier'):
+        print("✅ notifier instance available (OAuth-based Slack)")
     else:
-        print("✅ format_slack_message signature OK")
+        checks.append("❌ notifier instance not found in notify module")
     
     return checks
 

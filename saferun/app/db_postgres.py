@@ -1019,3 +1019,97 @@ def delete_slack_installation(api_key: str) -> bool:
     """, (api_key,))
     
     return True
+
+
+def complete_slack_oauth(
+    state: str,
+    team_id: str,
+    team_name: str,
+    bot_token: str,
+    bot_user_id: str = None,
+    channel_id: str = None
+) -> tuple[str | None, str | None]:
+    """
+    Atomic OAuth completion: verify state + store installation in single transaction.
+    
+    SECURITY: Prevents race conditions by using UPDATE ... RETURNING with row-level lock.
+    All operations happen in a single transaction - if any step fails, everything rolls back.
+    
+    Args:
+        state: OAuth state UUID to consume
+        team_id: Slack workspace ID
+        team_name: Slack workspace name
+        bot_token: Bot OAuth token (will be encrypted)
+        bot_user_id: Bot user ID
+        channel_id: Default channel ID
+    
+    Returns:
+        Tuple of (api_key, error_message)
+        - Success: (api_key, None)
+        - Failure: (None, error_message)
+    """
+    conn = get_connection()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    
+    try:
+        # Step 1: Atomic state consumption with row-level lock
+        # UPDATE ... RETURNING ensures only ONE request can consume the state
+        cur.execute("""
+            UPDATE oauth_states 
+            SET used = TRUE
+            WHERE state = %s 
+              AND used = FALSE 
+              AND expires_at > NOW()
+            RETURNING api_key
+        """, (state,))
+        
+        row = cur.fetchone()
+        if not row:
+            conn.rollback()
+            return None, "Invalid or expired authorization link. Please try again."
+        
+        api_key = row['api_key']
+        
+        # Step 2: Check for team hijacking (same transaction, row locked)
+        cur.execute("""
+            SELECT api_key FROM slack_installations WHERE team_id = %s
+        """, (team_id,))
+        existing = cur.fetchone()
+        
+        if existing and existing['api_key'] != api_key:
+            conn.rollback()
+            return None, f"Workspace '{team_name}' is already connected to another SafeRun account. Please disconnect it first or use the same API key."
+        
+        # Step 3: Encrypt bot token
+        encrypted_token = crypto.encrypt_token(bot_token)
+        
+        # Step 4: Store installation (same transaction)
+        cur.execute("""
+            INSERT INTO slack_installations(
+                api_key, team_id, team_name, bot_token, 
+                bot_user_id, channel_id, installed_at, updated_at
+            )
+            VALUES (%s, %s, %s, %s, %s, %s, NOW(), NOW())
+            ON CONFLICT (api_key) DO UPDATE SET
+                team_id = EXCLUDED.team_id,
+                team_name = EXCLUDED.team_name,
+                bot_token = EXCLUDED.bot_token,
+                bot_user_id = EXCLUDED.bot_user_id,
+                channel_id = EXCLUDED.channel_id,
+                updated_at = NOW()
+        """, (api_key, team_id, team_name, encrypted_token, bot_user_id, channel_id))
+        
+        # Commit entire transaction atomically
+        conn.commit()
+        
+        return api_key, None
+        
+    except Exception as e:
+        conn.rollback()
+        # Log but don't expose internal error details
+        import logging
+        logging.getLogger(__name__).error(f"complete_slack_oauth failed: {e}")
+        raise
+    finally:
+        cur.close()
+        conn.close()

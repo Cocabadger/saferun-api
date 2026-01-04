@@ -125,7 +125,8 @@ async def slack_oauth_callback(
     """
     Handle Slack OAuth callback.
     
-    Verifies state, exchanges code for access token, stores encrypted in DB.
+    SECURITY: Uses atomic transaction to prevent race conditions.
+    State verification + token storage happen in single DB transaction.
     """
     # Handle errors from Slack
     if error:
@@ -147,20 +148,9 @@ async def slack_oauth_callback(
             status_code=503
         )
     
-    # Verify state (CSRF protection)
-    oauth_state = db.verify_oauth_state(state)
-    if not oauth_state:
-        logger.warning(f"Invalid or expired OAuth state: {state}")
-        return HTMLResponse(
-            content=_error_page("Invalid or expired authorization link. Please try again."),
-            status_code=400
-        )
-    
-    api_key = oauth_state["api_key"]
-    
-    # Exchange code for access token
+    # Exchange code for access token FIRST (before consuming state)
+    # This way if Slack rejects the code, we haven't consumed the state yet
     try:
-        # Fix #1: Add explicit timeout to prevent hanging on slow Slack responses
         async with httpx.AsyncClient(timeout=10.0) as client:
             response = await client.post(
                 "https://slack.com/api/oauth.v2.access",
@@ -176,8 +166,7 @@ async def slack_oauth_callback(
             
             if not data.get("ok"):
                 error_msg = data.get("error", "Unknown error")
-                # Fix #3: Log detailed error but show generic message to user
-                logger.error(f"Slack OAuth token exchange failed: {error_msg}, full response: {data}")
+                logger.error(f"Slack OAuth token exchange failed: {error_msg}")
                 # Map known errors to user-friendly messages
                 user_message = {
                     "invalid_code": "Authorization code expired. Please try again.",
@@ -216,44 +205,29 @@ async def slack_oauth_callback(
             status_code=502
         )
     
-    # Fix #2: Mark state as used FIRST to prevent replay attacks
-    # If this fails, we haven't stored the token yet - safe state
+    # SECURITY FIX: Atomic state consumption + installation storage
+    # This prevents race conditions where two requests could use the same state
     try:
-        db.mark_oauth_state_used(state)
-    except Exception as e:
-        logger.error(f"Failed to mark OAuth state as used: {e}")
-        return HTMLResponse(
-            content=_error_page("Database error. Please try again."),
-            status_code=500
-        )
-    
-    # Fix #4: Check if team_id is already connected to another api_key
-    existing_installation = db.get_slack_installation_by_team(team_id)
-    if existing_installation and existing_installation.get("api_key") != api_key:
-        logger.warning(f"Workspace {team_name} ({team_id}) already connected to another account")
-        return HTMLResponse(
-            content=_error_page(
-                f"Workspace '{team_name}' is already connected to another SafeRun account. "
-                "Please disconnect it first or use the same API key."
-            ),
-            status_code=409
-        )
-    
-    # Store installation in DB (encrypted)
-    try:
-        db.store_slack_installation(
-            api_key=api_key,
+        api_key, error_message = db.complete_slack_oauth(
+            state=state,
             team_id=team_id,
             team_name=team_name,
-            bot_token=access_token,  # Will be encrypted in db function
+            bot_token=access_token,
             bot_user_id=bot_user_id,
             channel_id=channel_id
         )
         
-        logger.info(f"Slack installation stored for api_key={api_key[:10]}..., team={team_name}")
+        if error_message:
+            logger.warning(f"OAuth completion failed: {error_message}")
+            return HTMLResponse(
+                content=_error_page(error_message),
+                status_code=400 if "expired" in error_message.lower() else 409
+            )
+        
+        logger.info(f"Slack installation stored atomically for api_key={api_key[:10]}..., team={team_name}")
         
     except Exception as e:
-        logger.error(f"Failed to store Slack installation: {e}")
+        logger.error(f"Failed to complete Slack OAuth: {e}")
         return HTMLResponse(
             content=_error_page("Failed to save Slack connection. Please try again."),
             status_code=500
