@@ -497,17 +497,25 @@ class Notifier:
         # Risk level emoji for header
         risk_emoji = "🔴" if risk_score >= 0.7 else "🟡" if risk_score >= 0.4 else "🟢"
 
+        # Banking Grade: Color Coding based on risk_score (0-1 scale, >0.8 = critical)
+        if risk_score > 0.8:
+            header_emoji = "🚨"  # Critical risk
+        else:
+            header_emoji = "🛡️"  # Normal protection
+
         # Different header based on event type and risk level
         if event_type == "executed_with_revert":
             header_text = "✅ Action Executed"
         elif event_type == "failed":
             header_text = "❌ Operation Failed"
+        elif risk_score > 0.8:
+            header_text = f"{header_emoji} CRITICAL RISK - Immediate Review Required"
         elif risk_score >= 0.7:
             header_text = f"{risk_emoji} HIGH RISK - Approval Required"
         elif risk_score >= 0.4:
             header_text = f"{risk_emoji} Medium Risk - Approval Required"
         else:
-            header_text = "🛡️ SafeRun Approval Required"
+            header_text = f"{header_emoji} SafeRun Approval Required"
 
         # Build fields - Banking Grade format
         fields = [
@@ -753,6 +761,41 @@ class Notifier:
                         "text": error_text
                     }
                 })
+
+        # Banking Grade: Context Block (Audit Trail footer)
+        # Shows author, provider, timestamp for compliance tracking
+        context_elements = []
+        
+        # Add provider icon + name
+        context_elements.append({
+            "type": "mrkdwn",
+            "text": f"{provider_emoji} {provider.capitalize()}"
+        })
+        
+        # Add author if available
+        if git_author:
+            context_elements.append({
+                "type": "mrkdwn",
+                "text": f"👤 {git_author}"
+            })
+        
+        # Add source badge
+        context_elements.append({
+            "type": "mrkdwn",
+            "text": source_badge
+        })
+        
+        # Add change_id for audit reference
+        if change_id:
+            context_elements.append({
+                "type": "mrkdwn",
+                "text": f"📋 `{change_id[:12]}...`"
+            })
+        
+        blocks.append({
+            "type": "context",
+            "elements": context_elements
+        })
 
         body = {
             "channel": channel,

@@ -170,37 +170,56 @@ async def handle_slack_interaction(request: Request, background_tasks: Backgroun
     # Update message using response_url (for approve/reject only - revert handled in background)
     if response_url:
         import httpx
+        from datetime import datetime, timezone
         
         # Get change details for better message
         storage = storage_manager.get_storage()
         change = storage.get_change(change_id)
-        operation_info = ""
-        if change:
-            provider = change.get("provider", "unknown")
-            target_id = change.get("target_id", "")
-            title = change.get("title", "Operation")
-            operation_info = f"\n📋 *Operation:* {title}\n🎯 *Target:* {target_id}"
         
-        # Use emoji and clear formatting
+        # Banking Grade Audit Trail: Preserve original blocks, remove actions, add decision
+        original_blocks = payload.get("message", {}).get("blocks", [])
+        
+        # Filter out action blocks (buttons) and build new block list
+        preserved_blocks = []
+        for block in original_blocks:
+            if block.get("type") != "actions":
+                preserved_blocks.append(block)
+        
+        # Determine decision status
         if "approved" in message.lower():
             status_emoji = "✅"
             status_text = "APPROVED"
+            status_color = "#28a745"  # Green
         else:
             status_emoji = "❌" 
             status_text = "REJECTED"
+            status_color = "#dc3545"  # Red
+        
+        # Add Decision block with timestamp (Audit Trail)
+        decision_time = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+        preserved_blocks.append({
+            "type": "divider"
+        })
+        preserved_blocks.append({
+            "type": "section",
+            "text": {
+                "type": "mrkdwn",
+                "text": f"*{status_emoji} {status_text}* by <@{user_id}>\n_Decision recorded at {decision_time}_"
+            }
+        })
+        
+        # Update context block to include decision audit
+        preserved_blocks.append({
+            "type": "context",
+            "elements": [
+                {"type": "mrkdwn", "text": f"🔐 Audit: `{change_id[:12]}...` • {status_text.lower()} by @{user_name}"}
+            ]
+        })
         
         update_payload = {
             "replace_original": True,
             "text": f"{status_emoji} Change {status_text} by @{user_name}",
-            "blocks": [
-                {
-                    "type": "section",
-                    "text": {
-                        "type": "mrkdwn",
-                        "text": f"{status_emoji} *Change {status_text}*\n\n👤 *By:* @{user_name}{operation_info}\n🔑 *Change ID:* `{change_id}`"
-                    }
-                }
-            ]
+            "blocks": preserved_blocks
         }
         
         async with httpx.AsyncClient(timeout=10.0) as client:
@@ -502,12 +521,28 @@ async def execute_revert_in_background(change_id: str, user_name: str, response_
     """
     Execute revert operation in background and update Slack message via response_url.
     This prevents Slack 500 error by allowing immediate acknowledgment.
+    
+    Timeouts:
+    - Revert execution: 5 minutes (300s) - enough for slow GitHub API on large repos
+    - Slack response: 30 seconds - just for sending status message
     """
     import httpx
+    import asyncio
+    
+    REVERT_TIMEOUT_SECONDS = 300  # 5 minutes for GitHub operations
+    SLACK_RESPONSE_TIMEOUT = 30   # 30 seconds to send Slack message
     
     try:
-        # Execute the revert operation (this may take 5-30 seconds)
-        success, revert_info = await revert_change(change_id, user_name)
+        # Execute the revert operation with timeout (may take 5-30 seconds, max 5 min)
+        try:
+            success, revert_info = await asyncio.wait_for(
+                revert_change(change_id, user_name),
+                timeout=REVERT_TIMEOUT_SECONDS
+            )
+        except asyncio.TimeoutError:
+            logger.error(f"Revert operation timed out after {REVERT_TIMEOUT_SECONDS}s for change {change_id}")
+            success = False
+            revert_info = {"timeout": True}
         
         if success and revert_info:
             # Build success message
@@ -540,7 +575,12 @@ async def execute_revert_in_background(change_id: str, user_name: str, response_
                 ]
             }
         else:
-            # Revert failed (window expired or other error)
+            # Revert failed (window expired, timeout, or other error)
+            if revert_info and revert_info.get("timeout"):
+                error_reason = "Operation timed out after 5 minutes. GitHub may be slow - check manually."
+            else:
+                error_reason = "Revert window may have expired or operation already reverted."
+            
             update_payload = {
                 "replace_original": True,
                 "text": f"❌ Revert Failed",
@@ -549,14 +589,14 @@ async def execute_revert_in_background(change_id: str, user_name: str, response_
                         "type": "section",
                         "text": {
                             "type": "mrkdwn",
-                            "text": f"*❌ Failed to revert*\n\nRevert window may have expired or operation already reverted.\n\nActioned by: @{user_name}\nChange ID: `{change_id}`"
+                            "text": f"*❌ Failed to revert*\n\n{error_reason}\n\nActioned by: @{user_name}\nChange ID: `{change_id}`"
                         }
                     }
                 ]
             }
         
         # Send update to Slack
-        async with httpx.AsyncClient(timeout=30.0) as client:
+        async with httpx.AsyncClient(timeout=SLACK_RESPONSE_TIMEOUT) as client:
             response = await client.post(response_url, json=update_payload)
             if response.status_code != 200:
                 logger.error(f"Failed to update Slack message: {response.text}")
