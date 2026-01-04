@@ -18,9 +18,9 @@ SLACK_ADMIN_WHITELIST = os.getenv("SLACK_ADMIN_WHITELIST", "").split(",") if os.
 # SECURITY WARNING: Log if admin whitelist is not configured
 if not SLACK_ADMIN_WHITELIST or SLACK_ADMIN_WHITELIST == [""]:
     logger.warning(
-        "[SECURITY] SLACK_ADMIN_WHITELIST not configured! "
-        "ALL Slack users can approve/reject operations. "
-        "For Banking Grade security, set SLACK_ADMIN_WHITELIST=U12345,U67890"
+        "[SECURITY] SLACK_ADMIN_WHITELIST not configured. "
+        "Any Slack workspace member can approve/reject operations. "
+        "To restrict access, set SLACK_ADMIN_WHITELIST=U12345,U67890"
     )
 
 def verify_slack_signature(request_body: bytes, timestamp: str, signature: str) -> bool:
