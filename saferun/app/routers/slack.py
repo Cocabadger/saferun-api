@@ -9,10 +9,19 @@ router = APIRouter(prefix="/slack", tags=["slack"])
 logger = logging.getLogger(__name__)
 
 SLACK_SIGNING_SECRET = os.getenv("SLACK_SIGNING_SECRET")
+BASE_URL = os.getenv("SAFERUN_API_URL", os.getenv("BASE_URL", "http://localhost:8000"))
 
 # Optional: Admin whitelist - only these Slack user IDs can approve/reject
 # Format: comma-separated user IDs, e.g. "U12345,U67890"
 SLACK_ADMIN_WHITELIST = os.getenv("SLACK_ADMIN_WHITELIST", "").split(",") if os.getenv("SLACK_ADMIN_WHITELIST") else []
+
+# SECURITY WARNING: Log if admin whitelist is not configured
+if not SLACK_ADMIN_WHITELIST or SLACK_ADMIN_WHITELIST == [""]:
+    logger.warning(
+        "[SECURITY] SLACK_ADMIN_WHITELIST not configured! "
+        "ALL Slack users can approve/reject operations. "
+        "For Banking Grade security, set SLACK_ADMIN_WHITELIST=U12345,U67890"
+    )
 
 def verify_slack_signature(request_body: bytes, timestamp: str, signature: str) -> bool:
     """
@@ -489,7 +498,7 @@ async def handle_modal_submission(payload: dict) -> JSONResponse:
     try:
         async with httpx.AsyncClient(timeout=30.0) as client:
             response = await client.post(
-                f"https://saferun-api.up.railway.app/webhooks/github/revert/{change_id}",
+                f"{BASE_URL}/webhooks/github/revert/{change_id}",
                 json={"github_token": github_token}
             )
             
