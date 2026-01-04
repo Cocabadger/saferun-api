@@ -40,6 +40,12 @@ interface SetupOptions {
   apiKey?: string;
 }
 
+interface UnifiedSetupStatus {
+  slack: boolean;
+  github: boolean;
+  ready: boolean;
+}
+
 export class SetupCommand {
   private apiKey?: string;
   private slackConfigured = false;
@@ -47,6 +53,7 @@ export class SetupCommand {
   private repoInitialized = false;
   private shellWrapperConfigured = false;
   private protectionMode: string = 'block';
+  private currentSessionState?: string; // OAuth session state for unified polling
 
   async run(options: SetupOptions = {}): Promise<void> {
     console.log(chalk.cyan('\n🛡️  SafeRun Setup Wizard\n'));
@@ -264,7 +271,7 @@ export class SetupCommand {
   }
 
   /**
-   * Step 3: Install GitHub App
+   * Step 3: Install GitHub App (with unified polling)
    */
   private async stepGitHubApp(): Promise<void> {
     console.log(chalk.bold('\nStep 3/6: GitHub App'));
@@ -305,18 +312,53 @@ export class SetupCommand {
     console.log('  3. Choose "All repositories" or select specific ones');
     console.log('  4. Click "Install" to confirm\n');
 
-    await this.openBrowser(GITHUB_APP_URL);
+    // Build GitHub App URL with state parameter for linking
+    let githubInstallUrl = GITHUB_APP_URL;
+    if (this.currentSessionState) {
+      githubInstallUrl = `${GITHUB_APP_URL}?state=${this.currentSessionState}`;
+    }
+    
+    await this.openBrowser(githubInstallUrl);
 
-    const { installed } = await inquirer.prompt([{
-      type: 'confirm',
-      name: 'installed',
-      message: 'Did you complete the GitHub App installation?',
-      default: true,
-    }]);
+    // If we have a session state, use unified polling
+    if (this.currentSessionState) {
+      console.log(chalk.yellow('\n⏳ Waiting for GitHub App installation...'));
+      console.log(chalk.gray('   (This will auto-detect when installation completes)'));
+      console.log(chalk.gray('   (Press Ctrl+C to cancel)\n'));
+      
+      const status = await this.pollUnifiedSetup(180000); // 3 minutes timeout
+      
+      if (status.github) {
+        console.log(chalk.green('\n✓ GitHub App linked to your SafeRun account!'));
+        this.githubAppInstalled = true;
+      } else {
+        console.log(chalk.yellow('\n⚠️  GitHub App installation not detected.'));
+        console.log(chalk.gray('   It might still work - check your GitHub settings.'));
+        
+        const { installed } = await inquirer.prompt([{
+          type: 'confirm',
+          name: 'installed',
+          message: 'Did you complete the GitHub App installation?',
+          default: true,
+        }]);
+        
+        if (installed) {
+          this.githubAppInstalled = true;
+        }
+      }
+    } else {
+      // Fallback to manual confirmation (no session state)
+      const { installed } = await inquirer.prompt([{
+        type: 'confirm',
+        name: 'installed',
+        message: 'Did you complete the GitHub App installation?',
+        default: true,
+      }]);
 
-    if (installed) {
-      this.githubAppInstalled = true;
-      console.log(chalk.green('\n✓ GitHub App installed!\n'));
+      if (installed) {
+        this.githubAppInstalled = true;
+        console.log(chalk.green('\n✓ GitHub App installed!\n'));
+      }
     }
   }
 
@@ -627,7 +669,7 @@ export class SetupCommand {
   }
 
   /**
-   * Get OAuth URL from backend
+   * Get OAuth URL from backend (also stores session state for unified polling)
    */
   private async getSlackOAuthUrl(): Promise<string | null> {
     if (!this.apiKey) return null;
@@ -640,6 +682,10 @@ export class SetupCommand {
       
       if (response.ok) {
         const data = await response.json();
+        // Store session state for unified polling
+        if (data.state) {
+          this.currentSessionState = data.state;
+        }
         return data.url;
       }
     } catch {
@@ -678,6 +724,72 @@ export class SetupCommand {
     }
     
     return false;
+  }
+
+  /**
+   * Poll unified setup status (Slack + GitHub in single session)
+   * Uses the session state from OAuth flow to track both providers
+   */
+  private async pollUnifiedSetup(timeoutMs: number = 300000): Promise<UnifiedSetupStatus> {
+    const startTime = Date.now();
+    const pollInterval = 2000; // 2 seconds
+    
+    let lastStatus: UnifiedSetupStatus = { slack: false, github: false, ready: false };
+    let slackAnnounced = false;
+    let githubAnnounced = false;
+    
+    while (Date.now() - startTime < timeoutMs) {
+      try {
+        // Use session state if available, fallback to API key polling
+        const url = this.currentSessionState 
+          ? `${SAFERUN_API_URL}/auth/setup/status?state=${this.currentSessionState}`
+          : `${SAFERUN_API_URL}/auth/setup/status`;
+          
+        const response = await fetch(url, {
+          headers: { 'X-API-Key': this.apiKey },
+        });
+        
+        if (response.ok) {
+          const data: UnifiedSetupStatus = await response.json();
+          lastStatus = data;
+          
+          // Announce Slack when it connects
+          if (data.slack && !slackAnnounced) {
+            console.log(chalk.green('\n✓ Slack connected!'));
+            slackAnnounced = true;
+            this.slackConfigured = true;
+            
+            if (!data.github) {
+              console.log(chalk.yellow('⏳ Waiting for GitHub App installation...'));
+            }
+          }
+          
+          // Announce GitHub when it connects
+          if (data.github && !githubAnnounced) {
+            console.log(chalk.green('\n✓ GitHub App installed!'));
+            githubAnnounced = true;
+            this.githubAppInstalled = true;
+            
+            if (!data.slack) {
+              console.log(chalk.yellow('⏳ Waiting for Slack connection...'));
+            }
+          }
+          
+          // Both connected!
+          if (data.ready) {
+            return data;
+          }
+        }
+      } catch {
+        // Ignore errors, keep polling
+      }
+      
+      // Wait before next poll
+      await new Promise(resolve => setTimeout(resolve, pollInterval));
+      process.stdout.write('.');
+    }
+    
+    return lastStatus;
   }
 
   private async sendTestSlack(): Promise<void> {

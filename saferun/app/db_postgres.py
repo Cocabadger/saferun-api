@@ -206,10 +206,42 @@ def init_db():
         created_at TIMESTAMP NOT NULL DEFAULT NOW(),
         expires_at TIMESTAMP NOT NULL,
         used BOOLEAN DEFAULT FALSE,
+        is_slack_connected BOOLEAN DEFAULT FALSE,
+        is_github_installed BOOLEAN DEFAULT FALSE,
+        github_installation_id INTEGER,
         FOREIGN KEY (api_key) REFERENCES api_keys(api_key) ON DELETE CASCADE
     );
     
     CREATE INDEX IF NOT EXISTS idx_oauth_states_expires ON oauth_states(expires_at);
+    CREATE INDEX IF NOT EXISTS idx_oauth_states_unified_status 
+        ON oauth_states(state, is_slack_connected, is_github_installed);
+    """)
+    
+    # Migration for existing tables: add unified setup columns
+    cur.execute("""
+    DO $$ 
+    BEGIN
+        IF NOT EXISTS (
+            SELECT 1 FROM information_schema.columns 
+            WHERE table_name = 'oauth_states' AND column_name = 'is_slack_connected'
+        ) THEN
+            ALTER TABLE oauth_states ADD COLUMN is_slack_connected BOOLEAN DEFAULT FALSE;
+        END IF;
+        
+        IF NOT EXISTS (
+            SELECT 1 FROM information_schema.columns 
+            WHERE table_name = 'oauth_states' AND column_name = 'is_github_installed'
+        ) THEN
+            ALTER TABLE oauth_states ADD COLUMN is_github_installed BOOLEAN DEFAULT FALSE;
+        END IF;
+        
+        IF NOT EXISTS (
+            SELECT 1 FROM information_schema.columns 
+            WHERE table_name = 'oauth_states' AND column_name = 'github_installation_id'
+        ) THEN
+            ALTER TABLE oauth_states ADD COLUMN github_installation_id INTEGER;
+        END IF;
+    END $$;
     """)
 
     # Create Slack installations table (OAuth tokens)
@@ -914,6 +946,160 @@ def cleanup_expired_oauth_states():
     """)
 
 
+# =============================================================================
+# Unified Cloud Setup Functions
+# =============================================================================
+
+def get_setup_session_status(state: str) -> Optional[Dict[str, Any]]:
+    """
+    Get current status of a setup session (used by CLI polling).
+    
+    Returns dict with:
+    - api_key: The associated API key
+    - is_slack_connected: Whether Slack OAuth completed
+    - is_github_installed: Whether GitHub App was installed
+    - expires_at: Session expiration time
+    
+    Returns None if state is invalid or expired.
+    """
+    row = fetchone("""
+        SELECT state, api_key, expires_at, used,
+               COALESCE(is_slack_connected, FALSE) as is_slack_connected,
+               COALESCE(is_github_installed, FALSE) as is_github_installed,
+               github_installation_id
+        FROM oauth_states
+        WHERE state = %s
+    """, (state,))
+    
+    if not row:
+        return None
+    
+    # Check expiration (allow checking status even if used, for multi-provider flow)
+    expires_at = parse_dt(row['expires_at']) if isinstance(row['expires_at'], str) else row['expires_at']
+    if expires_at.tzinfo is None:
+        expires_at = expires_at.replace(tzinfo=timezone.utc)
+    
+    if now_utc() > expires_at:
+        return None  # Expired
+    
+    return {
+        "api_key": row['api_key'],
+        "is_slack_connected": row['is_slack_connected'],
+        "is_github_installed": row['is_github_installed'],
+        "github_installation_id": row.get('github_installation_id'),
+        "expires_at": expires_at
+    }
+
+
+def update_slack_connected_status(state: str) -> bool:
+    """
+    Mark Slack as connected for a setup session.
+    Called after successful Slack OAuth completion.
+    
+    Returns True if updated, False if state not found/expired.
+    """
+    conn = get_connection()
+    cur = conn.cursor()
+    
+    try:
+        cur.execute("""
+            UPDATE oauth_states 
+            SET is_slack_connected = TRUE
+            WHERE state = %s 
+              AND expires_at > NOW()
+            RETURNING state
+        """, (state,))
+        
+        row = cur.fetchone()
+        conn.commit()
+        return row is not None
+        
+    except Exception as e:
+        conn.rollback()
+        import logging
+        logging.getLogger(__name__).error(f"update_slack_connected_status failed: {e}")
+        return False
+    finally:
+        cur.close()
+        conn.close()
+
+
+def complete_github_installation(state: str, installation_id: int) -> tuple[str | None, str | None]:
+    """
+    Atomic GitHub App installation completion.
+    
+    SECURITY: Uses UPDATE...RETURNING with row-level lock to prevent race conditions.
+    Links GitHub installation_id to the setup session and marks GitHub as installed.
+    
+    Args:
+        state: OAuth state UUID from the setup session
+        installation_id: GitHub App installation ID
+    
+    Returns:
+        Tuple of (api_key, error_message)
+        - Success: (api_key, None)
+        - Failure: (None, error_message)
+    """
+    conn = get_connection()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    
+    try:
+        # Step 1: Atomic state update with row-level lock
+        cur.execute("""
+            UPDATE oauth_states 
+            SET is_github_installed = TRUE,
+                github_installation_id = %s
+            WHERE state = %s 
+              AND expires_at > NOW()
+            RETURNING api_key
+        """, (installation_id, state))
+        
+        row = cur.fetchone()
+        if not row:
+            conn.rollback()
+            return None, "Invalid or expired setup session. Please restart setup."
+        
+        api_key = row['api_key']
+        
+        # Step 2: Check if this installation_id is already linked to another api_key
+        cur.execute("""
+            SELECT api_key FROM github_installations WHERE installation_id = %s
+        """, (installation_id,))
+        existing = cur.fetchone()
+        
+        if existing and existing['api_key'] != api_key:
+            conn.rollback()
+            return None, "This GitHub App installation is already linked to another SafeRun account."
+        
+        # Step 3: Upsert github_installations table
+        cur.execute("""
+            INSERT INTO github_installations(installation_id, api_key, installed_at)
+            VALUES (%s, %s, NOW())
+            ON CONFLICT (installation_id) DO UPDATE SET
+                api_key = EXCLUDED.api_key,
+                installed_at = NOW()
+        """, (installation_id, api_key))
+        
+        # Step 4: Also update api_keys.github_installation_id for quick lookup
+        cur.execute("""
+            UPDATE api_keys 
+            SET github_installation_id = %s
+            WHERE api_key = %s
+        """, (installation_id, api_key))
+        
+        conn.commit()
+        return api_key, None
+        
+    except Exception as e:
+        conn.rollback()
+        import logging
+        logging.getLogger(__name__).error(f"complete_github_installation failed: {e}")
+        raise
+    finally:
+        cur.close()
+        conn.close()
+
+
 def store_slack_installation(
     api_key: str,
     team_id: str,
@@ -1054,9 +1240,11 @@ def complete_slack_oauth(
     try:
         # Step 1: Atomic state consumption with row-level lock
         # UPDATE ... RETURNING ensures only ONE request can consume the state
+        # Also set is_slack_connected for unified setup polling
         cur.execute("""
             UPDATE oauth_states 
-            SET used = TRUE
+            SET used = TRUE,
+                is_slack_connected = TRUE
             WHERE state = %s 
               AND used = FALSE 
               AND expires_at > NOW()
