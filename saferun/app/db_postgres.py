@@ -1177,10 +1177,10 @@ def get_slack_installation_by_team(team_id: str) -> Optional[Dict[str, Any]]:
     Get Slack installation by team_id.
     
     Used to check if a workspace is already connected to another account.
-    Returns: Dict with api_key and team info (no token), or None if not found
+    Returns: Dict with api_key, team info, and bot_user_id (no token), or None if not found
     """
     row = fetchone("""
-        SELECT api_key, team_id, team_name, installed_at
+        SELECT api_key, team_id, team_name, bot_user_id, channel_id, installed_at
         FROM slack_installations
         WHERE team_id = %s
     """, (team_id,))
@@ -1192,8 +1192,38 @@ def get_slack_installation_by_team(team_id: str) -> Optional[Dict[str, Any]]:
         "api_key": row['api_key'],
         "team_id": row['team_id'],
         "team_name": row['team_name'],
+        "bot_user_id": row.get('bot_user_id'),
+        "channel_id": row.get('channel_id'),
         "installed_at": row['installed_at']
     }
+
+
+def update_slack_channel(team_id: str, channel_id: str) -> bool:
+    """
+    Update channel_id for a Slack installation.
+    
+    Called when bot joins a channel (member_joined_channel event).
+    This enables zero-config channel detection.
+    
+    Args:
+        team_id: Slack workspace ID
+        channel_id: Channel ID where bot was added
+    
+    Returns: True if updated, False if team not found
+    """
+    conn = get_connection()
+    cur = conn.cursor()
+    try:
+        cur.execute("""
+            UPDATE slack_installations 
+            SET channel_id = %s, updated_at = NOW()
+            WHERE team_id = %s
+        """, (channel_id, team_id))
+        conn.commit()
+        return cur.rowcount > 0
+    finally:
+        cur.close()
+        conn.close()
 
 
 def delete_slack_installation(api_key: str) -> bool:
@@ -1267,15 +1297,23 @@ def complete_slack_oauth(
         
         api_key = row['api_key']
         
-        # Step 2: Check for team hijacking (same transaction, row locked)
+        # Step 2: Check if workspace is connected to a different API key
+        # If so, TRANSFER it (user proved ownership by completing Slack OAuth)
         cur.execute("""
             SELECT api_key FROM slack_installations WHERE team_id = %s
         """, (team_id,))
         existing = cur.fetchone()
         
         if existing and existing['api_key'] != api_key:
-            conn.rollback()
-            return None, f"Workspace '{team_name}' is already connected to another SafeRun account. Please disconnect it first or use the same API key."
+            # Transfer workspace to new API key (audit log)
+            import logging
+            logging.getLogger(__name__).warning(
+                f"AUDIT: Slack workspace '{team_name}' ({team_id}) transferred "
+                f"from api_key={existing['api_key'][:15]}... to api_key={api_key[:15]}... "
+                f"(authorized via Slack OAuth)"
+            )
+            # Delete old installation to allow transfer
+            cur.execute("DELETE FROM slack_installations WHERE team_id = %s", (team_id,))
         
         # Step 3: Encrypt bot token
         encrypted_token = crypto.encrypt_token(bot_token)

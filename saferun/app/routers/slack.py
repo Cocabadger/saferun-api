@@ -634,3 +634,70 @@ async def execute_revert_in_background(change_id: str, user_name: str, response_
                 await client.post(response_url, json=error_payload)
         except:
             pass  # If we can't even send error message, just log it
+
+
+@router.post("/events")
+async def handle_slack_events(request: Request):
+    """
+    Handle Slack Events API callbacks.
+    
+    Used to detect when bot is added to a channel (member_joined_channel).
+    This allows zero-config channel detection - user just /invite @SafeRun
+    """
+    body = await request.body()
+    headers = request.headers
+    
+    # Verify signature
+    timestamp = headers.get("X-Slack-Request-Timestamp", "")
+    signature = headers.get("X-Slack-Signature", "")
+    
+    if not verify_slack_signature(body, timestamp, signature):
+        logger.warning("[SLACK EVENTS] Invalid signature")
+        raise HTTPException(status_code=401, detail="Invalid signature")
+    
+    try:
+        payload = json.loads(body.decode("utf-8"))
+    except json.JSONDecodeError:
+        raise HTTPException(status_code=400, detail="Invalid JSON")
+    
+    # Handle URL verification challenge
+    if payload.get("type") == "url_verification":
+        return JSONResponse({"challenge": payload.get("challenge")})
+    
+    # Handle event callbacks
+    if payload.get("type") == "event_callback":
+        event = payload.get("event", {})
+        event_type = event.get("type")
+        team_id = payload.get("team_id")
+        
+        logger.info(f"[SLACK EVENTS] Received event: {event_type} for team {team_id}")
+        
+        if event_type == "member_joined_channel":
+            # Bot was added to a channel
+            user_id = event.get("user")  # User who joined (could be the bot)
+            channel_id = event.get("channel")
+            
+            # Check if it's our bot that joined (not another user)
+            # We need to check if user_id matches our bot_user_id
+            slack_installation = db.get_slack_installation_by_team(team_id)
+            
+            if slack_installation:
+                bot_user_id = slack_installation.get("bot_user_id")
+                
+                if user_id == bot_user_id:
+                    # Our bot was added to a channel - save it!
+                    logger.info(f"[SLACK EVENTS] Bot joined channel {channel_id} in team {team_id}")
+                    
+                    success = db.update_slack_channel(team_id, channel_id)
+                    if success:
+                        logger.info(f"[SLACK EVENTS] Updated channel_id to {channel_id} for team {team_id}")
+                    else:
+                        logger.warning(f"[SLACK EVENTS] Failed to update channel_id for team {team_id}")
+        
+        elif event_type == "app_uninstalled":
+            # App was uninstalled from workspace
+            logger.info(f"[SLACK EVENTS] App uninstalled from team {team_id}")
+            # Optionally: mark installation as inactive in DB
+    
+    # Always return 200 OK to acknowledge receipt
+    return JSONResponse({"ok": True})
