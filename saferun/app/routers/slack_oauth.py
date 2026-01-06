@@ -35,8 +35,9 @@ SLACK_REDIRECT_URI = os.getenv(
 # Scopes needed for SafeRun:
 # - chat:write: Send messages to channels
 # - incoming-webhook: Prompts user to select channel during OAuth (zero-config!)
-# The incoming_webhook response contains channel_id which we save automatically
-SLACK_SCOPES = "chat:write,incoming-webhook"
+# - channels:read: Required for member_joined_channel event (channel change)
+# - groups:read: Same for private channels
+SLACK_SCOPES = "chat:write,incoming-webhook,channels:read,groups:read"
 
 
 from fastapi import Header
