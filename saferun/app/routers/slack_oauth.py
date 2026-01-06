@@ -69,15 +69,16 @@ async def create_slack_oauth_url(
         raise HTTPException(status_code=401, detail="Invalid API key")
     
     # Generate short state UUID (stored in DB, links to api_key)
+    # TTL = 30 minutes to allow time for unified setup (Slack + GitHub)
     state = str(uuid.uuid4())
-    db.store_oauth_state(state, api_key, expires_minutes=10)
+    db.store_oauth_state(state, api_key, expires_minutes=30)
     
     base_url = os.getenv("SAFERUN_API_URL", "https://saferun-api.up.railway.app")
     
     return SlackOAuthUrlResponse(
         url=f"{base_url}/auth/slack/start?state={state}",
         state=state,
-        expires_in=600
+        expires_in=1800  # 30 minutes
     )
 
 

@@ -939,10 +939,19 @@ def mark_oauth_state_used(state: str):
 
 
 def cleanup_expired_oauth_states():
-    """Delete expired OAuth states (housekeeping)."""
+    """
+    Delete expired OAuth states (housekeeping).
+    
+    IMPORTANT: For unified setup (Slack + GitHub), we keep states that:
+    - Have completed Slack but not GitHub (is_slack_connected=TRUE, is_github_installed=FALSE)
+    - Are not yet expired
+    
+    This allows the GitHub callback to find the state after Slack OAuth completes.
+    """
     exec("""
         DELETE FROM oauth_states
-        WHERE expires_at < NOW() OR used = TRUE
+        WHERE expires_at < NOW()
+           OR (used = TRUE AND is_slack_connected = TRUE AND is_github_installed = TRUE)
     """)
 
 
