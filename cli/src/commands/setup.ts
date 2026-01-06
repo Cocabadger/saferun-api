@@ -333,17 +333,19 @@ export class SetupCommand {
         this.githubAppInstalled = true;
       } else {
         console.log(chalk.yellow('\n⚠️  GitHub App installation not detected.'));
-        console.log(chalk.gray('   It might still work - check your GitHub settings.'));
+        console.log(chalk.gray('   This could mean the callback URL is not configured in GitHub App settings.'));
+        console.log(chalk.gray('   Check: https://github.com/settings/apps/saferun-ai → Setup URL\n'));
         
         const { installed } = await inquirer.prompt([{
           type: 'confirm',
           name: 'installed',
           message: 'Did you complete the GitHub App installation?',
-          default: true,
+          default: false,  // Changed to false - user must explicitly confirm
         }]);
         
         if (installed) {
           this.githubAppInstalled = true;
+          console.log(chalk.yellow('   Note: Webhook protection may not work until callback is properly configured.'));
         }
       }
     } else {
@@ -352,7 +354,7 @@ export class SetupCommand {
         type: 'confirm',
         name: 'installed',
         message: 'Did you complete the GitHub App installation?',
-        default: true,
+        default: false,  // Changed to false - user must explicitly confirm
       }]);
 
       if (installed) {
