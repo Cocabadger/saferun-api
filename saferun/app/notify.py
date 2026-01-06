@@ -286,15 +286,19 @@ class Notifier:
         from . import db_adapter as db
         
         bot_token = None
-        channel = "#saferun-alerts"
+        channel = None
         
         if api_key:
             # Priority 1: OAuth installation (new flow)
             slack_installation = db.get_slack_installation(api_key)
             if slack_installation:
                 bot_token = slack_installation.get("bot_token")
-                channel = slack_installation.get("channel_id") or "#saferun-alerts"
-                logger.info(f"[SLACK] Using OAuth bot token for {slack_installation.get('team_name')}")
+                channel = slack_installation.get("channel_id")
+                team_name = slack_installation.get('team_name')
+                if not channel:
+                    # Bot installed but not invited to any channel - find first available
+                    logger.warning(f"[SLACK] No channel_id stored for {team_name} - bot may need to be invited to a channel")
+                logger.info(f"[SLACK] Using OAuth bot token for {team_name}, channel={channel}")
             else:
                 # Priority 2: Legacy user settings (deprecated)
                 user_settings = db.get_notification_settings(api_key)
@@ -310,8 +314,10 @@ class Notifier:
             channel = SLACK_CHANNEL
             logger.info("[SLACK] Using global env SLACK_BOT_TOKEN")
         
-        if bot_token:
+        if bot_token and channel:
             await self._send_slack_bot(payload, text, bot_token, channel, event_type)
+        elif bot_token and not channel:
+            logger.warning("[SLACK] Bot token available but no channel configured - invite bot to a channel")
         else:
             logger.warning("[SLACK] No bot token available - notification not sent")
 

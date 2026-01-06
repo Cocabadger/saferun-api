@@ -33,8 +33,8 @@ SLACK_REDIRECT_URI = os.getenv(
 )
 
 # Scopes needed for SafeRun:
-# - chat:write: Send messages to channels
-# - commands: Slash commands (future)
+# - chat:write: Send messages to channels (bot must be invited to channel)
+# Channel detection: via member_joined_channel event when bot is /invite'd
 SLACK_SCOPES = "chat:write"
 
 
