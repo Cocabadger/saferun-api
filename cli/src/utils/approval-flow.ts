@@ -54,12 +54,12 @@ export class ApprovalFlow {
     const isInteractive = process.stdin.isTTY;
 
     if (!isInteractive) {
-      // Non-interactive mode (git hooks) - show clean approval UI
+      // Non-interactive mode (git hooks) - Slack-only approval
       console.log(chalk.bold('\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━'));
       console.log(chalk.bold.yellow('📋 Approval Required'));
       console.log(chalk.bold('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n'));
-      console.log(chalk.cyan('🌐 Open this URL to approve or reject:'));
-      console.log(chalk.bold.cyan(`   ${approvalUrl}\n`));
+      console.log(chalk.cyan('📱 Check Slack for approval buttons'));
+      console.log(chalk.gray('   Approve or Reject this operation in your Slack channel\n'));
       this.close();
       return this.waitForApproval(result);
     }
