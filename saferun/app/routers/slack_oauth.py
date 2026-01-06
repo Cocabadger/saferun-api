@@ -241,13 +241,16 @@ async def slack_oauth_callback(
 @router.get("/status")
 async def slack_oauth_status(
     request: Request,
-    api_key: str = Query(None, description="SafeRun API key")
+    api_key: str = Query(None, description="SafeRun API key"),
+    validate: bool = Query(False, description="Validate token is still active")
 ):
     """
     Check if Slack is connected for an API key.
     
     Used by CLI polling to detect when OAuth flow completes.
     API key can be provided via query param or X-API-Key header.
+    
+    If validate=true, will test the token against Slack API.
     """
     # Get API key from header or query param
     header_key = request.headers.get("X-API-Key")
@@ -263,12 +266,35 @@ async def slack_oauth_status(
     installation = db.get_slack_installation(key)
     
     if installation:
-        return {
+        result = {
             "connected": True,
             "team_name": installation.get("team_name"),
             "team_id": installation.get("team_id"),
-            "channel_id": installation.get("channel_id")
+            "channel_id": installation.get("channel_id"),
+            "valid": True  # Assume valid unless we check
         }
+        
+        # Optionally validate token is still active
+        if validate and installation.get("bot_token"):
+            import httpx
+            try:
+                async with httpx.AsyncClient(timeout=5.0) as client:
+                    resp = await client.post(
+                        "https://slack.com/api/auth.test",
+                        headers={"Authorization": f"Bearer {installation.get('bot_token')}"}
+                    )
+                    data = resp.json()
+                    if not data.get("ok"):
+                        # Token revoked or invalid
+                        result["valid"] = False
+                        result["connected"] = False
+                        result["error"] = data.get("error", "token_invalid")
+                        logger.warning(f"Slack token invalid for team {installation.get('team_name')}: {data.get('error')}")
+            except Exception as e:
+                logger.warning(f"Failed to validate Slack token: {e}")
+                # Don't mark as invalid on network error
+        
+        return result
     else:
         return {
             "connected": False

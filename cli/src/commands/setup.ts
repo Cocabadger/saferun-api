@@ -189,9 +189,15 @@ export class SetupCommand {
     console.log(chalk.gray('─'.repeat(40)));
     console.log(chalk.yellow('⚠️  Slack is REQUIRED for security alerts (force push, branch delete, etc.)\n'));
 
-    // Check if already configured via OAuth
+    // Check if already configured via OAuth (with token validation)
     const slackStatus = await this.checkSlackStatus();
-    if (slackStatus.configured) {
+    
+    // Handle case where token was revoked (app removed from Slack)
+    if (slackStatus.valid === false) {
+      console.log(chalk.yellow(`⚠️  Slack was connected (${slackStatus.teamName}) but the app was removed.`));
+      console.log(chalk.gray('   You need to reconnect to receive notifications.\n'));
+      // Don't set slackConfigured, proceed to OAuth
+    } else if (slackStatus.configured) {
       console.log(chalk.green(`✓ Slack already connected: ${slackStatus.teamName || slackStatus.channel || 'configured'}`));
       this.slackConfigured = true;
       
@@ -282,6 +288,31 @@ export class SetupCommand {
     console.log('  • Force pushes made directly on GitHub');
     console.log('  • Branch deletions via GitHub UI');
     console.log('  • Changes from other machines without SafeRun\n');
+
+    // Check if already installed (with validation)
+    const githubStatus = await this.checkGitHubStatus();
+    
+    // Handle case where app was uninstalled from GitHub
+    if (githubStatus.valid === false) {
+      console.log(chalk.yellow(`⚠️  GitHub App was installed (${githubStatus.accountLogin}) but has been removed.`));
+      console.log(chalk.gray('   You need to reinstall to enable webhook protection.\n'));
+      // Don't set githubAppInstalled, proceed to installation
+    } else if (githubStatus.installed) {
+      console.log(chalk.green(`✓ GitHub App already installed: ${githubStatus.accountLogin || 'configured'}`));
+      this.githubAppInstalled = true;
+      
+      const { reinstall } = await inquirer.prompt([{
+        type: 'confirm',
+        name: 'reinstall',
+        message: 'Reinstall GitHub App?',
+        default: false,
+      }]);
+
+      if (!reinstall) {
+        console.log('');
+        return;
+      }
+    }
 
     const { install } = await inquirer.prompt([{
       type: 'list',
@@ -631,22 +662,24 @@ export class SetupCommand {
     }
   }
 
-  private async checkSlackStatus(): Promise<{ configured: boolean; channel?: string; teamName?: string }> {
+  private async checkSlackStatus(): Promise<{ configured: boolean; channel?: string; teamName?: string; valid?: boolean }> {
     if (!this.apiKey) return { configured: false };
     
     try {
-      // Check OAuth installation first
-      const response = await fetch(`${SAFERUN_API_URL}/auth/slack/status`, {
+      // Check OAuth installation first, with validation to ensure token is still active
+      const response = await fetch(`${SAFERUN_API_URL}/auth/slack/status?validate=true`, {
         headers: { 'X-API-Key': this.apiKey },
       });
       
       if (response.ok) {
         const data = await response.json();
-        if (data.connected) {
+        // Check both connected AND valid (token not revoked)
+        if (data.connected && data.valid !== false) {
           return {
             configured: true,
             teamName: data.team_name,
             channel: data.channel_id,
+            valid: data.valid,
           };
         }
       }
@@ -668,6 +701,42 @@ export class SetupCommand {
     }
     
     return { configured: false };
+  }
+
+  /**
+   * Check if GitHub App is installed for this API key (with optional token validation)
+   */
+  private async checkGitHubStatus(): Promise<{ installed: boolean; accountLogin?: string; valid?: boolean }> {
+    if (!this.apiKey) return { installed: false };
+    
+    try {
+      const response = await fetch(`${SAFERUN_API_URL}/auth/github/status?validate=true`, {
+        headers: { 'X-API-Key': this.apiKey },
+      });
+      
+      if (response.ok) {
+        const data = await response.json();
+        if (data.installed && data.valid !== false) {
+          return {
+            installed: true,
+            accountLogin: data.account_login,
+            valid: data.valid,
+          };
+        }
+        // Installation was removed
+        if (data.valid === false) {
+          return {
+            installed: false,
+            accountLogin: data.account_login,
+            valid: false,
+          };
+        }
+      }
+    } catch {
+      // Ignore errors
+    }
+    
+    return { installed: false };
   }
 
   /**

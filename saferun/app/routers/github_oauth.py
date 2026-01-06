@@ -84,6 +84,65 @@ async def github_app_callback(
     return HTMLResponse(content=_success_page(installation_id))
 
 
+@router.get("/github/status")
+async def github_installation_status(
+    request: Request,
+    api_key: str = Query(None, description="SafeRun API key"),
+    validate: bool = Query(False, description="Validate installation is still active via GitHub API")
+):
+    """
+    Check if GitHub App is installed for an API key.
+    
+    If validate=true, will verify installation is still active via GitHub API.
+    """
+    header_key = request.headers.get("X-API-Key")
+    key = header_key or api_key
+    
+    if not key:
+        raise HTTPException(status_code=401, detail="API key required")
+    
+    key_data = db.get_api_key(key)
+    if not key_data:
+        raise HTTPException(status_code=401, detail="Invalid API key")
+    
+    installation_id = key_data.get("github_installation_id")
+    
+    if not installation_id:
+        return {"installed": False}
+    
+    # Get installation details from github_installations table
+    installation = db.fetchone(
+        "SELECT account_login, repositories_json FROM github_installations WHERE installation_id = %s",
+        (installation_id,)
+    )
+    
+    result = {
+        "installed": True,
+        "installation_id": installation_id,
+        "account_login": installation.get("account_login") if installation else None,
+        "valid": True  # Assume valid unless we check
+    }
+    
+    # Optionally validate installation is still active
+    if validate:
+        try:
+            from ..services.github import get_github_app_installation_token
+            # If we can get a token, the installation is still valid
+            token = get_github_app_installation_token(installation_id)
+            if not token:
+                result["valid"] = False
+                result["installed"] = False
+                result["error"] = "installation_removed"
+                logger.warning(f"GitHub App installation {installation_id} no longer valid")
+        except Exception as e:
+            logger.warning(f"Failed to validate GitHub installation: {e}")
+            result["valid"] = False
+            result["installed"] = False
+            result["error"] = str(e)
+    
+    return result
+
+
 @router.get("/setup/status")
 async def unified_setup_status(
     request: Request,
