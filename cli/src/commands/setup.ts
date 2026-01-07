@@ -29,7 +29,7 @@ import { loadGlobalConfig, saveGlobalConfig } from '../utils/global-config';
 
 const execAsync = promisify(exec);
 
-const SAFERUN_DASHBOARD_URL = 'https://saferun-landing.vercel.app';
+const SAFERUN_DASHBOARD_URL = 'https://saferun.dev';
 const SAFERUN_API_URL = 'https://saferun-api.up.railway.app';
 const SLACK_APP_URL = 'https://api.slack.com/apps';
 const GITHUB_APP_URL = 'https://github.com/apps/saferun-ai/installations/new';
@@ -135,7 +135,7 @@ export class SetupCommand {
 
     // Interactive prompt
     console.log(chalk.cyan('\n📋 How to get your API key:\n'));
-    console.log('  1. Go to ' + chalk.bold('saferun.dev') + ' (or saferun-landing.vercel.app)');
+    console.log('  1. Go to ' + chalk.bold('saferun.dev'));
     console.log('  2. Sign up with GitHub or email');
     console.log('  3. Copy your API key from the dashboard');
     console.log(chalk.gray('     (starts with "sr_...")\n'));

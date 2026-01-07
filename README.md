@@ -68,12 +68,12 @@ saferun setup        # Run wizard from here
 The wizard guides you through **4 steps**:
 
 #### Step 2.1: API Key
-- Go to [saferun-landing.vercel.app](https://saferun-landing.vercel.app)
+- Go to [saferun.dev](https://saferun.dev)
 - Sign up with GitHub or email
 - Copy your API key (starts with `sr_...`)
 - Paste it in the wizard
 
-> **Note:** SafeRun uses a hybrid architecture. The **Dashboard** (for API keys) is hosted at `saferun-landing.vercel.app`, while the **Processing Engine** (API) runs on `saferun-api.up.railway.app`.
+> **Note:** SafeRun uses a hybrid architecture. The **Dashboard** (for API keys) is hosted at `saferun.dev`, while the **Processing Engine** (API) runs on `saferun-api.up.railway.app`.
 
 #### Step 2.2: Slack Notifications (Required!)
 You need **three things** from Slack:

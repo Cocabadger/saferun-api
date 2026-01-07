@@ -148,8 +148,7 @@ async def test_slack_notification(api_key: str = Depends(verify_api_key)):
         "change_id": "test-notification",
         "title": "🧪 Test Notification",
         "risk_score": 5.0,
-        "provider": "saferun",
-        "approve_url": "https://saferun-landing.vercel.app/approvals/test-notification"
+        "provider": "saferun"
     }
 
     try:

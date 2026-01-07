@@ -147,7 +147,7 @@ const DEFAULT_CONFIG: SafeRunConfig = {
     error_handling: {
       '403_forbidden': {
         action: 'block',
-        message: '🚫 API limit exceeded - operations blocked for safety.\n\nOptions:\n  • Upgrade your plan at https://saferun-landing.vercel.app\n  • Wait for limit reset (resets monthly)\n  • Uninstall completely: npx saferun uninstall',
+        message: '🚫 API limit exceeded - operations blocked for safety.\n\nOptions:\n  • Upgrade your plan at https://saferun.dev\n  • Wait for limit reset (resets monthly)\n  • Uninstall completely: npx saferun uninstall',
       },
       '500_server_error': {
         action: 'block',

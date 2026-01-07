@@ -100,7 +100,7 @@ async def handle_slack_interaction(request: Request, background_tasks: Backgroun
     signature = headers.get("X-Slack-Signature", "")
 
     if not verify_slack_signature(body, timestamp, signature):
-        raise HTTPException(status_code=401, detail="Invalid signature")
+        raise HTTPException(status_code=403, detail="Invalid signature")
 
     # Parse form-encoded payload (for button interactions)
     from urllib.parse import parse_qs
@@ -653,7 +653,7 @@ async def handle_slack_events(request: Request):
     
     if not verify_slack_signature(body, timestamp, signature):
         logger.warning("[SLACK EVENTS] Invalid signature")
-        raise HTTPException(status_code=401, detail="Invalid signature")
+        raise HTTPException(status_code=403, detail="Forbidden")
     
     try:
         payload = json.loads(body.decode("utf-8"))
