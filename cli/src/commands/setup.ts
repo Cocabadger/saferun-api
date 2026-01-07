@@ -29,7 +29,7 @@ import { loadGlobalConfig, saveGlobalConfig, setGlobalMode } from '../utils/glob
 
 const execAsync = promisify(exec);
 
-const SAFERUN_DASHBOARD_URL = 'https://saferun.dev';
+const SAFERUN_DASHBOARD_URL = 'https://saferun-landing.vercel.app';
 const SAFERUN_API_URL = process.env.SAFERUN_API_URL || 'https://saferun-api.up.railway.app';
 const SLACK_APP_URL = 'https://api.slack.com/apps';
 const GITHUB_APP_URL = 'https://github.com/apps/saferun-ai/installations/new';
