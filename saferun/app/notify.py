@@ -326,7 +326,7 @@ class Notifier:
         change_id = payload.get("change_id")
         approve_url = payload.get("approve_url")
         revert_url = payload.get("revert_url")
-        revert_window_hours = payload.get("revert_window_hours")
+        revert_window_hours = payload.get("revert_window_hours") or 24
         risk_score = payload.get("risk_score", 0.0)
         title = payload.get("title", "Unknown operation")
         provider = payload.get("provider", "unknown")
@@ -348,6 +348,70 @@ class Notifier:
                 metadata = json.loads(metadata)
             except Exception:
                 metadata = {}
+        
+        # Parse summary_json if string
+        if isinstance(summary_json, str):
+            try:
+                summary_json = json.loads(summary_json)
+            except Exception:
+                summary_json = {}
+        
+        # ===========================================
+        # MINIMALIST FORMAT for executed_with_revert
+        # Designed for engineers with ADHD - scan in 1 second
+        # ===========================================
+        if event_type == "executed_with_revert" and change_id:
+            # Extract key info
+            operation_type = summary_json.get("operation_type", "") if isinstance(summary_json, dict) else ""
+            branch_name = summary_json.get("branch_name", "") if isinstance(summary_json, dict) else ""
+            repo_name = target_id or summary_json.get("repo_name", "repository")
+            
+            # Clean operation name
+            op_display = operation_type.replace("github_", "").replace("_", " ").title() if operation_type else "Operation"
+            if branch_name:
+                op_display = f"{op_display} → {branch_name}"
+            
+            # Minimal blocks
+            blocks = [
+                {
+                    "type": "section",
+                    "text": {
+                        "type": "mrkdwn",
+                        "text": f"✓ *Executed:* {op_display}\n`{repo_name}` • {revert_window_hours}h to revert"
+                    },
+                    "accessory": {
+                        "type": "button",
+                        "text": {"type": "plain_text", "text": "🔄 Revert"},
+                        "style": "danger",
+                        "action_id": "revert_change",
+                        "value": change_id
+                    }
+                }
+            ]
+            
+            # Send minimalist message
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                resp = await client.post(
+                    "https://slack.com/api/chat.postMessage",
+                    headers={
+                        "Authorization": f"Bearer {bot_token}",
+                        "Content-Type": "application/json"
+                    },
+                    json={
+                        "channel": channel,
+                        "text": f"✓ Executed: {op_display}",
+                        "blocks": blocks
+                    }
+                )
+                data = resp.json()
+                if not data.get("ok"):
+                    logger.error(f"[SLACK] Bot API error: {data.get('error')}")
+                else:
+                    # Store message_ts for future updates
+                    if change_id:
+                        self._message_ts_cache[change_id] = data.get("ts")
+                    logger.info(f"[SLACK] Minimalist executed message sent for {change_id[:8]}...")
+            return  # Early return - don't use complex format
         
         # Also check summary_json for additional metadata (CLI operations store metadata there)
         if isinstance(summary_json, dict):
@@ -736,7 +800,7 @@ class Notifier:
                     "type": "section",
                     "text": {
                         "type": "mrkdwn",
-                        "text": f"{success_msg}\nYou have *{revert_window_hours} hours* to revert this action if needed."
+                        "text": f"{success_msg}\nYou have *{revert_window_hours or 24} hours* to revert this action if needed."
                     }
                 })
                 blocks.append({
