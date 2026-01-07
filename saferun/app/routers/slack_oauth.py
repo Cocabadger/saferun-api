@@ -229,6 +229,58 @@ async def slack_oauth_callback(
         
         logger.info(f"Slack installation stored atomically for api_key={api_key[:10]}..., team={team_name}")
         
+        # Join the channel so bot can send messages via chat.postMessage
+        # This is required because incoming-webhook only gives us the channel_id,
+        # but doesn't automatically add the bot to the channel
+        if channel_id and access_token and bot_user_id:
+            try:
+                join_resp = await http_client.post(
+                    "https://slack.com/api/conversations.join",
+                    headers={"Authorization": f"Bearer {access_token}"},
+                    data={"channel": channel_id}
+                )
+                join_data = join_resp.json()
+                if join_data.get("ok"):
+                    logger.info(f"Bot joined channel {channel_id}")
+                    
+                    # Send welcome message
+                    welcome_blocks = [
+                        {
+                            "type": "section",
+                            "text": {
+                                "type": "mrkdwn",
+                                "text": "👋 *SafeRun is now active in this channel!*\n\nI'll send approval requests here when dangerous git operations are detected:\n• `git push --force`\n• `git reset --hard`\n• `git branch -D`\n• Branch deletions"
+                            }
+                        },
+                        {
+                            "type": "context",
+                            "elements": [
+                                {
+                                    "type": "mrkdwn",
+                                    "text": "💡 To move me to another channel, just `/invite @SafeRun` there"
+                                }
+                            ]
+                        }
+                    ]
+                    
+                    await http_client.post(
+                        "https://slack.com/api/chat.postMessage",
+                        headers={"Authorization": f"Bearer {access_token}"},
+                        json={
+                            "channel": channel_id,
+                            "blocks": welcome_blocks,
+                            "text": "SafeRun is now active in this channel!"
+                        }
+                    )
+                    logger.info(f"Sent welcome message to channel {channel_id}")
+                else:
+                    error = join_data.get("error", "unknown")
+                    logger.warning(f"Could not join channel {channel_id}: {error}")
+                    # Not fatal - user can manually invite the bot
+            except Exception as e:
+                logger.warning(f"Failed to join channel or send welcome: {e}")
+                # Not fatal - continue with success
+        
     except Exception as e:
         logger.error(f"Failed to complete Slack OAuth: {e}")
         return HTMLResponse(

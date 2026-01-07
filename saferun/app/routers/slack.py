@@ -691,6 +691,44 @@ async def handle_slack_events(request: Request):
                     success = db.update_slack_channel(team_id, channel_id)
                     if success:
                         logger.info(f"[SLACK EVENTS] Updated channel_id to {channel_id} for team {team_id}")
+                        
+                        # Send welcome message to the channel
+                        try:
+                            bot_token = slack_installation.get("bot_token")
+                            if bot_token:
+                                import httpx
+                                welcome_blocks = [
+                                    {
+                                        "type": "section",
+                                        "text": {
+                                            "type": "mrkdwn",
+                                            "text": "👋 *SafeRun is now active in this channel!*\n\nI'll send approval requests here when dangerous git operations are detected:\n• `git push --force`\n• `git reset --hard`\n• `git branch -D`\n• Branch deletions"
+                                        }
+                                    },
+                                    {
+                                        "type": "context",
+                                        "elements": [
+                                            {
+                                                "type": "mrkdwn",
+                                                "text": "💡 To move me to another channel, just `/invite @SafeRun` there"
+                                            }
+                                        ]
+                                    }
+                                ]
+                                
+                                async with httpx.AsyncClient() as client:
+                                    await client.post(
+                                        "https://slack.com/api/chat.postMessage",
+                                        headers={"Authorization": f"Bearer {bot_token}"},
+                                        json={
+                                            "channel": channel_id,
+                                            "blocks": welcome_blocks,
+                                            "text": "SafeRun is now active in this channel!"
+                                        }
+                                    )
+                                logger.info(f"[SLACK EVENTS] Sent welcome message to channel {channel_id}")
+                        except Exception as e:
+                            logger.warning(f"[SLACK EVENTS] Failed to send welcome message: {e}")
                     else:
                         logger.warning(f"[SLACK EVENTS] Failed to update channel_id for team {team_id}")
         
