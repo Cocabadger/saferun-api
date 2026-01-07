@@ -338,6 +338,15 @@ async def revert_change(change_id: str, user: str) -> tuple[bool, dict]:
             if isinstance(summary_json, str):
                 summary_json = json.loads(summary_json) if summary_json else {}
             
+            # If no token, try to get GitHub App installation token
+            if not token:
+                installation_id = summary_json.get("installation_id")
+                if installation_id:
+                    from ..services.github import get_github_app_installation_token
+                    token = get_github_app_installation_token(installation_id)
+                    if not token:
+                        raise RuntimeError("Failed to get GitHub App token for revert")
+            
             # Determine revert action based on object type
             if object_type == "repository":
                 # Unarchive repository
@@ -346,8 +355,46 @@ async def revert_change(change_id: str, user: str) -> tuple[bool, dict]:
                 # Restore deleted branch using saved SHA from summary_json
                 sha = summary_json.get("github_restore_sha")
                 if not sha:
+                    # Try revert_action from summary_json
+                    revert_action = summary_json.get("revert_action", {})
+                    sha = revert_action.get("sha")
+                if not sha:
                     raise RuntimeError("Missing branch SHA for restore in summary_json")
                 await provider_instance.restore_branch(target_id, token, sha)
+            elif object_type == "force_push":
+                # Revert force push by restoring previous SHA
+                from ..services.github import revert_force_push
+                revert_action = summary_json.get("revert_action", {})
+                before_sha = revert_action.get("before_sha")
+                branch = summary_json.get("branch_name") or revert_action.get("branch")
+                owner = revert_action.get("owner") or target_id.split("/")[0]
+                repo = revert_action.get("repo") or target_id.split("/")[1]
+                
+                if not before_sha:
+                    raise RuntimeError("Missing before_sha for force push revert")
+                if not branch:
+                    raise RuntimeError("Missing branch name for force push revert")
+                
+                success = await revert_force_push(owner, repo, branch, before_sha, token)
+                if not success:
+                    raise RuntimeError("GitHub API rejected force push revert")
+            elif object_type == "merge":
+                # Revert merge commit by creating revert commit
+                from ..services.github import create_revert_commit
+                revert_action = summary_json.get("revert_action", {})
+                merge_commit_sha = revert_action.get("merge_commit_sha")
+                branch = revert_action.get("branch") or summary_json.get("branch_name")
+                owner = revert_action.get("owner") or target_id.split("/")[0]
+                repo = revert_action.get("repo") or target_id.split("/")[1]
+                
+                if not merge_commit_sha:
+                    raise RuntimeError("Missing merge_commit_sha for merge revert")
+                if not branch:
+                    raise RuntimeError("Missing branch name for merge revert")
+                
+                success = await create_revert_commit(owner, repo, branch, merge_commit_sha, token)
+                if not success:
+                    raise RuntimeError("GitHub API rejected merge revert")
             elif object_type == "bulk_pr":
                 # Reopen closed PRs using PR numbers from summary_json
                 pr_numbers = summary_json.get("github_bulk_pr_numbers", [])

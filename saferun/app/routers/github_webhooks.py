@@ -380,6 +380,19 @@ async def github_webhook_event(
     # Normalize risk_score to 0-1 range for storage (displayed as 0-10 in UI)
     normalized_risk_score = min(risk_score / 10.0, 1.0)
     
+    # Determine object_type from revert_action for revert functionality
+    object_type = None
+    if revert_action:
+        revert_type = revert_action.get("type", "")
+        if revert_type == "force_push_revert":
+            object_type = "force_push"
+        elif revert_type == "branch_restore":
+            object_type = "branch"
+        elif revert_type == "repository_unarchive":
+            object_type = "repository"
+        elif revert_type == "merge_revert":
+            object_type = "merge"
+    
     # Create change record
     change = {
         "change_id": change_id,
@@ -391,6 +404,8 @@ async def github_webhook_event(
         "expires_at": iso_z(datetime.now(timezone.utc) + timedelta(hours=2)),  # 2 hours for consistency with CLI
         "created_at": iso_z(datetime.now(timezone.utc)),
         "last_edited_time": iso_z(datetime.now(timezone.utc)),
+        "revert_window": 24,  # 24 hours revert window
+        "revert_expires_at": datetime.now(timezone.utc) + timedelta(hours=24),  # Revert available for 24h
         "policy_json": {"risk_reasons": reasons},
         "summary_json": {
             "operation_type": action_type,
@@ -403,6 +418,7 @@ async def github_webhook_event(
             "payload": payload,
             "revert_action": revert_action  # Now contains SHA for delete events!
         },
+        "metadata": {"object": object_type} if object_type else {},  # Object type for revert
         "api_key": user_api_key,  # Link to user for multi-user isolation
         "branch_head_sha": branch_head_sha  # Save SHA for future revert
     }
