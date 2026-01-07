@@ -1297,42 +1297,38 @@ def complete_slack_oauth(
         
         api_key = row['api_key']
         
-        # Step 2: Check if workspace is connected to a different API key
-        # If so, TRANSFER it (user proved ownership by completing Slack OAuth)
-        cur.execute("""
-            SELECT api_key FROM slack_installations WHERE team_id = %s
-        """, (team_id,))
-        existing = cur.fetchone()
-        
-        if existing and existing['api_key'] != api_key:
-            # Transfer workspace to new API key (audit log)
-            import logging
-            logging.getLogger(__name__).warning(
-                f"AUDIT: Slack workspace '{team_name}' ({team_id}) transferred "
-                f"from api_key={existing['api_key'][:15]}... to api_key={api_key[:15]}... "
-                f"(authorized via Slack OAuth)"
-            )
-            # Delete old installation to allow transfer
-            cur.execute("DELETE FROM slack_installations WHERE team_id = %s", (team_id,))
-        
-        # Step 3: Encrypt bot token
+        # Step 2: Encrypt bot token
         encrypted_token = crypto.encrypt_token(bot_token)
         
-        # Step 4: Store installation (same transaction)
+        # Step 3: UPSERT by team_id (atomic workspace transfer)
+        # If workspace exists under different api_key, it gets transferred
+        # This is Banking Grade - single atomic operation, no DELETE + INSERT
         cur.execute("""
             INSERT INTO slack_installations(
                 api_key, team_id, team_name, bot_token, 
                 bot_user_id, channel_id, installed_at, updated_at
             )
             VALUES (%s, %s, %s, %s, %s, %s, NOW(), NOW())
-            ON CONFLICT (api_key) DO UPDATE SET
-                team_id = EXCLUDED.team_id,
+            ON CONFLICT (team_id) DO UPDATE SET
+                api_key = EXCLUDED.api_key,
                 team_name = EXCLUDED.team_name,
                 bot_token = EXCLUDED.bot_token,
                 bot_user_id = EXCLUDED.bot_user_id,
                 channel_id = EXCLUDED.channel_id,
                 updated_at = NOW()
+            RETURNING (xmax = 0) AS inserted
         """, (api_key, team_id, team_name, encrypted_token, bot_user_id, channel_id))
+        
+        result = cur.fetchone()
+        was_insert = result['inserted'] if result else True
+        
+        # Audit log for workspace transfer (update case)
+        if not was_insert:
+            import logging
+            logging.getLogger(__name__).warning(
+                f"AUDIT: Slack workspace '{team_name}' ({team_id}) transferred to api_key={api_key[:15]}... "
+                f"(authorized via Slack OAuth)"
+            )
         
         # Commit entire transaction atomically
         conn.commit()
