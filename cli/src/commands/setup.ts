@@ -25,12 +25,12 @@ import {
 } from '../utils/credentials';
 import { checkGitignore, addToGitignore } from '../utils/gitignore';
 import { registerProtectedRepo } from '../utils/protected-repos';
-import { loadGlobalConfig, saveGlobalConfig } from '../utils/global-config';
+import { loadGlobalConfig, saveGlobalConfig, setGlobalMode } from '../utils/global-config';
 
 const execAsync = promisify(exec);
 
 const SAFERUN_DASHBOARD_URL = 'https://saferun.dev';
-const SAFERUN_API_URL = 'https://saferun-api.up.railway.app';
+const SAFERUN_API_URL = process.env.SAFERUN_API_URL || 'https://saferun-api.up.railway.app';
 const SLACK_APP_URL = 'https://api.slack.com/apps';
 const GITHUB_APP_URL = 'https://github.com/apps/saferun-ai/installations/new';
 
@@ -38,6 +38,7 @@ interface SetupOptions {
   skipSlack?: boolean;
   skipGithub?: boolean;
   apiKey?: string;
+  manual?: boolean;  // Full wizard with all prompts
 }
 
 interface UnifiedSetupStatus {
@@ -54,11 +55,54 @@ export class SetupCommand {
   private shellWrapperConfigured = false;
   private protectionMode: string = 'block';
   private currentSessionState?: string; // OAuth session state for unified polling
+  private setupErrors: string[] = []; // Track setup failures
+  private hasCriticalError = false; // Blocks "Setup Complete" message
 
   async run(options: SetupOptions = {}): Promise<void> {
     console.log(chalk.cyan('\n🛡️  SafeRun Setup Wizard\n'));
-    console.log(chalk.gray('This wizard will help you set up complete SafeRun protection.\n'));
+    
+    // Manual mode = full wizard with all prompts
+    if (options.manual) {
+      console.log(chalk.gray('Running in manual mode (full wizard).\n'));
+      await this.runManualWizard(options);
+      return;
+    }
 
+    // Streamlined setup: minimal prompts, smart defaults
+    console.log(chalk.gray('Quick setup with smart defaults. Use --manual for full control.\n'));
+
+    // Step 1: API Key (auto-use existing, or switch via --api-key)
+    await this.stepApiKey(options.apiKey);
+    if (!this.apiKey) {
+      console.log(chalk.red('\n❌ Setup cancelled: API key is required.\n'));
+      process.exitCode = 1;
+      return;
+    }
+
+    // Step 2: Slack OAuth (required)
+    if (!options.skipSlack) {
+      await this.stepSlackStreamlined();
+    }
+
+    // Step 3: GitHub App (auto-install)
+    if (!options.skipGithub) {
+      await this.stepGitHubAppStreamlined();
+    }
+
+    // Step 4: Apply recommended defaults (no prompts)
+    await this.applyRecommendedDefaults();
+
+    // Step 5: Auto-verify installation
+    await this.verifyInstallation();
+
+    // Summary (or failure report)
+    this.printSummary();
+  }
+
+  /**
+   * Full wizard with all prompts (--manual mode)
+   */
+  private async runManualWizard(options: SetupOptions): Promise<void> {
     // Step 1: API Key
     await this.stepApiKey(options.apiKey);
     if (!this.apiKey) {
@@ -101,23 +145,27 @@ export class SetupCommand {
     console.log(chalk.bold('Step 1/6: API Key'));
     console.log(chalk.gray('─'.repeat(40)));
 
-    // Check if already configured
+    // If new key provided via --api-key flag, use it (switch accounts)
+    if (providedKey && isValidApiKeyFormat(providedKey)) {
+      const existingKey = await resolveApiKey();
+      if (existingKey && existingKey !== providedKey) {
+        console.log(chalk.yellow(`Switching from: ${maskApiKey(existingKey)}`));
+        console.log(chalk.yellow('⚠️  Note: Slack/GitHub will need reconnection for new key\n'));
+      }
+      await saveGlobalCredentials({ api_key: providedKey });
+      this.apiKey = providedKey;
+      console.log(chalk.green(`✓ API key saved: ${maskApiKey(providedKey)}`));
+      console.log('');
+      return;
+    }
+
+    // Check if already configured - use it automatically
     const existingKey = await resolveApiKey();
     if (existingKey) {
-      console.log(chalk.green(`✓ API key already configured: ${maskApiKey(existingKey)}`));
-      
-      const { useExisting } = await inquirer.prompt([{
-        type: 'confirm',
-        name: 'useExisting',
-        message: 'Use existing API key?',
-        default: true,
-      }]);
-
-      if (useExisting) {
-        this.apiKey = existingKey;
-        console.log('');
-        return;
-      }
+      console.log(chalk.green(`✓ Using API key: ${maskApiKey(existingKey)} (from ~/.saferun/credentials)`));
+      this.apiKey = existingKey;
+      console.log('');
+      return;
     }
 
     // If key provided via flag
@@ -182,7 +230,224 @@ export class SetupCommand {
   }
 
   /**
-   * Step 2: Configure Slack notifications via OAuth
+   * Streamlined Slack setup - minimal prompts
+   */
+  private async stepSlackStreamlined(): Promise<void> {
+    console.log(chalk.bold('\n☁️  Connecting Slack...'));
+    
+    const slackStatus = await this.checkSlackStatus();
+    
+    if (slackStatus.valid === false) {
+      console.log(chalk.yellow(`   ⚠️  Previous connection expired. Reconnecting...`));
+    } else if (slackStatus.configured) {
+      console.log(chalk.green(`   ✓ Slack connected: ${slackStatus.teamName || 'configured'}`));
+      this.slackConfigured = true;
+      return;
+    }
+
+    // Auto-open OAuth
+    const oauthUrl = await this.getSlackOAuthUrl();
+    if (!oauthUrl) {
+      console.log(chalk.red('   ❌ Failed to get authorization URL.'));
+      return;
+    }
+
+    console.log(chalk.gray('   Opening browser for Slack authorization...'));
+    await this.openBrowser(oauthUrl);
+    
+    console.log(chalk.yellow('   ⏳ Waiting for Slack authorization...'));
+    const connected = await this.pollSlackConnection();
+    
+    if (connected) {
+      console.log(chalk.green('   ✓ Slack connected!'));
+      this.slackConfigured = true;
+    } else {
+      console.log(chalk.yellow('   ⚠️  Slack connection timed out. Run setup again to retry.'));
+    }
+  }
+
+  /**
+   * Streamlined GitHub App setup - minimal prompts
+   */
+  private async stepGitHubAppStreamlined(): Promise<void> {
+    console.log(chalk.bold('\n☁️  Connecting GitHub App...'));
+    
+    const githubStatus = await this.checkGitHubStatus();
+    
+    if (githubStatus.valid === false) {
+      console.log(chalk.yellow(`   ⚠️  Previous installation removed. Reinstalling...`));
+    } else if (githubStatus.installed) {
+      console.log(chalk.green(`   ✓ GitHub App installed: ${githubStatus.accountLogin || 'configured'}`));
+      this.githubAppInstalled = true;
+      return;
+    }
+
+    // Auto-open GitHub App install
+    let githubInstallUrl = GITHUB_APP_URL;
+    if (this.currentSessionState) {
+      githubInstallUrl = `${GITHUB_APP_URL}?state=${this.currentSessionState}`;
+    }
+
+    console.log(chalk.gray('   Opening browser for GitHub App installation...'));
+    await this.openBrowser(githubInstallUrl);
+    
+    if (this.currentSessionState) {
+      console.log(chalk.yellow('   ⏳ Waiting for GitHub App installation...'));
+      const status = await this.pollUnifiedSetup(120000); // 2 min
+      
+      if (status.github) {
+        console.log(chalk.green('   ✓ GitHub App installed!'));
+        this.githubAppInstalled = true;
+      } else {
+        console.log(chalk.yellow('   ⚠️  GitHub App not detected. You can install later.'));
+      }
+    } else {
+      console.log(chalk.gray('   Complete installation in browser, then run setup again.'));
+    }
+  }
+
+  /**
+   * Apply recommended security defaults (no prompts)
+   * STRICT MODE: Errors are tracked, not silently ignored
+   */
+  private async applyRecommendedDefaults(): Promise<void> {
+    console.log(chalk.bold('\n🔧 Applying recommended security defaults...\n'));
+    
+    const isRepo = await isGitRepository();
+    
+    if (isRepo) {
+      const gitInfo = await getGitInfo();
+      
+      if (gitInfo) {
+        // Install hooks - CRITICAL: must succeed
+        try {
+          const hooksResult = await installHooks({ 
+            repoRoot: gitInfo.repoRoot, 
+            gitDir: gitInfo.gitDir 
+          });
+          console.log(chalk.green(`   ✓ ${hooksResult.installed.length} git hooks installed`));
+          this.repoInitialized = true;
+        } catch (err) {
+          const errorMsg = `Failed to install git hooks: ${err}`;
+          console.log(chalk.red(`   ✗ ${errorMsg}`));
+          this.setupErrors.push(errorMsg);
+          this.hasCriticalError = true; // Hooks are critical for protection
+        }
+
+        // Add to .gitignore
+        try {
+          const gitignoreCheck = await checkGitignore(gitInfo.repoRoot);
+          if (!gitignoreCheck.hasSaferunEntries) {
+            await addToGitignore(gitInfo.repoRoot);
+            console.log(chalk.green('   ✓ Added .saferun to .gitignore'));
+          } else {
+            console.log(chalk.green('   ✓ .gitignore already configured'));
+          }
+        } catch (err) {
+          console.log(chalk.yellow(`   ⚠️  Could not update .gitignore: ${err}`));
+          this.setupErrors.push(`gitignore: ${err}`);
+        }
+
+        // Register repo with BLOCK mode
+        try {
+          await registerProtectedRepo(gitInfo.repoRoot, { 
+            name: gitInfo.repoSlug || undefined,
+            mode: 'block',
+          });
+          this.protectionMode = 'block';
+          console.log(chalk.green('   ✓ Protection mode: BLOCK (safest)'));
+        } catch (err) {
+          console.log(chalk.yellow(`   ⚠️  Could not register repo: ${err}`));
+          this.setupErrors.push(`repo registration: ${err}`);
+        }
+      }
+    } else {
+      console.log(chalk.gray('   (Not in a git repository - skipping local setup)'));
+    }
+
+    // Set global mode to block
+    try {
+      await setGlobalMode('block');
+      this.protectionMode = 'block';
+    } catch (err) {
+      this.setupErrors.push(`global mode: ${err}`);
+    }
+
+    // Configure shell wrapper automatically
+    try {
+      const shell = process.env.SHELL || '/bin/zsh';
+      const shellName = path.basename(shell);
+      const homeDir = os.homedir();
+      
+      let rcFile: string | null = null;
+      if (shellName === 'zsh') {
+        rcFile = path.join(homeDir, '.zshrc');
+      } else if (shellName === 'bash') {
+        rcFile = path.join(homeDir, '.bashrc');
+      }
+
+      if (rcFile) {
+        const rcContent = fs.existsSync(rcFile) ? fs.readFileSync(rcFile, 'utf-8') : '';
+        
+        if (rcContent.includes('saferun shell-init')) {
+          console.log(chalk.green('   ✓ Shell wrapper already configured'));
+          this.shellWrapperConfigured = true;
+        } else {
+          const initLine = '\n# SafeRun shell integration\neval "$(saferun shell-init)"\n';
+          fs.appendFileSync(rcFile, initLine);
+          console.log(chalk.green(`   ✓ Shell wrapper added to ${rcFile}`));
+          console.log(chalk.yellow(`     Run: source ${rcFile}`));
+          this.shellWrapperConfigured = true;
+        }
+      } else {
+        console.log(chalk.yellow(`   ⚠️  Unsupported shell: ${shellName}`));
+        this.setupErrors.push(`Unsupported shell: ${shellName}`);
+      }
+    } catch (err) {
+      const errorMsg = `Failed to configure shell wrapper: ${err}`;
+      console.log(chalk.red(`   ✗ ${errorMsg}`));
+      this.setupErrors.push(errorMsg);
+    }
+
+    console.log('');
+  }
+
+  /**
+   * Verify installation by checking hooks exist on disk
+   */
+  private async verifyInstallation(): Promise<void> {
+    if (!this.repoInitialized) return;
+    
+    const gitInfo = await getGitInfo();
+    if (!gitInfo) return;
+
+    console.log(chalk.gray('Verifying installation...'));
+    
+    // Check that at least pre-push hook exists
+    const prePushHook = path.join(gitInfo.gitDir, 'hooks', 'pre-push');
+    if (!fs.existsSync(prePushHook)) {
+      const errorMsg = 'pre-push hook not found on disk after installation';
+      console.log(chalk.red(`   ✗ ${errorMsg}`));
+      this.setupErrors.push(errorMsg);
+      this.hasCriticalError = true;
+      this.repoInitialized = false;
+    } else {
+      // Check hook contains saferun
+      const hookContent = fs.readFileSync(prePushHook, 'utf-8');
+      if (!hookContent.includes('saferun')) {
+        const errorMsg = 'pre-push hook exists but does not contain SafeRun';
+        console.log(chalk.red(`   ✗ ${errorMsg}`));
+        this.setupErrors.push(errorMsg);
+        this.hasCriticalError = true;
+        this.repoInitialized = false;
+      } else {
+        console.log(chalk.green('   ✓ Hooks verified on disk\n'));
+      }
+    }
+  }
+
+  /**
+   * Step 2: Configure Slack notifications via OAuth (manual mode)
    */
   private async stepSlack(): Promise<void> {
     console.log(chalk.bold('\nStep 2/6: Slack Notifications'));
@@ -591,10 +856,25 @@ export class SetupCommand {
   }
 
   /**
-   * Print setup summary
+   * Print setup summary - shows errors if any critical failures
    */
   private printSummary(): void {
     console.log(chalk.cyan('\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n'));
+    
+    // If critical error occurred, show failure message
+    if (this.hasCriticalError) {
+      console.log(chalk.red.bold('❌ SafeRun Setup FAILED\n'));
+      console.log(chalk.red('Critical errors occurred during setup:\n'));
+      for (const error of this.setupErrors) {
+        console.log(chalk.red(`  • ${error}`));
+      }
+      console.log(chalk.yellow('\n⚠️  Your repository is NOT protected!'));
+      console.log(chalk.gray('\nTry running with --manual flag for step-by-step troubleshooting:'));
+      console.log(chalk.cyan('  saferun setup --manual\n'));
+      process.exitCode = 1;
+      return;
+    }
+
     console.log(chalk.bold('🎉 SafeRun Setup Complete!\n'));
 
     console.log('Your setup:');
@@ -603,7 +883,15 @@ export class SetupCommand {
     console.log(`  ${this.githubAppInstalled ? chalk.green('✓') : chalk.yellow('⚠')} GitHub App:    ${this.githubAppInstalled ? 'installed' : 'not installed'}`);
     console.log(`  ${this.repoInitialized ? chalk.green('✓') : chalk.yellow('⚠')} Repository:    ${this.repoInitialized ? 'hooks installed' : 'skipped (run "saferun init")'}`);
     console.log(`  ${this.shellWrapperConfigured ? chalk.green('✓') : chalk.yellow('⚠')} Shell Wrapper: ${this.shellWrapperConfigured ? 'configured' : 'not configured'}`);
-    console.log(`  ${this.repoInitialized ? chalk.green('✓') : chalk.gray('○')} Mode:          ${this.repoInitialized ? this.protectionMode.toUpperCase() : 'not set'}`);
+    console.log(`  ${this.protectionMode ? chalk.green('✓') : chalk.gray('○')} Mode:          ${this.protectionMode ? this.protectionMode.toUpperCase() : 'not set'}`);
+
+    // Show non-critical warnings if any
+    if (this.setupErrors.length > 0 && !this.hasCriticalError) {
+      console.log(chalk.yellow('\nWarnings:'));
+      for (const error of this.setupErrors) {
+        console.log(chalk.yellow(`  ⚠️  ${error}`));
+      }
+    }
 
     console.log(chalk.gray('\nNext steps:'));
     

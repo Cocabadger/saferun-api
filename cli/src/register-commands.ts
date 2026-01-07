@@ -8,13 +8,15 @@ export function registerCommands(program: Command) {
   program
     .command('setup')
     .description('Complete SafeRun setup wizard (API key, Slack, GitHub App, hooks)')
-    .option('--api-key <key>', 'Provide API key directly')
+    .option('--api-key <key>', 'Provide API key directly (or use to switch accounts)')
+    .option('--manual', 'Run full interactive wizard with all prompts')
     .option('--skip-slack', 'Skip Slack configuration')
     .option('--skip-github', 'Skip GitHub App installation')
     .action(async (options) => {
       const { SetupCommand } = await import('./commands/setup');
       await new SetupCommand().run({
         apiKey: options.apiKey,
+        manual: options.manual,
         skipSlack: options.skipSlack,
         skipGithub: options.skipGithub,
       });
