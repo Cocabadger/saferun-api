@@ -245,64 +245,18 @@ async def github_webhook_event(
             
             # Get api_key from the executed operation (CLI operation has user's api_key)
             executed_change = db.fetchone(
-                "SELECT api_key FROM changes WHERE change_id = %s",
+                "SELECT * FROM changes WHERE change_id = %s",
                 (recent_executed_op['change_id'],)
             )
             
-            # Get user's Slack webhook URL using api_key from executed operation
-            slack_webhook_url = None
-            if executed_change and executed_change.get("api_key"):
-                operation_api_key = executed_change["api_key"]
-                # Use db_adapter to properly decrypt Slack webhook URL
-                from ..db_adapter import get_notification_settings
-                notif_settings = get_notification_settings(operation_api_key)
-                if notif_settings and notif_settings.get("slack_enabled"):
-                    slack_webhook_url = notif_settings.get("slack_webhook_url")
+            user_api_key = executed_change.get("api_key") if executed_change else None
             
-            if slack_webhook_url:
+            if user_api_key:
                 try:
-                    # Parse summary_json to get approval source
-                    summary_json = recent_executed_op.get("summary_json", "{}")
-                    summary = json.loads(summary_json) if isinstance(summary_json, str) else summary_json
-                    initiated_via = summary.get("initiated_via", "api")
-                    
-                    # Format timestamp (datetime already imported at top)
-                    now_utc = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
-                    
-                    # Send completion notification
-                    completion_message = {
-                        "blocks": [
-                            {
-                                "type": "header",
-                                "text": {"type": "plain_text", "text": "✅ SafeRun - Operation Completed"}
-                            },
-                            {"type": "divider"},
-                            {
-                                "type": "section",
-                                "fields": [
-                                    {"type": "mrkdwn", "text": f"*Operation:*\n{action_type.replace('github_', '').replace('_', ' ').title()}"},
-                                    {"type": "mrkdwn", "text": f"*Repository:*\n{repo_full_name}"},
-                                    {"type": "mrkdwn", "text": f"*Branch:*\n{ref_name}"},
-                                    {"type": "mrkdwn", "text": f"*Status:*\n:white_check_mark: Executed Successfully"},
-                                ]
-                            },
-                            {
-                                "type": "section",
-                                "text": {"type": "mrkdwn", "text": f"*Change ID:* `{recent_executed_op['change_id']}`"}
-                            },
-                            {
-                                "type": "context",
-                                "elements": [
-                                    {"type": "mrkdwn", "text": f":robot_face: Approved via CLI | :clock1: {now_utc}"}
-                                ]
-                            }
-                        ]
-                    }
-                    
                     # Send via OAuth-based notifier (uses slack_installations table)
                     await notifier.publish(
                         event="executed_with_revert",
-                        change=recent_executed_op,
+                        change=executed_change,
                         api_key=user_api_key
                     )
                     print(f"✅ Completion notification sent for {recent_executed_op['change_id']}")
