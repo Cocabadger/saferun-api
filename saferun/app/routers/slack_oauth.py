@@ -37,7 +37,7 @@ SLACK_REDIRECT_URI = os.getenv(
 # - incoming-webhook: Prompts user to select channel during OAuth (zero-config!)
 # - channels:read: Required for member_joined_channel event (channel change)
 # - groups:read: Same for private channels
-SLACK_SCOPES = "chat:write,incoming-webhook,channels:read,groups:read"
+SLACK_SCOPES = "chat:write,incoming-webhook,channels:read,channels:join,groups:read"
 
 
 from fastapi import Header
