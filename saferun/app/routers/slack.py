@@ -338,14 +338,41 @@ async def revert_change(change_id: str, user: str) -> tuple[bool, dict]:
             if isinstance(summary_json, str):
                 summary_json = json.loads(summary_json) if summary_json else {}
             
+            # FALLBACK 1: Infer object_type from revert_action for old records
+            if not object_type:
+                revert_action = summary_json.get("revert_action", {})
+                revert_type = revert_action.get("type", "")
+                if revert_type == "force_push_revert":
+                    object_type = "force_push"
+                elif revert_type == "branch_restore":
+                    object_type = "branch"
+                elif revert_type == "merge_revert":
+                    object_type = "merge"
+                elif revert_type == "repository_unarchive":
+                    object_type = "repository"
+            
             # If no token, try to get GitHub App installation token
             if not token:
                 installation_id = summary_json.get("installation_id")
+                
+                # FALLBACK 2: Find installation_id from github_installations by repo name
+                if not installation_id:
+                    repo_name = summary_json.get("repo_name") or target_id
+                    if repo_name:
+                        install_record = db.fetchone(
+                            "SELECT installation_id FROM github_installations WHERE repositories_json::text LIKE %s LIMIT 1",
+                            (f"%{repo_name}%",)
+                        )
+                        if install_record:
+                            installation_id = install_record.get("installation_id")
+                
                 if installation_id:
                     from ..services.github import get_github_app_installation_token
                     token = get_github_app_installation_token(installation_id)
                     if not token:
                         raise RuntimeError("Failed to get GitHub App token for revert")
+                else:
+                    raise RuntimeError("No installation_id found for GitHub App token")
             
             # Determine revert action based on object type
             if object_type == "repository":
@@ -365,15 +392,25 @@ async def revert_change(change_id: str, user: str) -> tuple[bool, dict]:
                 # Revert force push by restoring previous SHA
                 from ..services.github import revert_force_push
                 revert_action = summary_json.get("revert_action", {})
+                
+                # FALLBACK 3: Try multiple sources for before_sha
                 before_sha = revert_action.get("before_sha")
+                if not before_sha:
+                    # Try raw webhook payload
+                    payload = summary_json.get("payload", {})
+                    before_sha = payload.get("before")
+                if not before_sha:
+                    # Try branch_head_sha from change record (saved during webhook)
+                    before_sha = change.get("branch_head_sha")
+                
                 branch = summary_json.get("branch_name") or revert_action.get("branch")
                 owner = revert_action.get("owner") or target_id.split("/")[0]
                 repo = revert_action.get("repo") or target_id.split("/")[1]
                 
                 if not before_sha:
-                    raise RuntimeError("Missing before_sha for force push revert")
+                    raise RuntimeError(f"Missing before_sha for force push revert (change_id={change_id})")
                 if not branch:
-                    raise RuntimeError("Missing branch name for force push revert")
+                    raise RuntimeError(f"Missing branch name for force push revert (change_id={change_id})")
                 
                 success = await revert_force_push(owner, repo, branch, before_sha, token)
                 if not success:
