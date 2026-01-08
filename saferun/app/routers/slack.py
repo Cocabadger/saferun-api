@@ -360,7 +360,9 @@ async def revert_change(change_id: str, user: str) -> tuple[bool, dict]:
                 
                 # FALLBACK 2: Find installation_id from github_installations by repo name
                 if not installation_id:
-                    repo_name = summary_json.get("repo_name") or target_id
+                    # FIX: Clean repo name from #branch suffix before DB lookup
+                    repo_raw = summary_json.get("repo_name") or target_id
+                    repo_name = repo_raw.split("#")[0] if repo_raw else None
                     if repo_name:
                         install_record = db.fetchone(
                             "SELECT installation_id FROM github_installations WHERE repositories_json::text LIKE %s LIMIT 1",
