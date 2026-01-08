@@ -267,6 +267,12 @@ async def github_webhook_event(
                     existing_summary["payload"]["before"] = payload.get("before")
                     existing_summary["payload"]["after"] = payload.get("after")
                     
+                    # CRITICAL: Save installation_id for GitHub App token in revert
+                    webhook_installation_id = payload.get("installation", {}).get("id")
+                    if webhook_installation_id:
+                        existing_summary["installation_id"] = webhook_installation_id
+                        print(f"✅ Saved installation_id={webhook_installation_id} from webhook")
+                    
                     # Determine object_type from revert_action
                     if revert_action.get("type") == "force_push_revert":
                         existing_summary["metadata"] = existing_summary.get("metadata", {})
