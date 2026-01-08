@@ -271,7 +271,8 @@ async def revert_force_push(
     """
     url = f"https://api.github.com/repos/{owner}/{repo}/git/refs/heads/{branch}"
     headers = {
-        "Authorization": f"token {github_token}",
+        # Use Bearer for GitHub App Installation Tokens
+        "Authorization": f"Bearer {github_token}",
         "Accept": "application/vnd.github+json",
         "X-GitHub-Api-Version": "2022-11-28"
     }
@@ -283,9 +284,16 @@ async def revert_force_push(
     async with httpx.AsyncClient() as client:
         try:
             response = await client.patch(url, json=data, headers=headers)
-            return response.status_code == 200
+            if response.status_code == 200:
+                print(f"✅ Force push reverted: {owner}/{repo}#{branch} → {before_sha[:8]}")
+                return True
+            
+            # Log actual error from GitHub for debugging
+            error_data = response.json() if response.content else "No body"
+            print(f"❌ GitHub API Error ({response.status_code}): {error_data}")
+            return False
         except Exception as e:
-            print(f"Failed to revert force push: {e}")
+            print(f"❌ Failed to revert force push: {e}")
             return False
 
 

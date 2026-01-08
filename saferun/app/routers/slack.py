@@ -408,7 +408,9 @@ async def revert_change(change_id: str, user: str) -> tuple[bool, dict]:
                 
                 branch = summary_json.get("branch_name") or revert_action.get("branch")
                 owner = revert_action.get("owner") or target_id.split("/")[0]
-                repo = revert_action.get("repo") or target_id.split("/")[1]
+                # FIX: Remove #branch suffix from repo (target_id format: owner/repo#branch)
+                repo_part = target_id.split("/")[1] if "/" in target_id else target_id
+                repo = revert_action.get("repo") or repo_part.split("#")[0]
                 
                 if not before_sha:
                     raise RuntimeError(f"Missing before_sha for force push revert (change_id={change_id})")
@@ -425,7 +427,9 @@ async def revert_change(change_id: str, user: str) -> tuple[bool, dict]:
                 merge_commit_sha = revert_action.get("merge_commit_sha")
                 branch = revert_action.get("branch") or summary_json.get("branch_name")
                 owner = revert_action.get("owner") or target_id.split("/")[0]
-                repo = revert_action.get("repo") or target_id.split("/")[1]
+                # FIX: Remove #branch suffix from repo (target_id format: owner/repo#branch)
+                repo_part = target_id.split("/")[1] if "/" in target_id else target_id
+                repo = revert_action.get("repo") or repo_part.split("#")[0]
                 
                 if not merge_commit_sha:
                     raise RuntimeError("Missing merge_commit_sha for merge revert")
