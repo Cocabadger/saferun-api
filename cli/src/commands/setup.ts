@@ -912,7 +912,7 @@ export class SetupCommand {
     console.log(chalk.cyan('  saferun doctor'));
     
     console.log(chalk.gray('\nDocumentation:'));
-    console.log(chalk.cyan('  https://saferun.dev/docs\n'));
+    console.log(chalk.cyan('  https://github.com/Cocabadger/saferun-api\n'));
   }
 
   // ─────────────────────────────────────────────────────────────────
