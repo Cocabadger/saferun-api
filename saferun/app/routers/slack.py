@@ -331,12 +331,15 @@ async def revert_change(change_id: str, user: str) -> tuple[bool, dict]:
             # Metadata might be JSON string from storage
             if isinstance(metadata, str):
                 metadata = json.loads(metadata) if metadata else {}
-            object_type = metadata.get("object") or metadata.get("type")
             
             # Get summary_json which contains revert data (SHA, PR numbers)
             summary_json = change.get("summary_json", {})
             if isinstance(summary_json, str):
                 summary_json = json.loads(summary_json) if summary_json else {}
+            
+            # Get object_type - check summary_json.metadata first (set by webhook update)
+            summary_metadata = summary_json.get("metadata", {})
+            object_type = summary_metadata.get("object_type") or metadata.get("object_type") or metadata.get("object") or metadata.get("type")
             
             # FALLBACK 1: Infer object_type from revert_action for old records
             if not object_type:
