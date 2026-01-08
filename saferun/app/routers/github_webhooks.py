@@ -272,13 +272,9 @@ async def github_webhook_event(
                         existing_summary["metadata"] = existing_summary.get("metadata", {})
                         existing_summary["metadata"]["object_type"] = "force_push"
                     
-                    # Update the record with revert data and status
-                    db.execute(
-                        """UPDATE changes 
-                           SET summary_json = %s, status = 'executed'
-                           WHERE change_id = %s""",
-                        (json.dumps(existing_summary), recent_executed_op['change_id'])
-                    )
+                    # Update the record with revert data and status using db helper functions
+                    db.update_summary_json(recent_executed_op['change_id'], existing_summary)
+                    db.set_change_status(recent_executed_op['change_id'], 'executed')
                     print(f"✅ Updated CLI record with revert_action: {revert_action.get('type')}, before_sha: {payload.get('before')}")
                     
                     # Re-fetch updated change for notification
