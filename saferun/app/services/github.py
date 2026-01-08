@@ -271,8 +271,8 @@ async def revert_force_push(
     """
     url = f"https://api.github.com/repos/{owner}/{repo}/git/refs/heads/{branch}"
     headers = {
-        # Use Bearer for GitHub App Installation Tokens
-        "Authorization": f"Bearer {github_token}",
+        # Use "token" prefix for Installation/Personal tokens in REST API
+        "Authorization": f"token {github_token}",
         "Accept": "application/vnd.github+json",
         "X-GitHub-Api-Version": "2022-11-28"
     }
