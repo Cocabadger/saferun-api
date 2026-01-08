@@ -251,6 +251,46 @@ async def github_webhook_event(
             
             user_api_key = executed_change.get("api_key") if executed_change else None
             
+            # UPDATE CLI record with revert data from webhook payload
+            # CLI records don't have revert_action or before_sha - webhook provides these
+            revert_action = create_revert_action(event_type, payload)
+            if revert_action and executed_change:
+                try:
+                    existing_summary = json.loads(executed_change.get("summary_json", "{}")) if executed_change.get("summary_json") else {}
+                    
+                    # Add revert_action and update status to executed
+                    existing_summary["revert_action"] = revert_action
+                    
+                    # Add before_sha to payload for fallback in revert_change()
+                    if "payload" not in existing_summary:
+                        existing_summary["payload"] = {}
+                    existing_summary["payload"]["before"] = payload.get("before")
+                    existing_summary["payload"]["after"] = payload.get("after")
+                    
+                    # Determine object_type from revert_action
+                    if revert_action.get("type") == "force_push_revert":
+                        existing_summary["metadata"] = existing_summary.get("metadata", {})
+                        existing_summary["metadata"]["object_type"] = "force_push"
+                    
+                    # Update the record with revert data and status
+                    db.execute(
+                        """UPDATE changes 
+                           SET summary_json = %s, status = 'executed'
+                           WHERE change_id = %s""",
+                        (json.dumps(existing_summary), recent_executed_op['change_id'])
+                    )
+                    print(f"✅ Updated CLI record with revert_action: {revert_action.get('type')}, before_sha: {payload.get('before')}")
+                    
+                    # Re-fetch updated change for notification
+                    executed_change = db.fetchone(
+                        "SELECT * FROM changes WHERE change_id = %s",
+                        (recent_executed_op['change_id'],)
+                    )
+                except Exception as e:
+                    print(f"⚠️ Error updating CLI record with revert data: {e}")
+                    import traceback
+                    traceback.print_exc()
+            
             if user_api_key:
                 try:
                     # Send via OAuth-based notifier (uses slack_installations table)
