@@ -387,44 +387,46 @@ async def revert_change(change_id: str, user: str) -> tuple[bool, dict]:
             
             print(f"🏷️ [REVERT DEBUG] object_type (final)={object_type}")
             
-            # If no token, try to get GitHub App installation token
-            if not token:
-                print(f"🔑 [REVERT DEBUG] No token, trying to get GitHub App token...")
-                installation_id = summary_json.get("installation_id")
-                print(f"🔑 [REVERT DEBUG] installation_id from summary_json={installation_id}")
-                
-                # FALLBACK 2: Find installation_id from github_installations by repo name
-                if not installation_id:
-                    # FIX: Clean repo name from #branch suffix before DB lookup
-                    repo_raw = summary_json.get("repo_name") or target_id
-                    repo_name = repo_raw.split("#")[0] if repo_raw else None
-                    print(f"🔑 [REVERT DEBUG] FALLBACK2: looking up installation by repo={repo_name} (raw={repo_raw})")
-                    if repo_name:
-                        install_record = db.fetchone(
-                            "SELECT installation_id FROM github_installations WHERE repositories_json::text LIKE %s LIMIT 1",
-                            (f"%{repo_name}%",)
-                        )
-                        print(f"🔑 [REVERT DEBUG] install_record={install_record}")
-                        if install_record:
-                            installation_id = install_record.get("installation_id")
-                
-                print(f"🔑 [REVERT DEBUG] Final installation_id={installation_id}")
-                
-                if installation_id:
-                    from ..services.github import get_github_app_installation_token
-                    token = get_github_app_installation_token(installation_id)
-                    print(f"🔑 [REVERT DEBUG] Got GitHub App token={'YES' if token else 'NO'}")
-                    if not token:
-                        raise RuntimeError("Failed to get GitHub App token for revert")
-                else:
-                    raise RuntimeError("No installation_id found for GitHub App token")
+            # FIX: Always get GitHub App token for revert operations
+            # The token field may contain SafeRun API key (sr_...) from CLI, not a GitHub token
+            # So we ALWAYS need to get a fresh GitHub App installation token
+            print(f"🔑 [REVERT DEBUG] Getting GitHub App token for revert (ignoring stored token which may be SafeRun API key)...")
+            github_token = None  # Will be set below
+            installation_id = summary_json.get("installation_id")
+            print(f"🔑 [REVERT DEBUG] installation_id from summary_json={installation_id}")
+            
+            # FALLBACK 2: Find installation_id from github_installations by repo name
+            if not installation_id:
+                # FIX: Clean repo name from #branch suffix before DB lookup
+                repo_raw = summary_json.get("repo_name") or target_id
+                repo_name = repo_raw.split("#")[0] if repo_raw else None
+                print(f"🔑 [REVERT DEBUG] FALLBACK2: looking up installation by repo={repo_name} (raw={repo_raw})")
+                if repo_name:
+                    install_record = db.fetchone(
+                        "SELECT installation_id FROM github_installations WHERE repositories_json::text LIKE %s LIMIT 1",
+                        (f"%{repo_name}%",)
+                    )
+                    print(f"🔑 [REVERT DEBUG] install_record={install_record}")
+                    if install_record:
+                        installation_id = install_record.get("installation_id")
+            
+            print(f"🔑 [REVERT DEBUG] Final installation_id={installation_id}")
+            
+            if installation_id:
+                from ..services.github import get_github_app_installation_token
+                github_token = get_github_app_installation_token(installation_id)
+                print(f"🔑 [REVERT DEBUG] Got GitHub App token={'YES' if github_token else 'NO'}")
+                if not github_token:
+                    raise RuntimeError("Failed to get GitHub App token for revert")
+            else:
+                raise RuntimeError("No installation_id found for GitHub App token")
             
             print(f"🏷️ [REVERT DEBUG] Executing revert for object_type={object_type}")
             
             # Determine revert action based on object type
             if object_type == "repository":
                 # Unarchive repository
-                await provider_instance.unarchive(target_id, token)
+                await provider_instance.unarchive(target_id, github_token)
             elif object_type == "branch":
                 # Restore deleted branch using saved SHA from summary_json
                 sha = summary_json.get("github_restore_sha")
@@ -434,7 +436,7 @@ async def revert_change(change_id: str, user: str) -> tuple[bool, dict]:
                     sha = revert_action.get("sha")
                 if not sha:
                     raise RuntimeError("Missing branch SHA for restore in summary_json")
-                await provider_instance.restore_branch(target_id, token, sha)
+                await provider_instance.restore_branch(target_id, github_token, sha)
             elif object_type == "force_push":
                 # Revert force push by restoring previous SHA
                 from ..services.github import revert_force_push
@@ -468,7 +470,7 @@ async def revert_change(change_id: str, user: str) -> tuple[bool, dict]:
                     raise RuntimeError(f"Missing branch name for force push revert (change_id={change_id})")
                 
                 print(f"🔄 [REVERT DEBUG] Calling revert_force_push({owner}, {repo}, {branch}, {before_sha[:8] if before_sha else 'None'}...)")
-                success = await revert_force_push(owner, repo, branch, before_sha, token)
+                success = await revert_force_push(owner, repo, branch, before_sha, github_token)
                 print(f"🔄 [REVERT DEBUG] revert_force_push returned: {success}")
                 if not success:
                     raise RuntimeError("GitHub API rejected force push revert")
@@ -488,7 +490,7 @@ async def revert_change(change_id: str, user: str) -> tuple[bool, dict]:
                 if not branch:
                     raise RuntimeError("Missing branch name for merge revert")
                 
-                success = await create_revert_commit(owner, repo, branch, merge_commit_sha, token)
+                success = await create_revert_commit(owner, repo, branch, merge_commit_sha, github_token)
                 if not success:
                     raise RuntimeError("GitHub API rejected merge revert")
             elif object_type == "bulk_pr":
@@ -496,7 +498,7 @@ async def revert_change(change_id: str, user: str) -> tuple[bool, dict]:
                 pr_numbers = summary_json.get("github_bulk_pr_numbers", [])
                 if not pr_numbers:
                     raise RuntimeError("Missing PR numbers for reopen in summary_json")
-                await provider_instance.bulk_reopen_prs(target_id, [int(n) for n in pr_numbers], token)
+                await provider_instance.bulk_reopen_prs(target_id, [int(n) for n in pr_numbers], github_token)
             else:
                 print(f"❌ [REVERT DEBUG] Unsupported object_type: {object_type}")
                 raise RuntimeError(f"Unsupported revert operation for type: {object_type}")
