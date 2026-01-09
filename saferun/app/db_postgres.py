@@ -449,7 +449,8 @@ def upsert_change(change: dict):
         json.dumps(change.get("policy_json") or change.get("policy") or {}),
         # Fix double JSON encoding: only dump if not already a string
         json.dumps(change.get("summary_json") or change.get("summary") or {}) if not isinstance(change.get("summary_json"), str) else change.get("summary_json"),
-        json.dumps(change.get("metadata") or {}) if change.get("metadata") and not isinstance(change.get("metadata"), str) else change.get("metadata"),
+        # Always serialize metadata to JSON string (even if empty dict)
+        change.get("metadata") if isinstance(change.get("metadata"), str) else json.dumps(change.get("metadata") or {}),
         change.get("token"),
         change.get("revert_token"),
         int(bool(change.get("requires_approval"))),

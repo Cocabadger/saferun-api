@@ -52,3 +52,6 @@ logs/
 .claude/
 .PROJECT_STATUS.md
 docs/archive/
+
+# SafeRun - ignore entire local config folder
+.saferun/
