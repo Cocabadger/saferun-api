@@ -279,6 +279,9 @@ export class SetupCommand {
     } else if (githubStatus.installed) {
       console.log(chalk.green(`   ✓ GitHub App installed: ${githubStatus.accountLogin || 'configured'}`));
       this.githubAppInstalled = true;
+      
+      // Check if current repo has access
+      await this.verifyCurrentRepoAccess();
       return;
     }
 
@@ -298,12 +301,74 @@ export class SetupCommand {
       if (status.github) {
         console.log(chalk.green('   ✓ GitHub App installed!'));
         this.githubAppInstalled = true;
+        
+        // Check if current repo has access
+        await this.verifyCurrentRepoAccess();
       } else {
         console.log(chalk.yellow('   ⚠️  GitHub App not detected. You can install later.'));
       }
     } else {
       console.log(chalk.gray('   Complete installation in browser, then run setup again.'));
     }
+  }
+
+  /**
+   * Verify that current repository has access in GitHub App
+   * If not, guide user to add it with polling
+   */
+  private async verifyCurrentRepoAccess(): Promise<void> {
+    const isRepo = await isGitRepository();
+    if (!isRepo) return;
+
+    const gitInfo = await getGitInfo();
+    if (!gitInfo?.remoteUrl) return;
+
+    // Parse remote URL to get owner/repo
+    const repoFullName = this.parseRepoFromRemote(gitInfo.remoteUrl);
+    if (!repoFullName) return;
+
+    console.log(chalk.gray(`   Checking access to ${repoFullName}...`));
+
+    const accessResult = await this.checkRepoAccess(repoFullName);
+
+    if (accessResult.hasAccess) {
+      console.log(chalk.green(`   ✓ Repository access confirmed: ${repoFullName}`));
+      return;
+    }
+
+    if (!accessResult.installationId) {
+      console.log(chalk.yellow(`   ⚠️  Could not verify repository access`));
+      return;
+    }
+
+    // Repository not in access list - guide user to add it
+    const added = await this.waitForRepoAccess(repoFullName, accessResult.installationId);
+    
+    if (added) {
+      console.log(chalk.green(`   ✓ Repository access granted: ${repoFullName}`));
+    } else {
+      console.log(chalk.yellow(`   ⚠️  Repository not added. SafeRun may not work correctly.`));
+      this.setupErrors.push(`Repository ${repoFullName} not added to GitHub App`);
+    }
+  }
+
+  /**
+   * Parse owner/repo from git remote URL
+   */
+  private parseRepoFromRemote(remoteUrl: string): string | null {
+    // Handle SSH format: git@github.com:owner/repo.git
+    const sshMatch = remoteUrl.match(/git@github\.com:([^\/]+)\/(.+?)(\.git)?$/);
+    if (sshMatch) {
+      return `${sshMatch[1]}/${sshMatch[2].replace(/\.git$/, '')}`;
+    }
+
+    // Handle HTTPS format: https://github.com/owner/repo.git
+    const httpsMatch = remoteUrl.match(/github\.com\/([^\/]+)\/(.+?)(\.git)?$/);
+    if (httpsMatch) {
+      return `${httpsMatch[1]}/${httpsMatch[2].replace(/\.git$/, '')}`;
+    }
+
+    return null;
   }
 
   /**
@@ -1025,6 +1090,86 @@ export class SetupCommand {
     }
     
     return { installed: false };
+  }
+
+  /**
+   * Check if GitHub App has access to a specific repository
+   * Uses sync endpoint to get fresh data from GitHub API
+   */
+  private async checkRepoAccess(repoFullName: string): Promise<{
+    hasAccess: boolean;
+    installationId?: number;
+    repositories?: string[];
+  }> {
+    if (!this.apiKey) return { hasAccess: false };
+
+    try {
+      // First get installation_id from github status
+      const statusResponse = await fetch(`${SAFERUN_API_URL}/auth/github/status`, {
+        headers: { 'X-API-Key': this.apiKey },
+      });
+
+      if (!statusResponse.ok) return { hasAccess: false };
+
+      const statusData = await statusResponse.json();
+      if (!statusData.installation_id) return { hasAccess: false };
+
+      const installationId = statusData.installation_id;
+
+      // Call sync endpoint to get fresh repo list from GitHub
+      const syncResponse = await fetch(
+        `${SAFERUN_API_URL}/v1/installation/${installationId}/sync?repo=${encodeURIComponent(repoFullName)}`,
+        { headers: { 'X-API-Key': this.apiKey } }
+      );
+
+      if (syncResponse.ok) {
+        const syncData = await syncResponse.json();
+        return {
+          hasAccess: syncData.has_access === true,
+          installationId,
+          repositories: syncData.repositories,
+        };
+      }
+    } catch {
+      // Ignore errors
+    }
+
+    return { hasAccess: false };
+  }
+
+  /**
+   * Wait for user to add repo to GitHub App, with polling
+   */
+  private async waitForRepoAccess(repoFullName: string, installationId: number, timeoutMs: number = 120000): Promise<boolean> {
+    const GITHUB_APP_SETTINGS_URL = `https://github.com/settings/installations/${installationId}`;
+    
+    console.log(chalk.yellow(`\n   ⚠️  Repository "${repoFullName}" not in GitHub App access list.`));
+    console.log(chalk.cyan(`\n   Please add this repository to SafeRun App:`));
+    console.log(chalk.white(`   ${GITHUB_APP_SETTINGS_URL}\n`));
+    
+    // Open browser to GitHub App settings
+    await this.openBrowser(GITHUB_APP_SETTINGS_URL);
+    
+    console.log(chalk.yellow('   ⏳ Waiting for you to add the repository...'));
+    console.log(chalk.gray('   (Press Ctrl+C to skip)\n'));
+
+    const startTime = Date.now();
+    const pollInterval = 3000; // 3 seconds
+
+    while (Date.now() - startTime < timeoutMs) {
+      await new Promise(resolve => setTimeout(resolve, pollInterval));
+      
+      const result = await this.checkRepoAccess(repoFullName);
+      if (result.hasAccess) {
+        return true;
+      }
+      
+      // Show progress dots
+      process.stdout.write(chalk.gray('.'));
+    }
+
+    console.log(''); // New line after dots
+    return false;
   }
 
   /**
