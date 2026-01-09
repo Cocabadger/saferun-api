@@ -158,6 +158,54 @@ class ChangeStatusResponse(BaseModel):
     metadata: Optional[Dict[str, Any]] = None
 
 
+# Response model for installation sync
+class InstallationSyncResponse(BaseModel):
+    installation_id: int
+    repositories: list[str]
+    has_access: bool  # True if requested repo is in the list
+
+
+@router.get("/v1/installation/{installation_id}/sync")
+async def sync_installation(
+    installation_id: int,
+    repo: Optional[str] = None,
+    api_key: str = Depends(verify_api_key)
+) -> InstallationSyncResponse:
+    """
+    Sync and return current list of repositories for a GitHub App installation.
+    Used by CLI to verify repo access during setup.
+    
+    Args:
+        installation_id: GitHub App installation ID
+        repo: Optional repo name to check access for (e.g., "owner/repo")
+    
+    Returns:
+        List of accessible repos and whether requested repo has access
+    """
+    from ..services.github import sync_installation_repos
+    from .. import db_adapter as db
+    import json
+    
+    # Fetch current repos from GitHub API
+    repos = await sync_installation_repos(installation_id)
+    
+    # Update DB with fresh list
+    if repos:
+        db.exec(
+            "UPDATE github_installations SET repositories_json = %s WHERE installation_id = %s",
+            (json.dumps(repos), installation_id)
+        )
+    
+    # Check if requested repo has access
+    has_access = repo in repos if repo else True
+    
+    return InstallationSyncResponse(
+        installation_id=installation_id,
+        repositories=repos,
+        has_access=has_access
+    )
+
+
 @router.get("/v1/changes/{change_id}", response_model=ChangeStatusResponse)
 async def get_change_status(change_id: str, api_key: str = Depends(verify_api_key)) -> ChangeStatusResponse:
     """

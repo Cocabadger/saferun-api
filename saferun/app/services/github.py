@@ -456,3 +456,45 @@ def create_revert_action(event_type: str, payload: Dict[str, Any]) -> Optional[D
             return None
     
     return None
+
+
+async def sync_installation_repos(installation_id: int) -> list[str]:
+    """
+    Fetch current list of repositories from GitHub API for an installation.
+    Used by CLI to verify repo access during setup.
+    
+    Args:
+        installation_id: GitHub App installation ID
+    
+    Returns:
+        List of repository full names (owner/repo)
+    """
+    token = get_github_app_installation_token(installation_id)
+    if not token:
+        print(f"❌ Could not get GitHub App token for installation {installation_id}")
+        return []
+    
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.get(
+                "https://api.github.com/installation/repositories",
+                headers={
+                    "Authorization": f"token {token}",
+                    "Accept": "application/vnd.github+json",
+                    "X-GitHub-Api-Version": "2022-11-28"
+                },
+                timeout=10.0
+            )
+            
+            if response.status_code == 200:
+                data = response.json()
+                repos = data.get("repositories", [])
+                repo_names = [r.get("full_name") for r in repos]
+                print(f"✅ Synced {len(repo_names)} repos for installation {installation_id}")
+                return repo_names
+            else:
+                print(f"❌ Failed to fetch repos: {response.status_code} {response.text}")
+                return []
+    except Exception as e:
+        print(f"❌ Error syncing repos: {str(e)}")
+        return []
