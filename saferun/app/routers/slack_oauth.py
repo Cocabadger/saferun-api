@@ -340,11 +340,20 @@ async def slack_oauth_status(
                     )
                     data = resp.json()
                     if not data.get("ok"):
-                        # Token revoked or invalid
+                        # Token revoked or invalid - SELF-HEALING: clean up DB
                         result["valid"] = False
                         result["connected"] = False
                         result["error"] = data.get("error", "token_invalid")
                         logger.warning(f"Slack token invalid for team {installation.get('team_name')}: {data.get('error')}")
+                        
+                        # Clean up stale installation (Banking Grade: don't leave stale data)
+                        team_id = installation.get("team_id")
+                        if team_id:
+                            try:
+                                db.exec("DELETE FROM slack_installations WHERE team_id = %s", (team_id,))
+                                logger.info(f"✅ Self-healing: deleted stale slack_installations for team {team_id}")
+                            except Exception as cleanup_err:
+                                logger.error(f"Failed to clean up stale installation: {cleanup_err}")
             except Exception as e:
                 logger.warning(f"Failed to validate Slack token: {e}")
                 # Don't mark as invalid on network error

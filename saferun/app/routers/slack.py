@@ -882,9 +882,25 @@ async def handle_slack_events(request: Request):
                         logger.warning(f"[SLACK EVENTS] Failed to update channel_id for team {team_id}")
         
         elif event_type == "app_uninstalled":
-            # App was uninstalled from workspace
+            # App was uninstalled from workspace - CLEAN UP DATABASE
             logger.info(f"[SLACK EVENTS] App uninstalled from team {team_id}")
-            # Optionally: mark installation as inactive in DB
+            
+            # Delete Slack installation record (source of truth)
+            try:
+                db.exec("DELETE FROM slack_installations WHERE team_id = %s", (team_id,))
+                logger.info(f"✅ [SLACK EVENTS] Deleted slack_installations for team {team_id}")
+            except Exception as e:
+                logger.error(f"❌ [SLACK EVENTS] Failed to delete slack_installations: {e}")
+            
+            # Also unlink from api_keys table
+            try:
+                db.exec(
+                    "UPDATE api_keys SET slack_team_id = NULL WHERE slack_team_id = %s",
+                    (team_id,)
+                )
+                logger.info(f"✅ [SLACK EVENTS] Unlinked api_keys from team {team_id}")
+            except Exception as e:
+                logger.error(f"❌ [SLACK EVENTS] Failed to unlink api_keys: {e}")
     
     # Always return 200 OK to acknowledge receipt
     return JSONResponse({"ok": True})
