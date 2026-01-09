@@ -55,13 +55,17 @@ async def github_app_installation(
     account_login = account.get("login")
     
     if action == "created":
-        # New installation - store in DB
+        # New installation - store in DB with repositories from payload
+        # FIX: GitHub sends repositories list in installation.created event
+        repos = payload.get("repositories", [])
+        repo_names = [r.get("full_name") for r in repos]
+        
         db.exec(
-            "INSERT INTO github_installations(installation_id, account_login, installed_at, repositories_json) VALUES(%s,%s,%s,%s) ON CONFLICT (installation_id) DO NOTHING",
-            (installation_id, account_login, iso_z(datetime.now(timezone.utc)), json.dumps([]))
+            "INSERT INTO github_installations(installation_id, account_login, installed_at, repositories_json) VALUES(%s,%s,%s,%s) ON CONFLICT (installation_id) DO UPDATE SET repositories_json = EXCLUDED.repositories_json",
+            (installation_id, account_login, iso_z(datetime.now(timezone.utc)), json.dumps(repo_names))
         )
         
-        print(f"✅ GitHub App installed: installation_id={installation_id}, account={account_login}")
+        print(f"✅ GitHub App installed: installation_id={installation_id}, account={account_login}, repos={repo_names}")
         
         return {
             "status": "installation_created",
