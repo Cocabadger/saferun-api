@@ -180,7 +180,7 @@ async def github_webhook_event(
     # Calculate risk score
     risk_score, reasons = calculate_github_risk_score(event_type, payload)
     
-    # Create action type
+    # Create action type - be specific about what happened
     action_type = f"github_{event_type}"
     if "forced" in payload and payload["forced"]:
         action_type = "github_force_push"
@@ -188,6 +188,11 @@ async def github_webhook_event(
         action_type = f"github_delete_{payload.get('ref_type', 'unknown')}"
     elif event_type == "pull_request" and payload.get("action") == "closed" and payload.get("pull_request", {}).get("merged"):
         action_type = "github_merge"
+    elif event_type == "repository":
+        # Be specific: archived, unarchived, deleted, etc.
+        repo_action = payload.get("action", "")
+        if repo_action:
+            action_type = f"github_repository_{repo_action}"
     
     # Check if this event was initiated via API (to prevent duplicate notifications)
     # Look for recent pending/executed operations with same repo/branch in last 5 minutes
