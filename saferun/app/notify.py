@@ -427,6 +427,78 @@ class Notifier:
                     logger.info(f"[SLACK] Minimalist executed message sent for {change_id[:8]}...")
             return  # Early return - don't use complex format
         
+        # ===========================================
+        # REACTIVE GOVERNANCE: executed_high_risk
+        # For webhooks - operation ALREADY HAPPENED, show Revert option
+        # Red alert card but with Revert button, NOT approval buttons
+        # ===========================================
+        if event_type == "executed_high_risk" and change_id:
+            # Extract key info
+            operation_type = summary_json.get("operation_type", "") if isinstance(summary_json, dict) else ""
+            branch_name = summary_json.get("branch_name", "") if isinstance(summary_json, dict) else ""
+            repo_name = target_id or summary_json.get("repo_name", "repository")
+            revert_action = summary_json.get("revert_action") if isinstance(summary_json, dict) else None
+            
+            # Clean operation name
+            op_display = operation_type.replace("github_", "").replace("_", " ").title() if operation_type else "Operation"
+            if branch_name:
+                op_display = f"{op_display} → {branch_name}"
+            
+            # Build blocks - HIGH RISK styling with Revert button
+            if revert_action:
+                # High risk but revertable - RED alert with Revert button
+                blocks = [
+                    {
+                        "type": "section",
+                        "text": {
+                            "type": "mrkdwn",
+                            "text": f"⚠️ *HIGH RISK Executed:* {op_display}\n`{repo_name}` • *{revert_window_hours}h to revert*"
+                        },
+                        "accessory": {
+                            "type": "button",
+                            "text": {"type": "plain_text", "text": "🔄 Revert"},
+                            "style": "danger",
+                            "action_id": "revert_change",
+                            "value": change_id
+                        }
+                    }
+                ]
+            else:
+                # High risk, not revertable - just alert, no button
+                blocks = [
+                    {
+                        "type": "section",
+                        "text": {
+                            "type": "mrkdwn",
+                            "text": f"⚠️ *HIGH RISK Executed:* {op_display}\n`{repo_name}` • No automatic revert available"
+                        }
+                    }
+                ]
+            
+            # Send high risk alert
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                resp = await client.post(
+                    "https://slack.com/api/chat.postMessage",
+                    headers={
+                        "Authorization": f"Bearer {bot_token}",
+                        "Content-Type": "application/json"
+                    },
+                    json={
+                        "channel": channel,
+                        "text": f"⚠️ HIGH RISK Executed: {op_display}",
+                        "blocks": blocks
+                    }
+                )
+                data = resp.json()
+                if not data.get("ok"):
+                    logger.error(f"[SLACK] Bot API error: {data.get('error')}")
+                else:
+                    # Store message_ts for future updates
+                    if change_id:
+                        self._message_ts_cache[change_id] = data.get("ts")
+                    logger.info(f"[SLACK] HIGH RISK alert sent for {change_id[:8]}...")
+            return  # Early return - don't use complex format
+        
         # Also check summary_json for additional metadata (CLI operations store metadata there)
         if isinstance(summary_json, dict):
             # For Git CLI operations, metadata is nested in summary_json.metadata

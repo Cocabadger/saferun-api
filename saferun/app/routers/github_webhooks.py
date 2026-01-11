@@ -443,8 +443,13 @@ async def github_webhook_event(
     # Send Slack notification via OAuth-based notifier (uses slack_installations table)
     if user_api_key:
         try:
-            # Determine event type for notifier
-            notify_event = "dry_run" if risk_score >= 7.0 else "executed_with_revert"
+            # REACTIVE GOVERNANCE: Webhooks are ALWAYS post-factum
+            # The operation has ALREADY HAPPENED - we can only offer REVERT, not APPROVAL
+            # Use executed_high_risk (red alert + Revert) or executed_with_revert (green + Revert)
+            if risk_score >= 7.0:
+                notify_event = "executed_high_risk"  # Red alert with Revert button
+            else:
+                notify_event = "executed_with_revert"  # Green notification with Revert button
             
             await notifier.publish(
                 event=notify_event,
