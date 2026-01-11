@@ -429,14 +429,22 @@ async def revert_change(change_id: str, user: str) -> tuple[bool, dict]:
                 await provider_instance.unarchive(target_id, github_token)
             elif object_type == "branch":
                 # Restore deleted branch using saved SHA from summary_json
-                sha = summary_json.get("github_restore_sha")
-                if not sha:
-                    # Try revert_action from summary_json
-                    revert_action = summary_json.get("revert_action", {})
-                    sha = revert_action.get("sha")
+                revert_action = summary_json.get("revert_action", {})
+                sha = summary_json.get("github_restore_sha") or revert_action.get("sha")
                 if not sha:
                     raise RuntimeError("Missing branch SHA for restore in summary_json")
-                await provider_instance.restore_branch(target_id, github_token, sha)
+                
+                # Get branch name from revert_action or summary_json
+                branch_name = revert_action.get("branch") or summary_json.get("branch_name")
+                if not branch_name:
+                    raise RuntimeError("Missing branch name for restore")
+                
+                # Build repo#branch format required by restore_branch
+                repo_only = target_id.split("#")[0] if "#" in target_id else target_id
+                restore_target = f"{repo_only}#{branch_name}"
+                print(f"🔄 [REVERT DEBUG] branch restore: target={restore_target}, sha={sha}")
+                
+                await provider_instance.restore_branch(restore_target, github_token, sha)
             elif object_type == "force_push":
                 # Revert force push by restoring previous SHA
                 from ..services.github import revert_force_push
