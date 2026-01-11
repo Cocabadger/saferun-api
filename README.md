@@ -44,6 +44,32 @@ Real-time Slack alerts & one-click recovery for remote accidents (requires GitHu
 
 ---
 
+## � Security Architecture: Attack Surface Reduction
+
+SafeRun adheres to the **Principle of Least Privilege (PoLP)**. We intentionally bypass GitHub's `Administration` scope to guarantee that the middleware itself can never become a destructive vector.
+
+### The "Zero-Admin" Guarantee
+
+While GitHub allows an App to request `Administration` rights to automate unarchiving, SafeRun explicitly rejects this permission.
+
+**Technical Rationale:**
+* **Non-Destructive by Design:** By omitting `Administration` scope, SafeRun is cryptographically and programmatically incapable of deleting repositories or modifying organization-level access.
+* **Risk Mitigation:** Even in the event of a total compromise of the SafeRun instance, the attacker gains ZERO administrative control over your GitHub assets.
+* **Audit-Only for High-Value Refs:** We prioritize **Observability over Mutation** for destructive operations.
+
+### Reactive Governance Flow (Repository Archive)
+
+When a high-risk event (e.g., `repository_archived`) is detected via webhook, SafeRun triggers a **Reactive Alarm** instead of an automated mutation:
+
+1. **Alert:** Immediate High-Risk notification in Slack.
+2. **Audit:** Records the identity of the actor and the timestamp.
+3. **Guidance:** Provides a direct Deep Link to GitHub settings for manual recovery.
+
+> [!IMPORTANT]  
+> **SafeRun will NEVER ask for write access to your repository settings.** We provide the human-in-the-loop audit trail, leaving the final "Master Key" operations to your authorized administrators.
+
+---
+
 ## ⚡ Quick Start (5 minutes)
 
 ### Requirements
