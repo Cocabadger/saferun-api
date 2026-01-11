@@ -446,23 +446,62 @@ class Notifier:
             
             # Build blocks - HIGH RISK styling with Revert button
             if revert_action:
-                # High risk but revertable - RED alert with Revert button
-                blocks = [
-                    {
-                        "type": "section",
-                        "text": {
-                            "type": "mrkdwn",
-                            "text": f"⚠️ *HIGH RISK Executed:* {op_display}\n`{repo_name}` • *{revert_window_hours}h to revert*"
+                revert_type = revert_action.get("type", "") if isinstance(revert_action, dict) else ""
+                
+                # BANKING GRADE: Archive requires manual unarchive via GitHub Settings
+                # We do NOT request 'Administration' permissions - principle of least privilege
+                if revert_type == "repository_unarchive":
+                    owner = revert_action.get("owner", "")
+                    repo = revert_action.get("repo", "")
+                    settings_url = f"https://github.com/{owner}/{repo}/settings"
+                    
+                    blocks = [
+                        {
+                            "type": "section",
+                            "text": {
+                                "type": "mrkdwn",
+                                "text": f"🚨 *HIGH RISK Executed:* Repository Archived\n`{repo_name}`"
+                            }
                         },
-                        "accessory": {
-                            "type": "button",
-                            "text": {"type": "plain_text", "text": "🔄 Revert"},
-                            "style": "danger",
-                            "action_id": "revert_change",
-                            "value": change_id
+                        {
+                            "type": "context",
+                            "elements": [
+                                {
+                                    "type": "mrkdwn",
+                                    "text": "🛡️ SafeRun does not request 'Administration' permissions to keep your infrastructure secure. Please unarchive manually if needed."
+                                }
+                            ]
+                        },
+                        {
+                            "type": "actions",
+                            "elements": [
+                                {
+                                    "type": "button",
+                                    "text": {"type": "plain_text", "text": "⚙️ Open Settings to Unarchive"},
+                                    "url": settings_url,
+                                    "style": "primary"
+                                }
+                            ]
                         }
-                    }
-                ]
+                    ]
+                else:
+                    # Other high risk operations - standard Revert button
+                    blocks = [
+                        {
+                            "type": "section",
+                            "text": {
+                                "type": "mrkdwn",
+                                "text": f"⚠️ *HIGH RISK Executed:* {op_display}\n`{repo_name}` • *{revert_window_hours}h to revert*"
+                            },
+                            "accessory": {
+                                "type": "button",
+                                "text": {"type": "plain_text", "text": "🔄 Revert"},
+                                "style": "danger",
+                                "action_id": "revert_change",
+                                "value": change_id
+                            }
+                        }
+                    ]
             else:
                 # High risk, not revertable - just alert, no button
                 blocks = [
