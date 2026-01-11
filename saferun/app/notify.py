@@ -365,29 +365,43 @@ class Notifier:
             operation_type = summary_json.get("operation_type", "") if isinstance(summary_json, dict) else ""
             branch_name = summary_json.get("branch_name", "") if isinstance(summary_json, dict) else ""
             repo_name = target_id or summary_json.get("repo_name", "repository")
+            revert_action = summary_json.get("revert_action") if isinstance(summary_json, dict) else None
             
             # Clean operation name
             op_display = operation_type.replace("github_", "").replace("_", " ").title() if operation_type else "Operation"
             if branch_name:
                 op_display = f"{op_display} → {branch_name}"
             
-            # Minimal blocks
-            blocks = [
-                {
-                    "type": "section",
-                    "text": {
-                        "type": "mrkdwn",
-                        "text": f"✓ *Executed:* {op_display}\n`{repo_name}` • {revert_window_hours}h to revert"
-                    },
-                    "accessory": {
-                        "type": "button",
-                        "text": {"type": "plain_text", "text": "🔄 Revert"},
-                        "style": "danger",
-                        "action_id": "revert_change",
-                        "value": change_id
+            # Minimal blocks - show Revert button ONLY if operation is revertable
+            if revert_action:
+                # Revertable operation - show with Revert button
+                blocks = [
+                    {
+                        "type": "section",
+                        "text": {
+                            "type": "mrkdwn",
+                            "text": f"✓ *Executed:* {op_display}\n`{repo_name}` • {revert_window_hours}h to revert"
+                        },
+                        "accessory": {
+                            "type": "button",
+                            "text": {"type": "plain_text", "text": "🔄 Revert"},
+                            "style": "danger",
+                            "action_id": "revert_change",
+                            "value": change_id
+                        }
                     }
-                }
-            ]
+                ]
+            else:
+                # Non-revertable operation - just confirmation, no button
+                blocks = [
+                    {
+                        "type": "section",
+                        "text": {
+                            "type": "mrkdwn",
+                            "text": f"✓ *Executed:* {op_display}\n`{repo_name}`"
+                        }
+                    }
+                ]
             
             # Send minimalist message
             async with httpx.AsyncClient(timeout=30.0) as client:
@@ -795,26 +809,39 @@ class Notifier:
                 else:
                     success_msg = "*Operation completed successfully.*"
                 
-                # Show Revert button only
-                blocks.append({
-                    "type": "section",
-                    "text": {
-                        "type": "mrkdwn",
-                        "text": f"{success_msg}\nYou have *{revert_window_hours or 24} hours* to revert this action if needed."
-                    }
-                })
-                blocks.append({
-                    "type": "actions",
-                    "elements": [
-                        {
-                            "type": "button",
-                            "text": {"type": "plain_text", "text": "🔄 Revert Action"},
-                            "style": "danger",
-                            "action_id": "revert_change",
-                            "value": change_id
+                # Show Revert button only if operation is revertable
+                revert_action = summary_json.get("revert_action") if isinstance(summary_json, dict) else None
+                
+                if revert_action:
+                    # Revertable - show with button
+                    blocks.append({
+                        "type": "section",
+                        "text": {
+                            "type": "mrkdwn",
+                            "text": f"{success_msg}\nYou have *{revert_window_hours or 24} hours* to revert this action if needed."
                         }
-                    ]
-                })
+                    })
+                    blocks.append({
+                        "type": "actions",
+                        "elements": [
+                            {
+                                "type": "button",
+                                "text": {"type": "plain_text", "text": "🔄 Revert Action"},
+                                "style": "danger",
+                                "action_id": "revert_change",
+                                "value": change_id
+                            }
+                        ]
+                    })
+                else:
+                    # Non-revertable - just confirmation
+                    blocks.append({
+                        "type": "section",
+                        "text": {
+                            "type": "mrkdwn",
+                            "text": success_msg
+                        }
+                    })
             elif event_type == "failed":
                 # Show error details for failed operations
                 error_message = payload.get("extras", {}).get("error_message", "Unknown error")
