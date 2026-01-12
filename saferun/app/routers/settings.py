@@ -238,6 +238,77 @@ class ProtectedBranchesResponse(BaseModel):
     protected_branches: str
     patterns: List[str]
     message: str
+    warnings: List[str] = Field(default_factory=list)  # Validation warnings
+
+
+def sanitize_branch_patterns(input_str: str) -> tuple[str, List[str]]:
+    """
+    Sanitize branch patterns input.
+    Returns (sanitized_string, warnings_list)
+    
+    Banking Grade: Clean input + warn about suspicious patterns
+    """
+    import re
+    warnings = []
+    
+    # 1. Split, strip whitespace, filter empty
+    branches = [b.strip() for b in input_str.split(",") if b.strip()]
+    
+    # 2. Remove duplicates, preserve order
+    seen = set()
+    unique = []
+    for b in branches:
+        if b.lower() not in seen:  # Case-insensitive dedup
+            seen.add(b.lower())
+            unique.append(b)
+        else:
+            warnings.append(f"Duplicate removed: '{b}'")
+    
+    # 3. Check for Git-forbidden characters (spaces, quotes, control chars)
+    GIT_FORBIDDEN = re.compile(r'[\s\'\"\\\^\[\]~?:]')  # * allowed for wildcards
+    
+    # 4. Check for non-ASCII (likely typos like 'mainб')
+    NON_ASCII = re.compile(r'[^\x00-\x7F]')
+    
+    valid = []
+    for b in unique:
+        if GIT_FORBIDDEN.search(b):
+            warnings.append(f"Invalid characters in '{b}' - skipped")
+            continue
+        if NON_ASCII.search(b):
+            warnings.append(f"Non-ASCII characters in '{b}' (typo?) - skipped")
+            continue
+        valid.append(b)
+    
+    # 5. Suggest common branch names if suspicious input
+    COMMON_BRANCHES = ['main', 'master', 'develop', 'dev', 'staging', 'production', 'prod']
+    for b in valid:
+        if b not in COMMON_BRANCHES and '*' not in b and '/' not in b:
+            # Check if it looks like a typo of common branch
+            for common in COMMON_BRANCHES:
+                if _is_similar(b, common):
+                    warnings.append(f"'{b}' looks similar to '{common}' - is this a typo?")
+                    break
+    
+    return ",".join(valid), warnings
+
+
+def _is_similar(s1: str, s2: str, threshold: float = 0.7) -> bool:
+    """Simple similarity check using Levenshtein-like ratio."""
+    if s1.lower() == s2.lower():
+        return False  # Exact match, not a typo
+    
+    # Quick length check
+    if abs(len(s1) - len(s2)) > 2:
+        return False
+    
+    # Simple character overlap ratio
+    s1_set = set(s1.lower())
+    s2_set = set(s2.lower())
+    overlap = len(s1_set & s2_set)
+    total = len(s1_set | s2_set)
+    
+    return (overlap / total) >= threshold if total > 0 else False
 
 
 @router.get("/protected-branches", response_model=ProtectedBranchesResponse)
@@ -267,14 +338,20 @@ async def update_protected_branches(
     - hotfix-* (matches hotfix-123, hotfix-urgent)
     """
     # Validate: at least one branch required
-    branches = request.branches.strip()
-    if not branches:
+    raw_branches = request.branches.strip()
+    if not raw_branches:
         raise HTTPException(status_code=400, detail="At least one branch pattern is required")
     
-    # Parse and validate patterns
+    # Sanitize input (Banking Grade)
+    branches, warnings = sanitize_branch_patterns(raw_branches)
+    
+    # Parse validated patterns
     patterns = [p.strip() for p in branches.split(",") if p.strip()]
     if not patterns:
-        raise HTTPException(status_code=400, detail="At least one valid branch pattern is required")
+        raise HTTPException(
+            status_code=400, 
+            detail=f"No valid branch patterns after sanitization. Issues: {'; '.join(warnings) if warnings else 'empty input'}"
+        )
     
     # Get old value for audit
     old_value = db.get_protected_branches(api_key)
@@ -282,8 +359,14 @@ async def update_protected_branches(
     # Update with audit log (Banking Grade)
     db.update_protected_branches(api_key, branches, old_value)
     
+    # Build response message
+    message = f"Protected branches updated. Notifications now enabled for {len(patterns)} pattern(s)"
+    if warnings:
+        message += f" ({len(warnings)} warning(s))"
+    
     return ProtectedBranchesResponse(
         protected_branches=branches,
         patterns=patterns,
-        message=f"Protected branches updated. Notifications now enabled for {len(patterns)} pattern(s)"
+        message=message,
+        warnings=warnings
     )

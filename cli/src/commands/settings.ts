@@ -1,8 +1,12 @@
 import chalk from 'chalk';
 import inquirer from 'inquirer';
+import { exec } from 'child_process';
+import { promisify } from 'util';
 import { getGitInfo, isGitRepository } from '../utils/git';
 import { loadConfig, saveConfig } from '../utils/config';
 import { resolveApiKey } from '../utils/api-client';
+
+const execAsync = promisify(exec);
 
 interface BranchesOptions {
   set?: string;
@@ -75,8 +79,20 @@ export class SettingsCommand {
         process.exitCode = 1;
         return;
       }
-      await this.updateProtectedBranches(branches);
-      console.log(chalk.green(`✅ Protected branches set to: ${branches.join(', ')}`));
+      
+      // Smart validation (Layer 2: CLI Warning)
+      await this.validateBranchesLocally(branches);
+      
+      const result = await this.updateProtectedBranches(branches);
+      if (result.success) {
+        console.log(chalk.green(`✅ Protected branches set to: ${result.patterns?.join(', ') || branches.join(', ')}`));
+        
+        // Show API warnings if any
+        if (result.warnings && result.warnings.length > 0) {
+          console.log(chalk.yellow('\n⚠️  Server warnings:'));
+          result.warnings.forEach(w => console.log(chalk.yellow(`   • ${w}`)));
+        }
+      }
       return;
     }
 
@@ -224,7 +240,11 @@ export class SettingsCommand {
     }
   }
 
-  private async updateProtectedBranches(branches: string[]): Promise<boolean> {
+  private async updateProtectedBranches(branches: string[]): Promise<{
+    success: boolean;
+    patterns?: string[];
+    warnings?: string[];
+  }> {
     try {
       const response = await fetch(`${this.apiUrl}/v1/settings/protected-branches`, {
         method: 'PUT',
@@ -238,21 +258,101 @@ export class SettingsCommand {
       if (!response.ok) {
         const error = await response.text();
         console.error(chalk.red(`❌ Failed to update settings: ${error}`));
-        return false;
+        return { success: false };
       }
+
+      const data = await response.json();
 
       // Also save to local config for CLI filtering
       const gitInfo = await getGitInfo();
       if (gitInfo) {
         const config = await loadConfig(gitInfo.repoRoot);
-        config.github.protected_branches = branches;
+        config.github.protected_branches = data.patterns || branches;
         await saveConfig(config, gitInfo.repoRoot);
       }
 
-      return true;
+      return {
+        success: true,
+        patterns: data.patterns,
+        warnings: data.warnings,
+      };
     } catch (error) {
       console.error(chalk.red(`❌ Network error: ${error}`));
-      return false;
+      return { success: false };
     }
+  }
+
+  /**
+   * Layer 2: Smart CLI validation
+   * Check branches against local git repo and warn about suspicious input
+   */
+  private async validateBranchesLocally(branches: string[]): Promise<void> {
+    try {
+      // Get all local and remote branches
+      const { stdout } = await execAsync('git branch -a --format="%(refname:short)"');
+      const gitBranches = stdout.split('\n')
+        .map(b => b.trim().replace(/^origin\//, ''))  // Normalize remote branches
+        .filter(b => b && !b.startsWith('HEAD'));
+      const branchSet = new Set(gitBranches);
+
+      // Common branch names for fuzzy matching
+      const COMMON = ['main', 'master', 'develop', 'dev', 'staging', 'production', 'prod', 'release', 'hotfix'];
+
+      for (const branch of branches) {
+        // Skip patterns (wildcards)
+        if (branch.includes('*')) continue;
+        
+        // Check for non-ASCII (likely typos)
+        if (/[^\x00-\x7F]/.test(branch)) {
+          console.log(chalk.yellow(`⚠️  Warning: '${branch}' contains non-ASCII characters (typo?)`));
+          continue;
+        }
+
+        // Check if branch exists
+        if (!branchSet.has(branch)) {
+          // Try to find similar branch
+          const similar = this.findSimilar(branch, [...branchSet, ...COMMON]);
+          if (similar) {
+            console.log(chalk.yellow(`⚠️  Warning: '${branch}' not found. Did you mean '${similar}'?`));
+          } else {
+            console.log(chalk.gray(`ℹ️  Note: '${branch}' not found in current repo (may exist elsewhere)`));
+          }
+        }
+      }
+    } catch {
+      // Git command failed - skip validation (not in git repo or other issue)
+    }
+  }
+
+  /**
+   * Find similar string using simple Levenshtein-like comparison
+   */
+  private findSimilar(input: string, candidates: string[]): string | null {
+    const inputLower = input.toLowerCase();
+    let bestMatch: string | null = null;
+    let bestScore = 0;
+
+    for (const candidate of candidates) {
+      if (candidate.toLowerCase() === inputLower) continue; // Exact match
+      
+      const score = this.similarityScore(inputLower, candidate.toLowerCase());
+      if (score > 0.6 && score > bestScore) {
+        bestScore = score;
+        bestMatch = candidate;
+      }
+    }
+
+    return bestMatch;
+  }
+
+  private similarityScore(s1: string, s2: string): number {
+    if (Math.abs(s1.length - s2.length) > 3) return 0;
+    
+    const set1 = new Set(s1);
+    const set2 = new Set(s2);
+    const intersection = [...set1].filter(c => set2.has(c)).length;
+    const union = new Set([...set1, ...set2]).size;
+    
+    return intersection / union;
   }
 }
