@@ -177,6 +177,6 @@ export async function backgroundSync(silent: boolean = true): Promise<boolean> {
 export function printStaleWarning(config: SafeRunConfig): void {
   if (isConfigVeryStale(config)) {
     const age = getConfigAge(config);
-    console.log(chalk.yellow(`⚠️  SafeRun: Local policy cache is stale (${age}). Run 'saferun sync' to update.`));
+    console.log(chalk.yellow(`⚠️  SafeRun: Local policy cache is stale (${age}). Run command `) + chalk.white(`'saferun sync'`) + chalk.yellow(` to update.`));
   }
 }
