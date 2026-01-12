@@ -202,7 +202,7 @@ export class SettingsCommand {
 
   private async fetchProtectedBranches(): Promise<string[] | null> {
     try {
-      const response = await fetch(`${this.apiUrl}/settings/protected-branches`, {
+      const response = await fetch(`${this.apiUrl}/v1/settings/protected-branches`, {
         headers: {
           'X-API-Key': this.apiKey,
         },
@@ -226,13 +226,13 @@ export class SettingsCommand {
 
   private async updateProtectedBranches(branches: string[]): Promise<boolean> {
     try {
-      const response = await fetch(`${this.apiUrl}/settings/protected-branches`, {
+      const response = await fetch(`${this.apiUrl}/v1/settings/protected-branches`, {
         method: 'PUT',
         headers: {
           'X-API-Key': this.apiKey,
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ branches }),
+        body: JSON.stringify({ branches: branches.join(',') }),  // API expects comma-separated string
       });
 
       if (!response.ok) {

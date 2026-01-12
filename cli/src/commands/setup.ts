@@ -487,7 +487,7 @@ export class SetupCommand {
     if (!this.apiKey) return;
 
     try {
-      const response = await fetch(`${SAFERUN_API_URL}/settings/protected-branches`, {
+      const response = await fetch(`${SAFERUN_API_URL}/v1/settings/protected-branches`, {
         headers: {
           'X-API-Key': this.apiKey,
         },
