@@ -691,8 +691,8 @@ def update_protected_branches(api_key: str, branches: str, old_value: str = None
     # Audit log for Banking Grade compliance
     insert_audit(
         change_id=f"settings_{api_key[:8]}",
-        action="protected_branches_update",
-        details={"old_value": old_value, "new_value": branches, "api_key": api_key[:8]}
+        event="protected_branches_update",
+        meta={"old_value": old_value, "new_value": branches, "api_key": api_key[:8]}
     )
 
 
