@@ -71,7 +71,7 @@ export class SettingsCommand {
   async branches(options: BranchesOptions): Promise<void> {
     if (!await this.init()) return;
 
-    // Set branches
+    // Set branches (with Fail Fast validation)
     if (options.set) {
       const branches = options.set.split(',').map(b => b.trim()).filter(b => b);
       if (branches.length === 0) {
@@ -80,18 +80,20 @@ export class SettingsCommand {
         return;
       }
       
-      // Smart validation (Layer 2: CLI Warning)
-      await this.validateBranchesLocally(branches);
+      // Banking Grade: Fail Fast validation
+      const validation = await this.validateBranchesStrict(branches);
+      if (!validation.valid) {
+        console.error(chalk.red(`\n❌ Cannot save: invalid branch names detected\n`));
+        validation.errors.forEach(e => console.error(chalk.red(`   • ${e}`)));
+        console.log(chalk.yellow(`\n💡 Tip: Use "saferun settings branches" without --set for interactive selection`));
+        process.exitCode = 1;
+        return;
+      }
       
       const result = await this.updateProtectedBranches(branches);
       if (result.success) {
-        console.log(chalk.green(`✅ Protected branches set to: ${result.patterns?.join(', ') || branches.join(', ')}`));
-        
-        // Show API warnings if any
-        if (result.warnings && result.warnings.length > 0) {
-          console.log(chalk.yellow('\n⚠️  Server warnings:'));
-          result.warnings.forEach(w => console.log(chalk.yellow(`   • ${w}`)));
-        }
+        console.log(chalk.green(`\n✅ Protection active for: [${result.patterns?.join(', ') || branches.join(', ')}]`));
+        console.log(chalk.gray('🛡️  Force-pushes to these branches will require Slack approval.\n'));
       }
       return;
     }
@@ -155,64 +157,93 @@ export class SettingsCommand {
     console.log('');
   }
 
+  /**
+   * Interactive Multi-Select (Banking Grade)
+   * Shows real git branches as checkboxes - no typos possible
+   */
   async interactiveBranches(): Promise<void> {
     if (!await this.init()) return;
 
     const current = await this.fetchProtectedBranches() || ['main', 'master'];
+    const gitBranches = await this.getLocalGitBranches();
 
     console.log(chalk.cyan('\n🛡️  Configure Protected Branches\n'));
-    console.log(chalk.gray('Current: ' + current.join(', ')));
-    console.log('');
 
-    const { action } = await inquirer.prompt([{
-      type: 'list',
-      name: 'action',
-      message: 'What would you like to do?',
-      choices: [
-        { name: 'Keep current settings', value: 'keep' },
-        { name: 'Add a branch', value: 'add' },
-        { name: 'Remove a branch', value: 'remove' },
-        { name: 'Replace all (set new list)', value: 'set' },
-      ],
-    }]);
+    // Build choices from git branches + option for custom pattern
+    const choices = [
+      ...gitBranches.map(b => ({
+        name: b,
+        value: b,
+        checked: current.includes(b),
+      })),
+      new inquirer.Separator(),
+      { name: chalk.gray('+ Add custom pattern (e.g., release/*)'), value: '__CUSTOM__' },
+    ];
 
-    if (action === 'keep') {
-      console.log(chalk.green('✅ Settings unchanged'));
-      return;
-    }
+    const answers = await inquirer.prompt<{ selected: string[] }>({
+      type: 'checkbox',
+      name: 'selected',
+      message: 'Select branches to protect (Space to select, Enter to confirm):',
+      choices,
+    });
 
-    if (action === 'add') {
-      const { branch } = await inquirer.prompt([{
+    let finalBranches: string[] = answers.selected.filter((s: string) => s !== '__CUSTOM__');
+
+    // Handle custom pattern
+    if (answers.selected.includes('__CUSTOM__')) {
+      const patternAnswer = await inquirer.prompt<{ pattern: string }>({
         type: 'input',
-        name: 'branch',
-        message: 'Branch name or pattern (e.g., release/*):',
-        validate: (input: string) => input.trim() ? true : 'Branch name required',
-      }]);
-      await this.branches({ add: branch });
+        name: 'pattern',
+        message: 'Enter custom pattern (e.g., release/*, hotfix-*):',
+        validate: (input: string) => {
+          if (!input.trim()) return 'Pattern required';
+          if (/[^\x00-\x7F]/.test(input)) return 'Non-ASCII characters not allowed';
+          return true;
+        },
+      });
+      if (patternAnswer.pattern.trim()) {
+        finalBranches.push(patternAnswer.pattern.trim());
+      }
+    }
+
+    if (finalBranches.length === 0) {
+      console.log(chalk.yellow('⚠️  No branches selected. Settings unchanged.'));
       return;
     }
 
-    if (action === 'remove') {
-      const { branch } = await inquirer.prompt([{
-        type: 'list',
-        name: 'branch',
-        message: 'Select branch to remove:',
-        choices: current,
-      }]);
-      await this.branches({ remove: branch });
-      return;
+    // Save
+    const result = await this.updateProtectedBranches(finalBranches);
+    if (result.success) {
+      console.log(chalk.green(`\n✅ Protection active for: [${finalBranches.join(', ')}]`));
+      console.log(chalk.gray('🛡️  Force-pushes to these branches will require Slack approval.\n'));
     }
+  }
 
-    if (action === 'set') {
-      const { branches } = await inquirer.prompt([{
-        type: 'input',
-        name: 'branches',
-        message: 'Enter branches (comma-separated):',
-        default: current.join(', '),
-        validate: (input: string) => input.trim() ? true : 'At least one branch required',
-      }]);
-      await this.branches({ set: branches });
-      return;
+  /**
+   * Get local git branches (for interactive selection)
+   */
+  private async getLocalGitBranches(): Promise<string[]> {
+    try {
+      const { stdout } = await execAsync('git branch -a --format="%(refname:short)"');
+      const branches = stdout.split('\n')
+        .map(b => b.trim().replace(/^origin\//, ''))
+        .filter(b => b && !b.startsWith('HEAD') && !b.includes('->'));
+      
+      // Dedupe and sort (local branches first)
+      const unique = [...new Set(branches)];
+      return unique.sort((a, b) => {
+        // Priority: main, master, develop first
+        const priority = ['main', 'master', 'develop'];
+        const aIdx = priority.indexOf(a);
+        const bIdx = priority.indexOf(b);
+        if (aIdx !== -1 && bIdx !== -1) return aIdx - bIdx;
+        if (aIdx !== -1) return -1;
+        if (bIdx !== -1) return 1;
+        return a.localeCompare(b);
+      });
+    } catch {
+      // Fallback if git command fails
+      return ['main', 'master'];
     }
   }
 
@@ -283,45 +314,53 @@ export class SettingsCommand {
   }
 
   /**
-   * Layer 2: Smart CLI validation
-   * Check branches against local git repo and warn about suspicious input
+   * Banking Grade: Strict validation (Fail Fast)
+   * Returns errors instead of warnings - blocks invalid input
    */
-  private async validateBranchesLocally(branches: string[]): Promise<void> {
+  private async validateBranchesStrict(branches: string[]): Promise<{
+    valid: boolean;
+    errors: string[];
+  }> {
+    const errors: string[] = [];
+    
     try {
-      // Get all local and remote branches
-      const { stdout } = await execAsync('git branch -a --format="%(refname:short)"');
-      const gitBranches = stdout.split('\n')
-        .map(b => b.trim().replace(/^origin\//, ''))  // Normalize remote branches
-        .filter(b => b && !b.startsWith('HEAD'));
+      const gitBranches = await this.getLocalGitBranches();
       const branchSet = new Set(gitBranches);
 
-      // Common branch names for fuzzy matching
-      const COMMON = ['main', 'master', 'develop', 'dev', 'staging', 'production', 'prod', 'release', 'hotfix'];
-
       for (const branch of branches) {
-        // Skip patterns (wildcards)
+        // Allow wildcard patterns without validation
         if (branch.includes('*')) continue;
         
-        // Check for non-ASCII (likely typos)
+        // Block non-ASCII characters (catches typos like 'mainб')
         if (/[^\x00-\x7F]/.test(branch)) {
-          console.log(chalk.yellow(`⚠️  Warning: '${branch}' contains non-ASCII characters (typo?)`));
+          errors.push(`'${branch}' contains non-ASCII characters`);
           continue;
         }
 
-        // Check if branch exists
+        // Block if branch not found in repo
         if (!branchSet.has(branch)) {
-          // Try to find similar branch
-          const similar = this.findSimilar(branch, [...branchSet, ...COMMON]);
+          const similar = this.findSimilar(branch, [...branchSet]);
           if (similar) {
-            console.log(chalk.yellow(`⚠️  Warning: '${branch}' not found. Did you mean '${similar}'?`));
+            errors.push(`'${branch}' not found. Did you mean '${similar}'?`);
           } else {
-            console.log(chalk.gray(`ℹ️  Note: '${branch}' not found in current repo (may exist elsewhere)`));
+            errors.push(`'${branch}' not found in this repository`);
           }
         }
       }
     } catch {
-      // Git command failed - skip validation (not in git repo or other issue)
+      // Git command failed - allow through (maybe not in repo)
+      // But still check for non-ASCII
+      for (const branch of branches) {
+        if (/[^\x00-\x7F]/.test(branch)) {
+          errors.push(`'${branch}' contains non-ASCII characters`);
+        }
+      }
     }
+
+    return {
+      valid: errors.length === 0,
+      errors,
+    };
   }
 
   /**
