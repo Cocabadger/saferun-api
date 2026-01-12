@@ -264,7 +264,7 @@ export class SettingsCommand {
       }
 
       const data = await response.json();
-      return data.branches || ['main', 'master'];
+      return data.patterns || ['main', 'master'];  // API returns 'patterns' array
     } catch (error) {
       console.error(chalk.red(`❌ Network error: ${error}`));
       return null;
