@@ -5,11 +5,15 @@ import { loadConfig } from '../utils/config';
 import { loadManifest } from '../hooks/installer';
 import { resolveApiKey } from '../utils/api-client';
 import { readLogEntries } from '../utils/logger';
+import { backgroundSync } from '../utils/sync';
 
 export class StatusCommand {
   private tailCount: number = 10;
 
   async run(options?: { agents?: boolean; pending?: boolean; tail?: number }): Promise<void> {
+    // Lazy background sync - update settings if stale
+    backgroundSync().catch(() => {/* silent */});
+
     if (options?.tail) {
       this.tailCount = options.tail;
     }

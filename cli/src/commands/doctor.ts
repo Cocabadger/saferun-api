@@ -21,6 +21,7 @@ import {
   getCredentialsPath,
 } from '../utils/credentials';
 import { wrapperExists, checkBinaryWrapperInPath, getPathExportCommand } from '../utils/binary-wrapper';
+import { backgroundSync } from '../utils/sync';
 
 const SAFERUN_API_URL = 'https://saferun-api.up.railway.app';
 
@@ -35,6 +36,9 @@ export class DoctorCommand {
   private checks: CheckResult[] = [];
 
   async run(): Promise<void> {
+    // Lazy background sync - update settings if stale
+    backgroundSync().catch(() => {/* silent */});
+
     console.log(chalk.cyan('\n🩺 SafeRun Health Check\n'));
 
     // Run all checks

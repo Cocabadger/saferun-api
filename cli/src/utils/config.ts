@@ -93,6 +93,11 @@ export interface TelemetryConfig {
   };
 }
 
+export interface SyncMetadata {
+  last_sync_at?: string;  // ISO timestamp of last successful sync
+  sync_source?: string;   // 'api' | 'manual'
+}
+
 export interface SafeRunConfig {
   mode: ProtectionMode;
   modes: Record<string, ModeSettings>;
@@ -104,6 +109,7 @@ export interface SafeRunConfig {
   notifications?: Record<string, unknown>;
   telemetry?: TelemetryConfig;
   commands?: Record<string, unknown>;
+  sync?: SyncMetadata;  // Lazy Background Sync metadata
 }
 
 const DEFAULT_CONFIG: SafeRunConfig = {

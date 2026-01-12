@@ -191,6 +191,20 @@ export function registerCommands(program: Command) {
       await cmd.status();
     });
 
+  // ─────────────────────────────────────────────────────────────────
+  // SYNC (Lazy Background Sync)
+  // ─────────────────────────────────────────────────────────────────
+
+  program
+    .command('sync')
+    .description('Sync settings from server to local config')
+    .option('--force', 'Force sync even if cache is fresh')
+    .option('--verbose', 'Show detailed sync output')
+    .action(async (options: any) => {
+      const { SyncCommand } = await import('./commands/sync');
+      await new SyncCommand().run(options);
+    });
+
   program
     .command('hook')
     .description('Internal command used by SafeRun git aliases')
