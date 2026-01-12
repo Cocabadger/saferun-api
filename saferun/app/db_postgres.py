@@ -683,10 +683,14 @@ def get_protected_branches(api_key: str) -> str:
 
 
 def update_protected_branches(api_key: str, branches: str, old_value: str = None):
-    """Update protected branches and log to audit."""
+    """Update protected branches and log to audit (UPSERT - creates row if missing)."""
     exec(
-        "UPDATE user_notification_settings SET protected_branches = %s WHERE api_key = %s",
-        (branches, api_key)
+        """INSERT INTO user_notification_settings (api_key, protected_branches, updated_at)
+           VALUES (%s, %s, NOW())
+           ON CONFLICT (api_key) DO UPDATE SET 
+               protected_branches = EXCLUDED.protected_branches,
+               updated_at = NOW()""",
+        (api_key, branches)
     )
     # Audit log for Banking Grade compliance
     insert_audit(
