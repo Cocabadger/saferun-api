@@ -151,11 +151,15 @@ export function registerCommands(program: Command) {
     .option('--set <branches>', 'Set protected branches (comma-separated)')
     .option('--add <branch>', 'Add a branch to protected list')
     .option('--remove <branch>', 'Remove a branch from protected list')
+    .option('--show', 'Show current protected branches (non-interactive)')
     .action(async (options: any) => {
       const { SettingsCommand } = await import('./commands/settings');
-      if (!options.set && !options.add && !options.remove) {
-        // No options - show current + usage
+      if (options.show) {
+        // Show current settings (non-interactive)
         await new SettingsCommand().branches({});
+      } else if (!options.set && !options.add && !options.remove) {
+        // No options - interactive multi-select
+        await new SettingsCommand().interactiveBranches();
       } else {
         await new SettingsCommand().branches(options);
       }
