@@ -7,7 +7,8 @@
  * - Banking Grade: Hooks warn if cache is very stale (>1 hour)
  */
 
-import { loadConfig, saveConfig, SafeRunConfig } from './config';
+import { loadConfig, SafeRunConfig } from './config';
+import { loadGlobalConfig, saveGlobalConfig } from './global-config';
 import { getGitInfo, isGitRepository } from './git';
 import { resolveApiKey } from './api-client';
 import chalk from 'chalk';
@@ -99,21 +100,22 @@ export async function syncProtectedBranches(
     const data = await response.json();
     const serverBranches = data.patterns || ['main', 'master'];
 
-    // Load current config
-    const config = await loadConfig(repoRoot);
-    const localBranches = config.github.protected_branches || [];
+    // Load GLOBAL config (hooks read from global, not repo-local)
+    const config = await loadGlobalConfig();
+    const localBranches = config.github?.protected_branches || [];
 
     // Check if update needed
-    const needsUpdate = JSON.stringify(serverBranches.sort()) !== JSON.stringify(localBranches.sort());
+    const needsUpdate = JSON.stringify(serverBranches.sort()) !== JSON.stringify([...localBranches].sort());
 
-    // Update config
+    // Update global config
+    config.github = config.github || { repo: 'auto', protected_branches: [] };
     config.github.protected_branches = serverBranches;
     config.sync = {
       last_sync_at: new Date().toISOString(),
       sync_source: 'api',
     };
 
-    await saveConfig(config, repoRoot);
+    await saveGlobalConfig(config);
 
     return {
       success: true,

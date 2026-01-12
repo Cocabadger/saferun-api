@@ -78,7 +78,10 @@ export class SyncCommand {
       }
       
       if (options.verbose) {
-        console.log(chalk.gray(`\nConfig saved to: ${gitInfo.repoRoot}/.saferun.yml`));
+        const os = await import('os');
+        const path = await import('path');
+        const globalConfigPath = path.join(os.homedir(), '.saferun', 'config.yml');
+        console.log(chalk.gray(`\nConfig saved to: ${globalConfigPath}`));
       }
     } else {
       console.error(chalk.red(`\n❌ ${result.message}`));
