@@ -1,7 +1,7 @@
 import chalk from 'chalk';
 import inquirer from 'inquirer';
 import { getGitInfo, isGitRepository } from '../utils/git';
-import { loadConfig } from '../utils/config';
+import { loadConfig, saveConfig } from '../utils/config';
 import { resolveApiKey } from '../utils/api-client';
 
 interface BranchesOptions {
@@ -239,6 +239,14 @@ export class SettingsCommand {
         const error = await response.text();
         console.error(chalk.red(`❌ Failed to update settings: ${error}`));
         return false;
+      }
+
+      // Also save to local config for CLI filtering
+      const gitInfo = await getGitInfo();
+      if (gitInfo) {
+        const config = await loadConfig(gitInfo.repoRoot);
+        config.github.protected_branches = branches;
+        await saveConfig(config, gitInfo.repoRoot);
       }
 
       return true;

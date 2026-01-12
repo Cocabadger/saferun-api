@@ -160,6 +160,32 @@ export class HookRunner {
 
     const operationType = deletion ? 'branch_delete' : (isForcePush ? 'force_push' : (isMergeCommit ? 'merge' : 'push'));
     
+    // Smart Client-Side Filtering: Skip protection for non-protected branches
+    // This prevents alert fatigue while maintaining audit trail on the server
+    if (!protectedBranch && (isForcePush || deletion)) {
+      console.log(chalk.gray(`\n   ℹ️  Branch '${branch}' is not protected - proceeding without approval`));
+      console.log(chalk.gray(`   (Configure protected branches with: saferun settings branches)\n`));
+      
+      // Log locally for audit (but don't block)
+      await logOperation(context.gitInfo.repoRoot, {
+        event: 'allow',
+        operation: operationType,
+        repo: repoSlug,
+        branch,
+        reason: 'branch_not_protected',
+      });
+      
+      await context.metrics.track('operation_allowed', {
+        hook: 'pre-push',
+        operation_type: operationType,
+        branch,
+        repo: repoSlug,
+        reason: 'branch_not_protected',
+      });
+      
+      return; // Allow without blocking
+    }
+    
     // Simple cache key based on operation and branch
     const cacheKey = context.cache.getOperationHash('pre-push', [operationType, repoSlug, branch], {});
 

@@ -474,7 +474,43 @@ export class SetupCommand {
       this.setupErrors.push(errorMsg);
     }
 
+    // Sync protected branches from server
+    await this.syncProtectedBranches();
+
     console.log('');
+  }
+
+  /**
+   * Sync protected branches settings from server to local config
+   */
+  private async syncProtectedBranches(): Promise<void> {
+    if (!this.apiKey) return;
+
+    try {
+      const response = await fetch(`${SAFERUN_API_URL}/settings/protected-branches`, {
+        headers: {
+          'X-API-Key': this.apiKey,
+        },
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        const branches = data.branches || ['main', 'master'];
+        
+        // Save to local config
+        const gitInfo = await getGitInfo();
+        if (gitInfo) {
+          const config = await loadConfig(gitInfo.repoRoot);
+          config.github.protected_branches = branches;
+          await saveConfig(config, gitInfo.repoRoot);
+          console.log(chalk.green(`   ✓ Protected branches synced: ${branches.join(', ')}`));
+        }
+      } else {
+        console.log(chalk.yellow('   ⚠️  Could not sync protected branches (using defaults)'));
+      }
+    } catch (err) {
+      console.log(chalk.yellow(`   ⚠️  Could not sync protected branches: ${err}`));
+    }
   }
 
   /**
