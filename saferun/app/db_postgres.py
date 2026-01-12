@@ -467,11 +467,11 @@ def get_change(change_id: str) -> Optional[Dict[str, Any]]:
     """Get change by ID."""
     rec = fetchone("SELECT * FROM changes WHERE change_id=%s", (change_id,))
     
-    # Decrypt tokens after retrieving
-    if rec and rec.get("token"):
+    # Decrypt tokens after retrieving (only if encrypted)
+    if rec and rec.get("token") and crypto.is_encrypted(rec["token"]):
         rec["token"] = crypto.decrypt_token(rec["token"])
     
-    if rec and rec.get("revert_token"):
+    if rec and rec.get("revert_token") and crypto.is_encrypted(rec["revert_token"]):
         rec["revert_token"] = crypto.decrypt_token(rec["revert_token"])
     
     return rec
@@ -486,9 +486,9 @@ def get_by_revert_token(token: str) -> Optional[Dict[str, Any]]:
     
     if rec:
         # Decrypt if encrypted
-        if rec.get("revert_token"):
+        if rec.get("revert_token") and crypto.is_encrypted(rec["revert_token"]):
             rec["revert_token"] = crypto.decrypt_token(rec["revert_token"])
-        if rec.get("token"):
+        if rec.get("token") and crypto.is_encrypted(rec["token"]):
             rec["token"] = crypto.decrypt_token(rec["token"])
         return rec
     
@@ -497,11 +497,11 @@ def get_by_revert_token(token: str) -> Optional[Dict[str, Any]]:
     all_recs = fetchall("SELECT * FROM changes WHERE revert_token IS NOT NULL")
     for rec in all_recs:
         encrypted_token = rec.get("revert_token")
-        if encrypted_token:
+        if encrypted_token and crypto.is_encrypted(encrypted_token):
             decrypted = crypto.decrypt_token(encrypted_token)
             if decrypted == token:
                 rec["revert_token"] = decrypted
-                if rec.get("token"):
+                if rec.get("token") and crypto.is_encrypted(rec["token"]):
                     rec["token"] = crypto.decrypt_token(rec["token"])
                 return rec
     
@@ -651,13 +651,13 @@ def get_notification_settings(api_key: str) -> Optional[Dict[str, Any]]:
         if value.startswith(('https://', 'http://', 'xoxb-', 'xoxp-', 'xoxe-', 'xoxa-')):
             return value
         
-        # Try to decrypt encrypted values
-        try:
+        # Only decrypt if it looks encrypted
+        if crypto.is_encrypted(value):
             decrypted = crypto.decrypt_token(value)
-            return decrypted if decrypted else value  # Fallback to original if decrypt returns None
-        except Exception:
-            # If decrypt fails, assume it's legacy plain text
-            return value
+            return decrypted if decrypted else value
+        
+        # Not encrypted - return as-is (legacy plain text)
+        return value
     
     if row.get("slack_webhook_url"):
         row["slack_webhook_url"] = safe_decrypt(row["slack_webhook_url"])
