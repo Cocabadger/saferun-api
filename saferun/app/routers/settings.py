@@ -225,3 +225,65 @@ async def check_github_app_installation(
         "all_repos": len(repos) == 0,
         "message": "GitHub App is installed" if is_installed else "Repository not in installation scope"
     }
+
+
+# ============================================
+# Protected Branches Settings (Banking Grade)
+# ============================================
+
+class ProtectedBranchesRequest(BaseModel):
+    branches: str = Field(..., description="Comma-separated branch patterns (e.g., 'main,master,release/*')")
+
+class ProtectedBranchesResponse(BaseModel):
+    protected_branches: str
+    patterns: List[str]
+    message: str
+
+
+@router.get("/protected-branches", response_model=ProtectedBranchesResponse)
+async def get_protected_branches(api_key: str = Depends(verify_api_key)):
+    """Get protected branches configuration."""
+    branches = db.get_protected_branches(api_key)
+    patterns = [p.strip() for p in branches.split(",") if p.strip()]
+    
+    return ProtectedBranchesResponse(
+        protected_branches=branches,
+        patterns=patterns,
+        message=f"Notifications enabled for {len(patterns)} branch pattern(s)"
+    )
+
+
+@router.put("/protected-branches", response_model=ProtectedBranchesResponse)
+async def update_protected_branches(
+    request: ProtectedBranchesRequest,
+    api_key: str = Depends(verify_api_key)
+):
+    """
+    Update protected branches configuration.
+    
+    Supports wildcards:
+    - main, master (exact match)
+    - release/* (matches release/v1.0, release/2024-01)
+    - hotfix-* (matches hotfix-123, hotfix-urgent)
+    """
+    # Validate: at least one branch required
+    branches = request.branches.strip()
+    if not branches:
+        raise HTTPException(status_code=400, detail="At least one branch pattern is required")
+    
+    # Parse and validate patterns
+    patterns = [p.strip() for p in branches.split(",") if p.strip()]
+    if not patterns:
+        raise HTTPException(status_code=400, detail="At least one valid branch pattern is required")
+    
+    # Get old value for audit
+    old_value = db.get_protected_branches(api_key)
+    
+    # Update with audit log (Banking Grade)
+    db.update_protected_branches(api_key, branches, old_value)
+    
+    return ProtectedBranchesResponse(
+        protected_branches=branches,
+        patterns=patterns,
+        message=f"Protected branches updated. Notifications now enabled for {len(patterns)} pattern(s)"
+    )

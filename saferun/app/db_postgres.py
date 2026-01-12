@@ -670,6 +670,32 @@ def get_notification_settings(api_key: str) -> Optional[Dict[str, Any]]:
     
     return row
 
+
+def get_protected_branches(api_key: str) -> str:
+    """Get protected branches pattern for user. Returns comma-separated patterns."""
+    row = fetchone(
+        "SELECT protected_branches FROM user_notification_settings WHERE api_key = %s",
+        (api_key,)
+    )
+    if row and row.get("protected_branches"):
+        return row["protected_branches"]
+    return "main,master"  # Default
+
+
+def update_protected_branches(api_key: str, branches: str, old_value: str = None):
+    """Update protected branches and log to audit."""
+    exec(
+        "UPDATE user_notification_settings SET protected_branches = %s WHERE api_key = %s",
+        (branches, api_key)
+    )
+    # Audit log for Banking Grade compliance
+    insert_audit(
+        change_id=f"settings_{api_key[:8]}",
+        action="protected_branches_update",
+        details={"old_value": old_value, "new_value": branches, "api_key": api_key[:8]}
+    )
+
+
 def upsert_notification_settings(api_key: str, settings: Dict[str, Any]):
     """Insert or update notification settings with encryption for sensitive data."""
     conn = get_connection()

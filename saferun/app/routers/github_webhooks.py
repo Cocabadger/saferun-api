@@ -2,6 +2,7 @@
 from fastapi import APIRouter, Request, HTTPException, Header, Depends, Query
 import json
 import uuid
+import fnmatch
 from typing import Optional
 from datetime import datetime, timezone, timedelta
 
@@ -26,6 +27,24 @@ router = APIRouter(prefix="/webhooks/github", tags=["github_webhooks"])
 def iso_z(dt: datetime) -> str:
     """Convert datetime to ISO format with Z suffix"""
     return dt.astimezone(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+
+
+def is_protected_branch(branch_name: str, protected_patterns: str) -> bool:
+    """
+    Check if branch matches any protected pattern.
+    Supports wildcards: main, master, release/*, hotfix-*
+    """
+    if not branch_name or not protected_patterns:
+        return False
+    
+    # Clean branch name (remove refs/heads/ prefix if present)
+    branch = branch_name.replace("refs/heads/", "")
+    
+    # Parse patterns
+    patterns = [p.strip() for p in protected_patterns.split(",") if p.strip()]
+    
+    # Check if branch matches any pattern
+    return any(fnmatch.fnmatch(branch, pattern) for pattern in patterns)
 
 
 @router.post("/install")
@@ -445,8 +464,26 @@ async def github_webhook_event(
         "installation_id": installation_id
     })
     
+    # Check if branch is protected (Banking Grade: filter notifications by policy)
+    branch_name = payload.get("ref", "").replace("refs/heads/", "") if event_type == "push" else payload.get("ref", "")
+    protected_branches = db.get_protected_branches(user_api_key) if user_api_key else "main,master"
+    branch_is_protected = is_protected_branch(branch_name, protected_branches)
+    
+    # For non-branch events (repository archived, etc.), always notify
+    is_branch_event = event_type in ("push", "delete") and payload.get("ref_type") in (None, "branch")
+    
     # Send Slack notification via OAuth-based notifier (uses slack_installations table)
     if user_api_key:
+        # Silent Audit: If branch is not protected, record but don't notify Slack
+        if is_branch_event and not branch_is_protected:
+            print(f"🔕 Silent audit: {action_type} on non-protected branch '{branch_name}' (protected: {protected_branches})")
+            db.set_change_status(change_id, "ignored_silent")
+            return {
+                "status": "ignored_by_policy",
+                "reason": f"Branch '{branch_name}' not in protected list",
+                "change_id": change_id
+            }
+        
         try:
             # REACTIVE GOVERNANCE: Webhooks are ALWAYS post-factum
             # The operation has ALREADY HAPPENED - we can only offer REVERT, not APPROVAL

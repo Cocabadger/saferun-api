@@ -129,6 +129,38 @@ export function registerCommands(program: Command) {
       await new ConfigCommand().slack(options);
     });
 
+  // ─────────────────────────────────────────────────────────────────
+  // SETTINGS (Server-side configuration)
+  // ─────────────────────────────────────────────────────────────────
+
+  const settings = program
+    .command('settings')
+    .description('View or modify SafeRun server settings');
+
+  settings
+    .command('show')
+    .description('Show all server-side settings')
+    .action(async () => {
+      const { SettingsCommand } = await import('./commands/settings');
+      await new SettingsCommand().showAll();
+    });
+
+  settings
+    .command('branches')
+    .description('Configure protected branches')
+    .option('--set <branches>', 'Set protected branches (comma-separated)')
+    .option('--add <branch>', 'Add a branch to protected list')
+    .option('--remove <branch>', 'Remove a branch from protected list')
+    .action(async (options: any) => {
+      const { SettingsCommand } = await import('./commands/settings');
+      if (!options.set && !options.add && !options.remove) {
+        // No options - show current + usage
+        await new SettingsCommand().branches({});
+      } else {
+        await new SettingsCommand().branches(options);
+      }
+    });
+
   // saferun shell-init - setup shell integration
   program
     .command('shell-init')
