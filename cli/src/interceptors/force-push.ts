@@ -187,6 +187,7 @@ export async function interceptForcePush(context: InterceptorContext): Promise<n
       const exitCode = await runGitCommand(['push', ...context.args], {
         cwd: context.gitInfo.repoRoot,
         disableAliases: ['push'],
+        env: { SAFERUN_APPROVED_CHANGE_ID: dryRun.changeId },
       });
 
       if (exitCode === 0) {

@@ -131,6 +131,7 @@ export async function interceptRebase(context: InterceptorContext): Promise<numb
     return await runGitCommand(['rebase', ...context.args], {
       cwd: context.gitInfo.repoRoot,
       disableAliases: ['rebase'],
+      env: { SAFERUN_APPROVED_CHANGE_ID: dryRun.changeId },
     });
 
   } catch (error) {

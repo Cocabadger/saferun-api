@@ -179,6 +179,7 @@ export async function interceptClean(context: InterceptorContext): Promise<numbe
   const exitCode = await runGitCommand(['clean', ...context.args], {
     cwd: context.gitInfo.repoRoot,
     disableAliases: ['clean'],
+    env: approvals.length > 0 ? { SAFERUN_APPROVED_CHANGE_ID: approvals[0].changeId } : undefined,
   });
 
   for (const approval of approvals) {

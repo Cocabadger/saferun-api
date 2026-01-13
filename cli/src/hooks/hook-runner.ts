@@ -165,6 +165,14 @@ export class HookRunner {
 
     const operationType = deletion ? 'branch_delete' : (isForcePush ? 'force_push' : (isMergeCommit ? 'merge' : 'push'));
     
+    // Skip if this operation was already approved by interceptor (force-push.ts, branch-delete.ts, etc.)
+    // This prevents duplicate approval requests when git aliases are installed
+    const approvedChangeId = process.env.SAFERUN_APPROVED_CHANGE_ID;
+    if (approvedChangeId) {
+      console.log(chalk.gray(`   ℹ️  Operation pre-approved by interceptor (${approvedChangeId.substring(0, 8)}...)`));
+      return;
+    }
+    
     // Smart Client-Side Filtering: Skip protection for non-protected branches
     // This prevents alert fatigue while maintaining audit trail on the server
     if (!protectedBranch && (isForcePush || deletion)) {
