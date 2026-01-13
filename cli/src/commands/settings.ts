@@ -4,6 +4,7 @@ import { exec } from 'child_process';
 import { promisify } from 'util';
 import { getGitInfo, isGitRepository } from '../utils/git';
 import { loadConfig, saveConfig } from '../utils/config';
+import { loadGlobalConfig, saveGlobalConfig } from '../utils/global-config';
 import { resolveApiKey } from '../utils/api-client';
 
 const execAsync = promisify(exec);
@@ -93,7 +94,8 @@ export class SettingsCommand {
       const result = await this.updateProtectedBranches(branches);
       if (result.success) {
         console.log(chalk.green(`\n✅ Protection active for: [${result.patterns?.join(', ') || branches.join(', ')}]`));
-        console.log(chalk.gray('🛡️  Force-pushes to these branches will require Slack approval.\n'));
+        console.log(chalk.gray('🛡️  Force-pushes to these branches will require Slack approval.'));
+        console.log(chalk.gray('⚡  Changes applied immediately. No sync required.\n'));
       }
       return;
     }
@@ -110,6 +112,7 @@ export class SettingsCommand {
       await this.updateProtectedBranches(updated);
       console.log(chalk.green(`✅ Added "${toAdd}" to protected branches`));
       console.log(chalk.gray(`   Current: ${updated.join(', ')}`));
+      console.log(chalk.gray('   ⚡ Active immediately\n'));
       return;
     }
 
@@ -130,6 +133,7 @@ export class SettingsCommand {
       await this.updateProtectedBranches(updated);
       console.log(chalk.green(`✅ Removed "${toRemove}" from protected branches`));
       console.log(chalk.gray(`   Current: ${updated.join(', ')}`));
+      console.log(chalk.gray('   ⚡ Active immediately\n'));
       return;
     }
 
@@ -215,7 +219,8 @@ export class SettingsCommand {
     const result = await this.updateProtectedBranches(finalBranches);
     if (result.success) {
       console.log(chalk.green(`\n✅ Protection active for: [${finalBranches.join(', ')}]`));
-      console.log(chalk.gray('🛡️  Force-pushes to these branches will require Slack approval.\n'));
+      console.log(chalk.gray('🛡️  Force-pushes to these branches will require Slack approval.'));
+      console.log(chalk.gray('⚡  Changes applied immediately. No sync required.\n'));
     }
   }
 
@@ -294,13 +299,26 @@ export class SettingsCommand {
 
       const data = await response.json();
 
-      // Also save to local config for CLI filtering
+      // ✨ Write-Through Cache: Update BOTH local repo config AND global config
+      // This ensures immediate consistency without requiring manual "saferun sync"
+      
+      // 1. Save to repo-level config (.saferun.yml in repo root)
       const gitInfo = await getGitInfo();
       if (gitInfo) {
         const config = await loadConfig(gitInfo.repoRoot);
         config.github.protected_branches = data.patterns || branches;
         await saveConfig(config, gitInfo.repoRoot);
       }
+
+      // 2. Save to global config (~/.saferun/config.yml) - used by hooks for 0ms lookups
+      const globalConfig = await loadGlobalConfig();
+      globalConfig.github.protected_branches = data.patterns || branches;
+      if (!globalConfig.sync) {
+        globalConfig.sync = {};
+      }
+      globalConfig.sync.last_sync_at = new Date().toISOString();
+      globalConfig.sync.sync_source = 'settings_command';
+      await saveGlobalConfig(globalConfig);
 
       return {
         success: true,

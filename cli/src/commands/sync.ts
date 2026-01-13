@@ -2,8 +2,15 @@
  * SafeRun Sync Command
  * 
  * Manually sync settings from server to local config.
- * Use when: switching machines, after team policy changes,
- * or when hooks show "stale cache" warning.
+ * 
+ * NOTE: Since v0.6.49, this command is mostly unnecessary for local usage.
+ * The `settings branches` command now automatically updates both server AND local config (Write-Through Cache).
+ * 
+ * Use `saferun sync` when:
+ * - Switching to a different machine (pull settings from server)
+ * - Another team member changed policy remotely
+ * - Hooks show "stale cache" warning (>1 hour old)
+ * - Recovering from corrupted local config
  */
 
 import chalk from 'chalk';
