@@ -1,6 +1,6 @@
 import chalk from 'chalk';
 import { ApprovalFlow, ApprovalOutcome } from '../utils/approval-flow';
-import { getAheadBehind, resolveCommit, runGitCommand } from '../utils/git';
+import { getAheadBehind, resolveCommit, runGitCommand, getCurrentBranch, isProtectedBranch } from '../utils/git';
 import { logOperation } from '../utils/logger';
 import { ModeSettings, OperationRuleConfig } from '../utils/config';
 import { withSystemMetadata } from '../utils/system-info';
@@ -36,6 +36,23 @@ function parseResetArgs(args: string[]): ResetParams {
 export async function interceptReset(context: InterceptorContext): Promise<number> {
   const params = parseResetArgs(context.args);
   if (params.mode !== 'hard') {
+    return runGitCommand(['reset', ...context.args], {
+      cwd: context.gitInfo.repoRoot,
+      disableAliases: ['reset'],
+    });
+  }
+
+  // Filter by protected branches - only protect configured branches
+  const protectedBranches = context.config.github.protected_branches ?? [];
+  const currentBranch = await getCurrentBranch(context.gitInfo.repoRoot);
+  const protectedBranch = currentBranch ? isProtectedBranch(currentBranch, protectedBranches) : false;
+
+  // Allow reset --hard on non-protected branches without approval
+  if (!protectedBranch) {
+    console.log(chalk.yellow(`⚠️  Reset --hard detected on branch: ${currentBranch || 'HEAD'}`));
+    console.log(chalk.gray(`   ℹ️  Branch '${currentBranch}' is not protected - proceeding without approval`));
+    console.log(chalk.gray(`   (Configure protected branches with: saferun settings branches)\n`));
+    
     return runGitCommand(['reset', ...context.args], {
       cwd: context.gitInfo.repoRoot,
       disableAliases: ['reset'],

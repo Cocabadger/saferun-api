@@ -1,7 +1,7 @@
 import chalk from 'chalk';
 import { DryRunResult } from '@saferun/sdk';
 import { ApprovalFlow, ApprovalOutcome } from '../utils/approval-flow';
-import { runGitCommand } from '../utils/git';
+import { runGitCommand, isProtectedBranch } from '../utils/git';
 import { logOperation } from '../utils/logger';
 import { withSystemMetadata } from '../utils/system-info';
 import { InterceptorContext } from './types';
@@ -45,6 +45,35 @@ export async function interceptBranchDelete(context: InterceptorContext): Promis
     });
   }
 
+  // Filter by protected branches - only protect configured branches
+  const protectedBranches = context.config.github.protected_branches ?? [];
+  const branchesToProtect = branches.filter(b => isProtectedBranch(b, protectedBranches));
+  const branchesToAllow = branches.filter(b => !isProtectedBranch(b, protectedBranches));
+
+  // Allow non-protected branches without approval
+  if (branchesToAllow.length > 0) {
+    console.log(chalk.gray(`\n   ℹ️  Deleting non-protected branch(es): ${branchesToAllow.join(', ')}`));
+    console.log(chalk.gray(`   (Configure protected branches with: saferun settings branches)\n`));
+    
+    // Execute deletion for non-protected branches
+    const exitCode = await runGitCommand(['branch', ...context.args.filter(arg => 
+      !branches.includes(arg) || branchesToAllow.includes(arg)
+    )], {
+      cwd: context.gitInfo.repoRoot,
+      disableAliases: ['branch'],
+    });
+
+    // If no protected branches to check, we're done
+    if (branchesToProtect.length === 0) {
+      return exitCode;
+    }
+  }
+
+  // Only proceed with approval flow for protected branches
+  if (branchesToProtect.length === 0) {
+    return 0; // All branches were non-protected and already deleted
+  }
+
   const repoSlug = context.config.github.repo === 'auto' ? context.gitInfo.repoSlug ?? 'local/repo' : context.config.github.repo;
   const githubToken = process.env.GITHUB_TOKEN || process.env.GH_TOKEN;
   
@@ -55,7 +84,7 @@ export async function interceptBranchDelete(context: InterceptorContext): Promis
 
   const approvals: PendingApproval[] = [];
 
-  for (const branchName of branches) {
+  for (const branchName of branchesToProtect) {
     try {
       // Call SafeRun API to check if branch delete needs approval
       const dryRun: DryRunResult = await context.client.deleteGithubBranch({

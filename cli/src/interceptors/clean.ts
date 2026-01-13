@@ -1,6 +1,6 @@
 import chalk from 'chalk';
 import { ApprovalFlow, ApprovalOutcome } from '../utils/approval-flow';
-import { runGitCommand } from '../utils/git';
+import { runGitCommand, getCurrentBranch, isProtectedBranch } from '../utils/git';
 import { logOperation } from '../utils/logger';
 import { ModeSettings, OperationRuleConfig } from '../utils/config';
 import { InterceptorContext } from './types';
@@ -23,6 +23,23 @@ function isDangerousClean(args: string[]): boolean {
 
 export async function interceptClean(context: InterceptorContext): Promise<number> {
   if (!isDangerousClean(context.args)) {
+    return runGitCommand(['clean', ...context.args], {
+      cwd: context.gitInfo.repoRoot,
+      disableAliases: ['clean'],
+    });
+  }
+
+  // Filter by protected branches - only protect configured branches
+  const protectedBranches = context.config.github.protected_branches ?? [];
+  const currentBranch = await getCurrentBranch(context.gitInfo.repoRoot);
+  const protectedBranch = currentBranch ? isProtectedBranch(currentBranch, protectedBranches) : false;
+
+  // Allow clean -fd on non-protected branches without approval
+  if (!protectedBranch) {
+    console.log(chalk.yellow(`⚠️  Clean -fd detected on branch: ${currentBranch || 'HEAD'}`));
+    console.log(chalk.gray(`   ℹ️  Branch '${currentBranch}' is not protected - proceeding without approval`));
+    console.log(chalk.gray(`   (Configure protected branches with: saferun settings branches)\n`));
+    
     return runGitCommand(['clean', ...context.args], {
       cwd: context.gitInfo.repoRoot,
       disableAliases: ['clean'],

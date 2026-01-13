@@ -1,7 +1,7 @@
 import chalk from 'chalk';
 import { DryRunResult } from '@saferun/sdk';
 import { ApprovalFlow, ApprovalOutcome } from '../utils/approval-flow';
-import { runGitCommand } from '../utils/git';
+import { runGitCommand, isProtectedBranch } from '../utils/git';
 import { logOperation } from '../utils/logger';
 import { withSystemMetadata } from '../utils/system-info';
 import { InterceptorContext } from './types';
@@ -56,6 +56,22 @@ export async function interceptForcePush(context: InterceptorContext): Promise<n
 
   // If not force push, run normally
   if (!params || !params.isForce) {
+    return runGitCommand(['push', ...context.args], {
+      cwd: context.gitInfo.repoRoot,
+      disableAliases: ['push'],
+    });
+  }
+
+  // Check if branch is protected
+  const protectedBranches = context.config.github.protected_branches ?? [];
+  const protectedBranch = isProtectedBranch(params.branch, protectedBranches);
+
+  // If branch is not protected, allow force push without approval
+  if (!protectedBranch) {
+    console.log(chalk.yellow(`⚠️  Force push detected: ${params.remote}/${params.branch}`));
+    console.log(chalk.gray(`   ℹ️  Branch '${params.branch}' is not protected - proceeding without approval`));
+    console.log(chalk.gray(`   (Configure protected branches with: saferun settings branches)\n`));
+    
     return runGitCommand(['push', ...context.args], {
       cwd: context.gitInfo.repoRoot,
       disableAliases: ['push'],
