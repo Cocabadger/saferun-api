@@ -299,7 +299,7 @@ export class SettingsCommand {
 
       const data = await response.json();
 
-      // ✨ Write-Through Cache: Update BOTH PostgreSQL AND global config
+      // ✨ Write-Through Cache: Update BOTH PostgreSQL AND config files
       // This ensures immediate consistency without requiring manual "saferun sync"
       
       // 1. Get repository slug for context-aware storage
@@ -328,6 +328,22 @@ export class SettingsCommand {
       globalConfig.sync.synced_repo = repoSlug;
       
       await saveGlobalConfig(globalConfig);
+
+      // 3. ALSO update local .saferun/config.yml if it exists
+      // This prevents local config from overriding global repository-specific settings
+      if (gitInfo?.repoRoot) {
+        try {
+          const localConfig = await loadConfig(gitInfo.repoRoot, { allowCreate: false });
+          if (localConfig.github.protected_branches) {
+            // Update local config to match the new settings
+            localConfig.github.protected_branches = data.patterns || branches;
+            await saveConfig(localConfig, gitInfo.repoRoot);
+            console.log(chalk.gray('   ℹ️  Local .saferun/config.yml also updated'));
+          }
+        } catch (error) {
+          // Local config doesn't exist - that's fine, global config will be used
+        }
+      }
 
       return {
         success: true,
