@@ -170,7 +170,11 @@ async def github_webhook_event(
     if event_type == "push":
         commits = payload.get("commits", [])
         deleted = payload.get("deleted", False)
-        if not commits and not deleted:
+        forced = payload.get("forced", False)
+        
+        # Only ignore if: no commits AND not deleted AND not forced
+        # Force pushes can have empty commits array when rewinding to existing SHA
+        if not commits and not deleted and not forced:
             # This is a branch CREATION event (push with no commits) - save SHA for future revert!
             branch_name = payload.get("ref", "").replace("refs/heads/", "")
             head_sha = payload.get("after")
