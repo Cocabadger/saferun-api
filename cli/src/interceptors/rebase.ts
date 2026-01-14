@@ -39,10 +39,12 @@ function parseRebaseArgs(args: string[]): RebaseParams {
 export async function interceptRebase(context: InterceptorContext): Promise<number> {
   const params = parseRebaseArgs(context.args);
   
-  // Filter by protected branches - only protect configured branches
-  const protectedBranches = context.config.github.protected_branches ?? [];
+  // Get repository-specific protected branches
+  const repoSlug = context.config.github.repo === 'auto' ? context.gitInfo.repoSlug ?? 'local/repo' : context.config.github.repo;
+  const { getProtectedBranchesForRepo } = await import('../utils/config');
+  const protectedBranchPatterns = getProtectedBranchesForRepo(context.config, repoSlug);
   const currentBranch = await getCurrentBranch(context.gitInfo.repoRoot);
-  const protectedBranch = currentBranch ? isProtectedBranch(currentBranch, protectedBranches) : false;
+  const protectedBranch = currentBranch ? isProtectedBranch(currentBranch, protectedBranchPatterns) : false;
 
   // Allow rebase on non-protected branches without approval
   if (!protectedBranch) {
@@ -56,10 +58,6 @@ export async function interceptRebase(context: InterceptorContext): Promise<numb
     });
   }
   
-  const repoSlug = context.config.github.repo === 'auto' 
-    ? context.gitInfo.repoSlug ?? 'local/repo' 
-    : context.config.github.repo;
-
   // Calculate risk score based on rebase type
   let riskScore = 6.0; // Base risk for rebase
   const reasons = ['git_rebase'];

@@ -299,25 +299,34 @@ export class SettingsCommand {
 
       const data = await response.json();
 
-      // ✨ Write-Through Cache: Update BOTH local repo config AND global config
+      // ✨ Write-Through Cache: Update BOTH PostgreSQL AND global config
       // This ensures immediate consistency without requiring manual "saferun sync"
       
-      // 1. Save to repo-level config (.saferun.yml in repo root)
+      // 1. Get repository slug for context-aware storage
       const gitInfo = await getGitInfo();
-      if (gitInfo) {
-        const config = await loadConfig(gitInfo.repoRoot);
-        config.github.protected_branches = data.patterns || branches;
-        await saveConfig(config, gitInfo.repoRoot);
-      }
+      const repoSlug = gitInfo?.repoSlug || 'unknown/repo';
 
-      // 2. Save to global config (~/.saferun/config.yml) - used by hooks for 0ms lookups
+      // 2. Save to global config (~/.saferun/config.yml) with repository isolation
       const globalConfig = await loadGlobalConfig();
-      globalConfig.github.protected_branches = data.patterns || branches;
+      
+      // Initialize repositories map if it doesn't exist
+      if (!globalConfig.github.repositories) {
+        globalConfig.github.repositories = {};
+      }
+      
+      // Store protected branches for THIS specific repository
+      globalConfig.github.repositories[repoSlug] = {
+        protected_branches: data.patterns || branches,
+      };
+      
+      // Update sync metadata
       if (!globalConfig.sync) {
         globalConfig.sync = {};
       }
       globalConfig.sync.last_sync_at = new Date().toISOString();
       globalConfig.sync.sync_source = 'settings_command';
+      globalConfig.sync.synced_repo = repoSlug;
+      
       await saveGlobalConfig(globalConfig);
 
       return {

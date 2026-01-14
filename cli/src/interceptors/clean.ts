@@ -29,10 +29,12 @@ export async function interceptClean(context: InterceptorContext): Promise<numbe
     });
   }
 
-  // Filter by protected branches - only protect configured branches
-  const protectedBranches = context.config.github.protected_branches ?? [];
+  // Get repository-specific protected branches
+  const repoSlug = context.config.github.repo === 'auto' ? context.gitInfo.repoSlug ?? 'local/repo' : context.config.github.repo;
+  const { getProtectedBranchesForRepo } = await import('../utils/config');
+  const protectedBranchPatterns = getProtectedBranchesForRepo(context.config, repoSlug);
   const currentBranch = await getCurrentBranch(context.gitInfo.repoRoot);
-  const protectedBranch = currentBranch ? isProtectedBranch(currentBranch, protectedBranches) : false;
+  const protectedBranch = currentBranch ? isProtectedBranch(currentBranch, protectedBranchPatterns) : false;
 
   // Allow clean -fd on non-protected branches without approval
   if (!protectedBranch) {
@@ -46,7 +48,6 @@ export async function interceptClean(context: InterceptorContext): Promise<numbe
     });
   }
 
-  const repoSlug = context.config.github.repo === 'auto' ? context.gitInfo.repoSlug ?? 'local/repo' : context.config.github.repo;
   const rule = context.config.rules?.clean;
   const command = `git clean ${context.args.join(' ')}`.trim();
   const reasons = ['clean_force_directories'];

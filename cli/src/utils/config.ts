@@ -55,9 +55,15 @@ export interface BranchRuleConfig {
   skip_checks?: boolean;
 }
 
+export interface RepositoryProtectionConfig {
+  protected_branches: string[];
+  branch_rules?: BranchRuleConfig[];
+}
+
 export interface GithubConfig {
   repo: string;
-  protected_branches: string[];
+  protected_branches: string[]; // Default for new repos
+  repositories?: Record<string, RepositoryProtectionConfig>; // Per-repo overrides
   branch_rules?: BranchRuleConfig[];
 }
 
@@ -95,7 +101,8 @@ export interface TelemetryConfig {
 
 export interface SyncMetadata {
   last_sync_at?: string;  // ISO timestamp of last successful sync
-  sync_source?: string;   // 'api' | 'manual'
+  sync_source?: string;   // 'api' | 'manual' | 'settings_command'
+  synced_repo?: string;   // Repository slug that was last synced
 }
 
 export interface SafeRunConfig {
@@ -391,3 +398,23 @@ function resolveEnvPlaceholders(config: SafeRunConfig): SafeRunConfig {
 
   return replacer(config) as SafeRunConfig;
 }
+
+/**
+ * Get protected branches for a specific repository
+ * Checks repository-specific config first, then falls back to global default
+ * 
+ * @param config - SafeRun configuration
+ * @param repoSlug - Repository identifier (e.g., "owner/repo")
+ * @returns Array of protected branch patterns
+ */
+export function getProtectedBranchesForRepo(config: SafeRunConfig, repoSlug: string): string[] {
+  // Check if repo has specific config
+  const repoConfig = config.github.repositories?.[repoSlug];
+  if (repoConfig?.protected_branches) {
+    return repoConfig.protected_branches;
+  }
+  
+  // Fall back to global default
+  return config.github.protected_branches ?? [];
+}
+

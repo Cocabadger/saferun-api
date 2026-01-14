@@ -42,10 +42,12 @@ export async function interceptReset(context: InterceptorContext): Promise<numbe
     });
   }
 
-  // Filter by protected branches - only protect configured branches
-  const protectedBranches = context.config.github.protected_branches ?? [];
+  // Get repository-specific protected branches
+  const repoSlug = context.config.github.repo === 'auto' ? context.gitInfo.repoSlug ?? 'local/repo' : context.config.github.repo;
+  const { getProtectedBranchesForRepo } = await import('../utils/config');
+  const protectedBranchPatterns = getProtectedBranchesForRepo(context.config, repoSlug);
   const currentBranch = await getCurrentBranch(context.gitInfo.repoRoot);
-  const protectedBranch = currentBranch ? isProtectedBranch(currentBranch, protectedBranches) : false;
+  const protectedBranch = currentBranch ? isProtectedBranch(currentBranch, protectedBranchPatterns) : false;
 
   // Allow reset --hard on non-protected branches without approval
   if (!protectedBranch) {
@@ -59,7 +61,6 @@ export async function interceptReset(context: InterceptorContext): Promise<numbe
     });
   }
 
-  const repoSlug = context.config.github.repo === 'auto' ? context.gitInfo.repoSlug ?? 'local/repo' : context.config.github.repo;
   const rule = context.config.rules?.reset_hard;
 
   const targetRef = params.target ?? 'HEAD';

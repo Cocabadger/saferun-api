@@ -62,9 +62,11 @@ export async function interceptForcePush(context: InterceptorContext): Promise<n
     });
   }
 
-  // Check if branch is protected
-  const protectedBranches = context.config.github.protected_branches ?? [];
-  const protectedBranch = isProtectedBranch(params.branch, protectedBranches);
+  // Check if branch is protected (repository-aware)
+  const repoSlug = context.config.github.repo === 'auto' ? context.gitInfo.repoSlug ?? 'local/repo' : context.config.github.repo;
+  const { getProtectedBranchesForRepo } = await import('../utils/config');
+  const protectedBranchPatterns = getProtectedBranchesForRepo(context.config, repoSlug);
+  const protectedBranch = isProtectedBranch(params.branch, protectedBranchPatterns);
 
   // If branch is not protected, allow force push without approval
   if (!protectedBranch) {
@@ -78,7 +80,6 @@ export async function interceptForcePush(context: InterceptorContext): Promise<n
     });
   }
 
-  const repoSlug = context.config.github.repo === 'auto' ? context.gitInfo.repoSlug ?? 'local/repo' : context.config.github.repo;
   const githubToken = process.env.GITHUB_TOKEN || process.env.GH_TOKEN;
 
   if (!githubToken) {

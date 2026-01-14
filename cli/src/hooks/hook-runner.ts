@@ -145,7 +145,11 @@ export class HookRunner {
 
     const branch = remoteRef.replace('refs/heads/', '');
     const repoSlug = context.config.github.repo === 'auto' ? context.gitInfo.repoSlug ?? 'unknown/repo' : context.config.github.repo;
-    const protectedBranch = isProtectedBranch(branch, context.config.github.protected_branches ?? []);
+    
+    // Get repository-specific protected branches
+    const { getProtectedBranchesForRepo } = await import('../utils/config');
+    const protectedBranchPatterns = getProtectedBranchesForRepo(context.config, repoSlug);
+    const protectedBranch = isProtectedBranch(branch, protectedBranchPatterns);
 
     const deletion = localSha === ZERO_SHA || !localSha;
     const newBranch = remoteSha === ZERO_SHA || !remoteSha;

@@ -421,6 +421,25 @@ export class SetupCommand {
           });
           this.protectionMode = 'block';
           console.log(chalk.green('   ✓ Protection mode: BLOCK (safest)'));
+          
+          // Auto-register repository in global config with default protected branches
+          if (gitInfo.repoSlug) {
+            const globalConfig = await loadGlobalConfig();
+            if (!globalConfig.github.repositories) {
+              globalConfig.github.repositories = {};
+            }
+            
+            // Only add if not already configured
+            if (!globalConfig.github.repositories[gitInfo.repoSlug]) {
+              globalConfig.github.repositories[gitInfo.repoSlug] = {
+                protected_branches: ['main', 'master'], // Default protection
+              };
+              await saveGlobalConfig(globalConfig);
+              console.log(chalk.green(`   ✓ Repository registered: ${gitInfo.repoSlug}`));
+              console.log(chalk.gray(`     Protected branches: main, master (default)`));
+              console.log(chalk.gray(`     Change with: saferun settings branches`));
+            }
+          }
         } catch (err) {
           console.log(chalk.yellow(`   ⚠️  Could not register repo: ${err}`));
           this.setupErrors.push(`repo registration: ${err}`);

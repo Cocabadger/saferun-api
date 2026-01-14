@@ -45,10 +45,14 @@ export async function interceptBranchDelete(context: InterceptorContext): Promis
     });
   }
 
+  // Get repository-specific protected branches
+  const repoSlug = context.config.github.repo === 'auto' ? context.gitInfo.repoSlug ?? 'local/repo' : context.config.github.repo;
+  const { getProtectedBranchesForRepo } = await import('../utils/config');
+  const protectedBranchPatterns = getProtectedBranchesForRepo(context.config, repoSlug);
+  
   // Filter by protected branches - only protect configured branches
-  const protectedBranches = context.config.github.protected_branches ?? [];
-  const branchesToProtect = branches.filter(b => isProtectedBranch(b, protectedBranches));
-  const branchesToAllow = branches.filter(b => !isProtectedBranch(b, protectedBranches));
+  const branchesToProtect = branches.filter(b => isProtectedBranch(b, protectedBranchPatterns));
+  const branchesToAllow = branches.filter(b => !isProtectedBranch(b, protectedBranchPatterns));
 
   // Allow non-protected branches without approval
   if (branchesToAllow.length > 0) {
@@ -74,7 +78,6 @@ export async function interceptBranchDelete(context: InterceptorContext): Promis
     return 0; // All branches were non-protected and already deleted
   }
 
-  const repoSlug = context.config.github.repo === 'auto' ? context.gitInfo.repoSlug ?? 'local/repo' : context.config.github.repo;
   const githubToken = process.env.GITHUB_TOKEN || process.env.GH_TOKEN;
   
   if (!githubToken) {
