@@ -268,6 +268,8 @@ export class UninstallCommand {
     }
 
     console.log(chalk.green('\n✅ SafeRun completely uninstalled.'));
+    console.log(chalk.yellow('\n⚠️  To finish uninstallation, run this command:'));
+    console.log(chalk.cyan.bold('   npm uninstall -g @saferun/cli'));
     console.log(chalk.gray('\n💡 To reinstall: npm install -g @saferun/cli && saferun setup'));
     console.log(chalk.yellow('\n⚠️  Run: source ~/.zshrc (or restart terminal)'));
   }
