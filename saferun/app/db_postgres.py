@@ -589,7 +589,7 @@ def create_api_key(email: str) -> str:
     """Create a new API key for an email."""
     api_key = generate_api_key()
     exec(
-        "INSERT INTO api_keys(api_key, email, created_at) VALUES (%s, %s, %s)",
+        "INSERT INTO api_keys(api_key, email, created_at, is_active) VALUES (%s, %s, %s, 1)",
         (api_key, email, now_utc())
     )
     return api_key
@@ -612,6 +612,11 @@ def validate_api_key(api_key: str) -> Optional[Dict[str, Any]]:
         "SELECT * FROM api_keys WHERE api_key = %s AND is_active = 1",
         (api_key,)
     )
+    
+    # Convert datetime to ISO string for API response
+    if updated and updated.get("created_at"):
+        updated["created_at"] = updated["created_at"].isoformat()
+    
     return updated
 
 
