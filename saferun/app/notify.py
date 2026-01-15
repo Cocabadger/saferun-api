@@ -13,93 +13,93 @@ RISK_REASON_DESCRIPTIONS = {
     # ===========================================
     
     # Reset Hard
-    "reset_hard": "🔴 Reset --hard discards ALL uncommitted changes and resets history",
-    "hard_reset": "🔴 Hard reset - working directory and index will be overwritten",
+    "reset_hard": "Reset --hard discards ALL uncommitted changes and resets history",
+    "hard_reset": "Hard reset - working directory and index will be overwritten",
     
     # Force Push (CLI)
-    "force_push": "🔴 Force push rewrites remote history - other developers may lose work",
-    "force_push_main": "🔴 Force push to main/master - production branch history at risk",
-    "force_push_protected": "🔴 Force push to protected branch - bypasses branch protection",
+    "force_push": "Force push rewrites remote history - other developers may lose work",
+    "force_push_main": "Force push to main/master - production branch history at risk",
+    "force_push_protected": "Force push to protected branch - bypasses branch protection",
     
     # Branch Delete (CLI)
-    "branch_delete": "⚠️ Branch deletion - local/remote branch will be removed",
-    "branch_delete_main": "🔴 Deleting main/master branch - critical for team workflow",
-    "branch_delete_remote": "⚠️ Remote branch deletion - affects all collaborators",
+    "branch_delete": "Branch deletion - local/remote branch will be removed",
+    "branch_delete_main": "Deleting main/master branch - critical for team workflow",
+    "branch_delete_remote": "Remote branch deletion - affects all collaborators",
     
     # Clean
-    "clean": "⚠️ Git clean removes untracked files permanently",
-    "clean_force": "🔴 Git clean -f removes untracked files without confirmation",
-    "clean_directories": "⚠️ Git clean -d also removes untracked directories",
+    "clean": "Git clean removes untracked files permanently",
+    "clean_force": "Git clean -f removes untracked files without confirmation",
+    "clean_directories": "Git clean -d also removes untracked directories",
     
     # Rebase
-    "rebase": "⚠️ Rebase rewrites commit history - may require force push",
-    "rebase_interactive": "⚠️ Interactive rebase - modifying commit sequence",
-    "rebase_onto_main": "⚠️ Rebasing onto main - history will be rewritten",
+    "rebase": "Rebase rewrites commit history - may require force push",
+    "rebase_interactive": "Interactive rebase - modifying commit sequence",
+    "rebase_onto_main": "Rebasing onto main - history will be rewritten",
     
     # Cherry-pick
     "cherry_pick": "Cherry-pick - copying commit to another branch",
     
     # Destructive operations
-    "destructive_history_rewrite": "🔴 History rewrite operation - cannot be easily undone",
+    "destructive_history_rewrite": "History rewrite operation - cannot be easily undone",
     
     # ===========================================
     # GitHub API Operations
     # ===========================================
     
     # CRITICAL - Irreversible operations
-    "github_irreversible_repo_deletion": "🔴 Repository deletion is PERMANENT - all code, issues, PRs will be lost forever",
-    "github_repository_deleted": "🔴 Repository was deleted - IRREVERSIBLE operation",
-    "github_repo_transfer_irreversible": "🔴 Repository transfer to another owner - cannot be undone without their consent",
-    "github_making_repo_public_permanent": "🔴 Making repository PUBLIC - code will be visible to everyone on the internet",
-    "github:irreversible_operation": "🔴 This operation cannot be easily undone",
+    "github_irreversible_repo_deletion": "Repository deletion is PERMANENT - all code, issues, PRs will be lost forever",
+    "github_repository_deleted": "Repository was deleted - IRREVERSIBLE operation",
+    "github_repo_transfer_irreversible": "Repository transfer to another owner - cannot be undone without their consent",
+    "github_making_repo_public_permanent": "Making repository PUBLIC - code will be visible to everyone on the internet",
+    "github:irreversible_operation": "This operation cannot be easily undone",
 
     # HIGH - Force push and history rewriting
-    "github_force_push": "⚠️ Force push detected - rewrites Git history, can lose commits",
-    "github_force_push_danger": "⚠️ Force push rewrites commit history - other developers may lose work",
-    "github_force_push_to_main": "🔴 Force push to main/master - rewrites production branch history",
+    "github_force_push": "Force push detected - rewrites Git history, can lose commits",
+    "github_force_push_danger": "Force push rewrites commit history - other developers may lose work",
+    "github_force_push_to_main": "Force push to main/master - rewrites production branch history",
 
     # HIGH - Branch operations
-    "github_default_branch": "⚠️ Operation on default/main branch",
-    "github_default_branch_deletion": "🔴 Deleting the default branch - breaks all clones and CI/CD",
-    "github_delete_main_branch": "🔴 Deleting main/master branch - catastrophic for team workflow",
-    "github_branch_delete": "⚠️ Branch deletion - cannot be recovered without reflog",
-    "github:main_branch_protection": "⚠️ Operation affects main branch protection",
+    "github_default_branch": "Operation on default/main branch",
+    "github_default_branch_deletion": "Deleting the default branch - breaks all clones and CI/CD",
+    "github_delete_main_branch": "Deleting main/master branch - catastrophic for team workflow",
+    "github_branch_delete": "Branch deletion - cannot be recovered without reflog",
+    "github:main_branch_protection": "Operation affects main branch protection",
 
     # HIGH - Merge operations
-    "github_merge_to_main": "⚠️ Merge to main/master - changes go directly to production branch",
-    "github_merge_without_review": "🟡 Merged without code review - no peer verification",
+    "github_merge_to_main": "Merge to main/master - changes go directly to production branch",
+    "github_merge_without_review": "Merged without code review - no peer verification",
     "github_merge_operation": "Merge operation - combining branch histories",
     "github_merge": "Pull request merge",
 
     # HIGH - Security-critical operations
-    "github_secret_cicd_access": "🔴 CI/CD secret modification - could expose credentials or compromise pipeline",
-    "github_secret_critical_name": "🔴 Modifying production/AWS/database secret",
-    "github_secret_deletion": "⚠️ Deleting CI/CD secret - may break deployments",
-    "github_secret_critical_deletion": "🔴 Deleting critical production secret",
-    "github_workflow_code_execution": "🔴 Workflow modification - can execute arbitrary code in CI/CD",
-    "github_workflow_suspicious_patterns": "🔴 Workflow contains suspicious patterns (curl, eval, exec)",
+    "github_secret_cicd_access": "CI/CD secret modification - could expose credentials or compromise pipeline",
+    "github_secret_critical_name": "Modifying production/AWS/database secret",
+    "github_secret_deletion": "Deleting CI/CD secret - may break deployments",
+    "github_secret_critical_deletion": "Deleting critical production secret",
+    "github_workflow_code_execution": "Workflow modification - can execute arbitrary code in CI/CD",
+    "github_workflow_suspicious_patterns": "Workflow contains suspicious patterns (curl, eval, exec)",
 
     # HIGH - Branch protection
-    "github_branch_protection_weakening": "🔴 Weakening branch protection rules - reduces security guardrails",
-    "github_removing_reviews_main_branch": "🔴 Removing required reviews on main branch",
-    "github_branch_protection_removal": "🔴 Removing branch protection entirely",
-    "github_removing_protection_main_branch": "🔴 Removing protection from main/master branch",
+    "github_branch_protection_weakening": "Weakening branch protection rules - reduces security guardrails",
+    "github_removing_reviews_main_branch": "Removing required reviews on main branch",
+    "github_branch_protection_removal": "Removing branch protection entirely",
+    "github_removing_protection_main_branch": "Removing protection from main/master branch",
 
     # MEDIUM - Other operations
-    "github_repository_archived": "⚠️ Repository archived - becomes read-only",
-    "github_tag_delete": "⚠️ Tag deletion - may break release references",
-    "github_large_push": "🟡 Large push (>10 commits) - significant codebase change",
-    "github_making_repo_private": "🟡 Making repository private - may break external integrations",
-    "github:reversible_operation": "✅ This operation can be reverted",
+    "github_repository_archived": "Repository archived - becomes read-only",
+    "github_tag_delete": "Tag deletion - may break release references",
+    "github_large_push": "Large push (>10 commits) - significant codebase change",
+    "github_making_repo_private": "Making repository private - may break external integrations",
+    "github:reversible_operation": "This operation can be reverted",
 
     # LOW - Heuristics
-    "github_name_keywords": "🟡 Repository name contains sensitive keywords (prod, infra, deploy)",
+    "github_name_keywords": "Repository name contains sensitive keywords (prod, infra, deploy)",
     "github_recent_commit": "Recently modified repository",
 
     # Airtable reasons
-    "airtable_title_keywords": "⚠️ Record contains sensitive business data (customer, contract, pricing)",
-    "airtable_recently_edited": "🟡 Recently edited record - may have unsaved dependencies",
-    "airtable_high_linked_count": "⚠️ Record has many linked records - deletion cascades to related data",
+    "airtable_title_keywords": "Record contains sensitive business data (customer, contract, pricing)",
+    "airtable_recently_edited": "Recently edited record - may have unsaved dependencies",
+    "airtable_high_linked_count": "Record has many linked records - deletion cascades to related data",
 }
 
 
@@ -764,21 +764,21 @@ class Notifier:
                 elif reason.startswith("policy:"):
                     # Format policy reasons specially
                     policy_rule = reason.replace("policy:", "").replace("_", " ").title()
-                    formatted_reasons.append(f"• 📋 Policy: {policy_rule}")
+                    formatted_reasons.append(f"• Policy: {policy_rule}")
                 elif reason.startswith("commits_discarded:"):
                     # Dynamic reason: commits_discarded:N
                     try:
                         count = int(reason.split(":")[1])
-                        formatted_reasons.append(f"• ⚠️ Will discard {count} commit(s)")
+                        formatted_reasons.append(f"• Will discard {count} commit(s)")
                     except (ValueError, IndexError):
-                        formatted_reasons.append(f"• ⚠️ Will discard commits")
+                        formatted_reasons.append(f"• Will discard commits")
                 elif reason.startswith("commits_over_limit:"):
                     # Dynamic reason: commits_over_limit:N
                     try:
                         limit = int(reason.split(":")[1])
-                        formatted_reasons.append(f"• 🔴 Exceeds safe limit of {limit} commits")
+                        formatted_reasons.append(f"• Exceeds safe limit of {limit} commits")
                     except (ValueError, IndexError):
-                        formatted_reasons.append(f"• 🔴 Exceeds safe commit limit")
+                        formatted_reasons.append(f"• Exceeds safe commit limit")
                 else:
                     # Fallback: clean up unknown reasons
                     clean_reason = reason.replace("github:", "").replace("github_", "").replace("_", " ")
