@@ -62,10 +62,20 @@ def compute_risk(provider: str, title: str, blocks_count: int, last_edit: str | 
             else:
                 risk_score += 2.0
                 reasons.append("github_merge_operation")
-        elif object_type == "branch" and metadata.get("isDefault"):
-            # Deleting default/main branch
-            risk_score += 6.0
-            reasons.append("github_default_branch_deletion")
+        elif object_type == "branch":
+            # Branch deletion - check if protected
+            branch_name = metadata.get("name", "")
+            is_default = metadata.get("isDefault", False)
+            is_protected = metadata.get("isProtected", False)
+            
+            # High risk for default/main branch or any protected branch
+            if is_default or is_protected or branch_name in ["main", "master", "develop", "production"]:
+                risk_score += 6.0
+                reasons.append("github_protected_branch_deletion")
+            else:
+                # Even non-protected branch deletion has some risk
+                risk_score += 1.0
+                reasons.append("github_branch_deletion")
         
         # Additional 7 Critical GitHub Operations
         

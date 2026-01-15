@@ -61,6 +61,8 @@ RISK_REASON_DESCRIPTIONS = {
     # HIGH - Branch operations
     "github_default_branch": "Operation on default/main branch",
     "github_default_branch_deletion": "Deleting the default branch - breaks all clones and CI/CD",
+    "github_protected_branch_deletion": "Deleting protected branch (main/master/develop/production)",
+    "github_branch_deletion": "Branch deletion",
     "github_delete_main_branch": "Deleting main/master branch - catastrophic for team workflow",
     "github_branch_delete": "Branch deletion - cannot be recovered without reflog",
     "github:main_branch_protection": "Operation affects main branch protection",
@@ -146,7 +148,7 @@ def generate_command_preview(operation_type: str, metadata: dict, target_id: str
 
     # Repository delete
     if "repo_delete" in op or "repository_delete" in op:
-        return f"🔴 `gh repo delete {repo} --yes`\n*PERMANENT - cannot be undone*"
+        return f"`gh repo delete {repo} --yes`\n*PERMANENT - cannot be undone*"
 
     # Repository archive
     if "repo_archive" in op or "repository_archive" in op:
@@ -168,7 +170,7 @@ def generate_command_preview(operation_type: str, metadata: dict, target_id: str
 
     # Repository transfer
     if "repo_transfer" in op:
-        return f"🔴 `gh repo transfer {repo} <new-owner>`"
+        return f"`gh repo transfer {repo} <new-owner>`"
 
     # Secret operations
     if "secret" in op:
@@ -190,7 +192,7 @@ def generate_command_preview(operation_type: str, metadata: dict, target_id: str
     # Visibility change
     if "visibility" in op or "making_repo" in op:
         if "public" in op:
-            return f"🔴 `gh repo edit {repo} --visibility public`"
+            return f"`gh repo edit {repo} --visibility public`"
         return f"`gh repo edit {repo} --visibility private`"
 
     # ===========================================
@@ -225,7 +227,7 @@ def generate_command_preview(operation_type: str, metadata: dict, target_id: str
         
         # Destructive history rewrite
         if "destructive" in op or "history_rewrite" in op:
-            return f"`{command}`\n🔴 Cannot be undone"
+            return f"`{command}`\nCannot be undone"
         
         # Generic CLI command with command
         return f"`{command}`"
@@ -596,11 +598,11 @@ class Notifier:
             if op_lower == "reset_hard" or op_lower == "hard_reset":
                 commits = metadata.get("commitsDiscarded", 0)
                 if commits > 0:
-                    operation_display = f"🔴 Reset --hard ({commits} commits)"
+                    operation_display = f"Reset --hard ({commits} commits)"
                 else:
-                    operation_display = "🔴 Reset --hard"
+                    operation_display = "Reset --hard"
             elif op_lower == "force_push":
-                operation_display = "🔴 Force Push"
+                operation_display = "Force Push"
             elif op_lower == "branch_delete":
                 operation_display = "⚠️ Delete Branch"
             elif op_lower == "clean":
@@ -610,7 +612,7 @@ class Notifier:
             elif op_lower == "cherry_pick":
                 operation_display = "Cherry-pick"
             elif "destructive" in op_lower:
-                operation_display = "🔴 Destructive Operation"
+                operation_display = "Destructive Operation"
             else:
                 # Format operation_type as title
                 operation_display = operation_type.replace("_", " ").title() if operation_type else title
@@ -641,9 +643,9 @@ class Notifier:
             # Determine operation display text based on operation_type or object_type
             # Check full operation_type first (github_force_push, github_pr_merge, etc.)
             if operation_type == "delete_repo" or operation_type == "github_repo_delete":
-                operation_display = "🔴 Repository DELETE (PERMANENT)"
+                operation_display = "Repository DELETE (PERMANENT)"
             elif operation_type == "github_force_push" or operation_type == "force_push":
-                operation_display = f"⚠️ Force Push"
+                operation_display = "Force Push"
             elif operation_type == "github_pr_merge" or object_type == "merge":
                 # Check if merging to main/default
                 if metadata.get("isTargetDefault"):
@@ -653,9 +655,9 @@ class Notifier:
                     operation_display = f"Merge to {target_branch}"
             elif operation_type == "github_branch_delete" or (object_type == "branch" and operation_type != "github_force_push"):
                 if metadata.get("isDefault"):
-                    operation_display = "🔴 Delete Main Branch"
+                    operation_display = "Delete Main Branch"
                 else:
-                    operation_display = f"Delete Branch"
+                    operation_display = "Delete Branch"
             elif object_type == "repository":
                 # Check operation_type for archive vs unarchive
                 if operation_type == "github_repo_unarchive":
@@ -673,26 +675,23 @@ class Notifier:
 
         # Provider emoji mapping
         provider_emoji = {
-            "github": "🐙",
-            "git": "🔧",
+            "github": "",
+            "git": "",
             "notion": "📝",
             "airtable": "🗂️"
-        }.get(provider.lower(), "🔧")
+        }.get(provider.lower(), "")
         
         # Source badge mapping
         source_badge = {
-            "cli": "💻 Git CLI",
+            "cli": "Git CLI",
             "agent": "🤖 AI Agent",
             "sdk": "📦 SafeRun SDK",
-            "webhook": "🌐 GitHub Webhook",
+            "webhook": "GitHub Webhook",
             "gemini": "🤖 Gemini CLI",
             "claude": "🤖 Claude Code"
-        }.get(source_type.lower(), f"🔧 {source_type}")
+        }.get(source_type.lower(), source_type)
         
-        # Risk level emoji for header
-        risk_emoji = "🔴" if risk_score >= 0.7 else "🟡" if risk_score >= 0.4 else "🟢"
-
-        # Banking Grade: Color Coding based on risk_score (0-1 scale, >0.8 = critical)
+        # Banking Grade: header emoji based on risk_score
         if risk_score > 0.8:
             header_emoji = "🚨"  # Critical risk
         else:
@@ -706,9 +705,9 @@ class Notifier:
         elif risk_score > 0.8:
             header_text = f"{header_emoji} CRITICAL RISK - Immediate Review Required"
         elif risk_score >= 0.7:
-            header_text = f"{risk_emoji} HIGH RISK - Approval Required"
+            header_text = "HIGH RISK - Approval Required"
         elif risk_score >= 0.4:
-            header_text = f"{risk_emoji} Medium Risk - Approval Required"
+            header_text = "Medium Risk - Approval Required"
         else:
             header_text = f"{header_emoji} SafeRun Approval Required"
 
@@ -717,7 +716,7 @@ class Notifier:
             {"type": "mrkdwn", "text": f"*Provider:*\n{provider_emoji} {provider.capitalize()}"},
             {"type": "mrkdwn", "text": f"*Repository:*\n`{repository_name}`"},
             {"type": "mrkdwn", "text": f"*Operation:*\n{operation_display}"},
-            {"type": "mrkdwn", "text": f"*Risk Score:*\n{risk_emoji} {risk_score * 10:.1f}/10"},  # risk_score stored as 0-1, display as 0-10
+            {"type": "mrkdwn", "text": f"*Risk Score:*\n{risk_score * 10:.1f}/10"},  # risk_score stored as 0-1, display as 0-10
         ]
         
         # Add branch if available
@@ -815,7 +814,7 @@ class Notifier:
                 "type": "section",
                 "text": {
                     "type": "mrkdwn",
-                    "text": f"*💻 Command:*\n{command_preview}"
+                    "text": f"*Command:*\n{command_preview}"
                 }
             })
 
