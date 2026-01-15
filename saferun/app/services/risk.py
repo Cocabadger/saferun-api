@@ -46,7 +46,7 @@ def compute_risk(provider: str, title: str, blocks_count: int, last_edit: str | 
         # HIGH RISK: Irreversible operations
         if operation_type == "delete_repo" or object_type == "repository":
             # Repository deletion is PERMANENT and cannot be easily undone
-            risk_score += 8.0
+            risk_score += 9.0
             reasons.append("github_irreversible_repo_deletion")
         elif operation_type == "force_push":
             # Force push can lose commit history
@@ -68,9 +68,9 @@ def compute_risk(provider: str, title: str, blocks_count: int, last_edit: str | 
             is_default = metadata.get("isDefault", False)
             is_protected = metadata.get("isProtected", False)
             
-            # High risk for default/main branch or any protected branch
+            # CRITICAL: Protected branch deletion breaks CI/CD, blocks team, can lose important code
             if is_default or is_protected or branch_name in ["main", "master", "develop", "production"]:
-                risk_score += 6.0
+                risk_score += 8.5
                 reasons.append("github_protected_branch_deletion")
             else:
                 # Even non-protected branch deletion has some risk
