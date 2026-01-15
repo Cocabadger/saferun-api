@@ -77,6 +77,13 @@ export class SyncCommand {
     if (result.success) {
       console.log(chalk.green(`\n✅ ${result.message}`));
       
+      // Reload config to show updated sync status
+      const updatedConfig = await loadConfig(gitInfo.repoRoot, { allowCreate: false });
+      if (updatedConfig) {
+        const newAge = getConfigAge(updatedConfig);
+        console.log(chalk.gray(`Sync status: ${newAge}`));
+      }
+      
       if (result.protectedBranches && result.protectedBranches.length > 0) {
         console.log(chalk.gray('\nProtected branches:'));
         result.protectedBranches.forEach(b => {

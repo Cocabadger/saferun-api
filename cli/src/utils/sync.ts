@@ -7,7 +7,7 @@
  * - Banking Grade: Hooks warn if cache is very stale (>1 hour)
  */
 
-import { loadConfig, SafeRunConfig } from './config';
+import { loadConfig, saveConfig, SafeRunConfig } from './config';
 import { loadGlobalConfig, saveGlobalConfig } from './global-config';
 import { getGitInfo, isGitRepository } from './git';
 import { resolveApiKey } from './api-client';
@@ -116,6 +116,18 @@ export async function syncProtectedBranches(
     };
 
     await saveGlobalConfig(config);
+
+    // Also update repo-local config so hooks see fresh timestamp
+    const repoConfig = await loadConfig(repoRoot, { allowCreate: false });
+    if (repoConfig) {
+      repoConfig.github = repoConfig.github || { repo: 'auto', protected_branches: [] };
+      repoConfig.github.protected_branches = serverBranches;
+      repoConfig.sync = {
+        last_sync_at: new Date().toISOString(),
+        sync_source: 'api',
+      };
+      await saveConfig(repoConfig, repoRoot);
+    }
 
     return {
       success: true,

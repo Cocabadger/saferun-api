@@ -222,6 +222,34 @@ Agent runs: git push --force
 *   **Revert Force Push:** Detects forced updates and allows restoring previous SHA.
 *   **Restore Deleted Branch:** Detects deletion and offers "Restore" button.
 
+#### One-Click Revert Operations
+
+SafeRun enables instant rollback of dangerous GitHub operations with a single click:
+
+**Force Push** (`force_push_revert`)  
+→ Restores branch to SHA before force push  
+→ Executes reverse force push via GitHub API
+
+**Delete Branch** (`branch_restore`)  
+→ Recreates deleted branch at last known SHA  
+→ Restores ref from captured state before deletion
+
+**Merge PR** (`merge_revert`)  
+→ Creates revert commit via GitHub API  
+→ Automatically opens revert PR
+
+**Archive Repository** (`repository_unarchive`)  
+→ Unarchives repository  
+→ Restores full access to archived repo
+
+**How it works:**
+1. GitHub webhook fires (force push, branch delete, merge, etc.)
+2. SafeRun captures pre-operation state (`before_sha`, `ref`, etc.)
+3. Slack/Dashboard shows "Revert" button with operation details
+4. One click executes GitHub API call to undo the operation
+
+> ⚠️ **Important:** Revert functionality works **only for GitHub webhook events**, not for local CLI operations. Local git commands (CLI force push, rebase, etc.) cannot be reverted through SafeRun.
+
 ### Where Data is Stored
 
 ```
