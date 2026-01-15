@@ -20,7 +20,7 @@ import { logOperation } from '../utils/logger';
 import { ApprovalFlow, ApprovalOutcome } from '../utils/approval-flow';
 import { SafeRunClient } from '@saferun/sdk';
 import { detectAIAgent, AIAgentInfo, getAIAgentType, shouldApplyStrictPolicyForAI } from '../utils/ai-detection';
-import { printStaleWarning } from '../utils/sync';
+import { printSyncStatus } from '../utils/sync';
 
 interface HookContext {
   hook: string;
@@ -62,7 +62,7 @@ export class HookRunner {
       const config = await loadConfig(gitInfo.repoRoot, { allowCreate: true });
       
       // Warn if config hasn't been synced in over an hour
-      printStaleWarning(config);
+      printSyncStatus(config);
       
       metrics = new MetricsCollector(gitInfo.repoRoot, config);
       const cache = new OperationCache(gitInfo.repoRoot);
