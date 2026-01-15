@@ -4,7 +4,7 @@
  * Architecture:
  * - Local-First: Hooks always read from local .saferun.yml (0ms latency)
  * - Background Update: CLI commands sync if cache is stale (>5 min)
- * - Banking Grade: Hooks warn if cache is very stale (>1 hour)
+ * - Banking Grade: Silent detached sync for stale cache, warning only if VERY stale (>30 days)
  */
 
 import { loadConfig, saveConfig, SafeRunConfig } from './config';
@@ -14,7 +14,9 @@ import { resolveApiKey } from './api-client';
 import chalk from 'chalk';
 
 const SYNC_INTERVAL_MS = 5 * 60 * 1000;  // 5 minutes
-const STALE_WARNING_MS = 60 * 60 * 1000; // 1 hour
+// Banking Grade: Warning only if no connection for a month (vacation, etc.)
+// For everything else - silent detached sync handles it
+export const STALE_WARNING_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
 
 export interface SyncResult {
   success: boolean;

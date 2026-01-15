@@ -1,6 +1,7 @@
 import chalk from 'chalk';
 import fs from 'fs';
 import path from 'path';
+import { spawn } from 'child_process';
 
 import { createSafeRunClient } from '../utils/api-client';
 import { OperationCache } from '../utils/cache';
@@ -20,7 +21,7 @@ import { logOperation } from '../utils/logger';
 import { ApprovalFlow, ApprovalOutcome } from '../utils/approval-flow';
 import { SafeRunClient } from '@saferun/sdk';
 import { detectAIAgent, AIAgentInfo, getAIAgentType, shouldApplyStrictPolicyForAI } from '../utils/ai-detection';
-import { printSyncStatus } from '../utils/sync';
+import { printSyncStatus, isConfigStale } from '../utils/sync';
 
 interface HookContext {
   hook: string;
@@ -61,8 +62,14 @@ export class HookRunner {
 
       const config = await loadConfig(gitInfo.repoRoot, { allowCreate: true });
       
-      // Warn if config hasn't been synced in over an hour
+      // Show sync status (warning only if > 30 days)
       printSyncStatus(config);
+      
+      // ✨ Silent Detached Sync: If config is stale (>5 min), trigger background update
+      // This ensures next operation uses fresh data without blocking current one
+      if (isConfigStale(config)) {
+        triggerDetachedSync(gitInfo.repoRoot);
+      }
       
       metrics = new MetricsCollector(gitInfo.repoRoot, config);
       const cache = new OperationCache(gitInfo.repoRoot);
@@ -1004,5 +1011,43 @@ export class HookRunner {
     if (process.env.SAFERUN_DEBUG) {
       console.log(chalk.gray(`[SafeRun] ${message}`));
     }
+  }
+}
+
+/**
+ * Silent Detached Sync (Fire & Forget)
+ * Launches a background process to update local policy cache.
+ * Does NOT block the current git hook.
+ * 
+ * Banking Grade: Uses Stale-While-Revalidate pattern.
+ * Current operation uses slightly stale config (0ms latency),
+ * while background process updates it for next time.
+ */
+function triggerDetachedSync(repoRoot: string): void {
+  try {
+    // 1. Find current binary (node or pkg binary)
+    const execPath = process.argv[0]; 
+    
+    // 2. Arguments: script path + sync command
+    // Use --force to update timestamp even if data unchanged
+    const args = [process.argv[1], 'sync', '--force']; 
+
+    // 3. Spawn completely detached process
+    const child = spawn(execPath, args, {
+      detached: true,  // Process survives parent death
+      stdio: 'ignore', // Complete silence, no logs to git console
+      cwd: repoRoot,
+      env: { 
+        ...process.env, 
+        SAFERUN_NO_UPDATE_NOTIFIER: '1', // Don't check CLI updates
+        SAFERUN_SILENT: '1' // Hint for internal logic
+      }
+    });
+
+    // 4. Release process into the wild
+    child.unref(); 
+  } catch (e) {
+    // Ignore any spawn errors. 
+    // Security (checking rules) is more important than updating cache right now.
   }
 }
