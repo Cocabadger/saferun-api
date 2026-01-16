@@ -50,7 +50,8 @@ export class DoctorCommand {
     await this.checkGitHubApp();
     await this.checkGitHooks();
     await this.checkShellWrapper();
-    await this.checkBinaryWrapper();
+    // TODO(v0.7.0): Decide if we need physical binary wrapper. Hooks + Shell Alias cover 99% cases.
+    // await this.checkBinaryWrapper();
     // Note: .gitignore check removed - config is now in ~/.saferun/ (global)
     await this.checkFilePermissions();
 

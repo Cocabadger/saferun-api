@@ -50,7 +50,6 @@ github:
   repo: auto
   protected_branches:
     - main
-    - master
   branch_rules:
     - pattern: feature/*
       risk_level: low
@@ -111,5 +110,5 @@ telemetry:
     rotation: daily
     retention: 30
 sync:
-  last_sync_at: '2026-01-12T20:38:06.083Z'
+  last_sync_at: '2026-01-16T12:00:22.984Z'
   sync_source: api
