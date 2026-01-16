@@ -1,7 +1,12 @@
 #!/usr/bin/env node
 import { Command } from 'commander';
+import updateNotifier from 'update-notifier';
 import { registerCommands } from './register-commands';
 import { getCliVersion } from './version';
+
+// Check for updates in background
+const pkg = require('../package.json');
+updateNotifier({ pkg }).notify();
 
 const program = new Command();
 program

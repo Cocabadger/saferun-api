@@ -1,6 +1,6 @@
 {
   "name": "@saferun/cli",
-  "version": "0.6.60",
+  "version": "0.6.61",
   "description": "AI Safety Middleware - Protect your Git workflows from dangerous AI agent operations",
   "author": "SafeRun Team",
   "license": "MIT",
@@ -58,12 +58,14 @@
     "js-yaml": "^4.1.0",
     "open": "^10.2.0",
     "ora": "^9.0.0",
+    "update-notifier": "^5.1.0",
     "uuid": "^9.0.1"
   },
   "devDependencies": {
     "@types/cli-table": "^0.3.4",
     "@types/js-yaml": "^4.0.9",
     "@types/node": "^20.11.17",
+    "@types/update-notifier": "^6.0.8",
     "@types/uuid": "^9.0.7",
     "@typescript-eslint/eslint-plugin": "^6.21.0",
     "@typescript-eslint/parser": "^6.21.0",
