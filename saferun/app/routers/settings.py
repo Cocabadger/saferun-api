@@ -370,3 +370,52 @@ async def update_protected_branches(
         message=message,
         warnings=warnings
     )
+
+
+# ============================================================
+# Doctor Endpoint - Health Check for CLI
+# ============================================================
+
+class DoctorCheckResponse(BaseModel):
+    """Doctor endpoint response for saferun doctor CLI command."""
+    slack_connected: bool = False
+    slack_team_name: Optional[str] = None
+    slack_channel: Optional[str] = None
+    github_connected: bool = False
+    github_installation_id: Optional[int] = None
+    github_account: Optional[str] = None
+
+@router.get("/doctor/check", response_model=DoctorCheckResponse)
+async def doctor_check(api_key: str = Depends(verify_api_key)):
+    """
+    Health check endpoint for saferun doctor CLI.
+    Checks slack_installations and github_installations tables.
+    """
+    # Check Slack installation
+    slack_row = db.fetchone(
+        "SELECT team_name, channel_id FROM slack_installations WHERE api_key = %s",
+        (api_key,)
+    )
+    
+    slack_connected = slack_row is not None
+    slack_team_name = slack_row.get("team_name") if slack_row else None
+    slack_channel = slack_row.get("channel_id") if slack_row else None
+    
+    # Check GitHub installation
+    github_row = db.fetchone(
+        "SELECT installation_id, account_login FROM github_installations WHERE api_key = %s",
+        (api_key,)
+    )
+    
+    github_connected = github_row is not None
+    github_installation_id = github_row.get("installation_id") if github_row else None
+    github_account = github_row.get("account_login") if github_row else None
+    
+    return DoctorCheckResponse(
+        slack_connected=slack_connected,
+        slack_team_name=slack_team_name,
+        slack_channel=slack_channel,
+        github_connected=github_connected,
+        github_installation_id=github_installation_id,
+        github_account=github_account
+    )

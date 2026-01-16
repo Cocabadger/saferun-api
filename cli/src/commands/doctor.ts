@@ -183,38 +183,29 @@ export class DoctorCommand {
     }
 
     try {
-      const response = await fetch(`${SAFERUN_API_URL}/v1/settings/notifications`, {
+      const response = await fetch(`${SAFERUN_API_URL}/v1/settings/doctor/check`, {
         headers: { 'X-API-Key': apiKey },
       });
       
       if (response.ok) {
         const data = await response.json();
         
-        if (data.slack_enabled) {
-          // Build detailed info
+        if (data.slack_connected) {
           const details: string[] = [];
+          
+          if (data.slack_team_name) {
+            details.push(`Team: ${data.slack_team_name}`);
+          }
           
           if (data.slack_channel) {
             details.push(`Channel: ${data.slack_channel}`);
           }
-          
-          if (data.slack_bot_token) {
-            const last4 = data.slack_bot_token.slice(-4);
-            details.push(`Bot Token: ...${last4}`);
-          } else {
-            details.push('Bot Token: ⚠️ not set');
-          }
-          
-          if (data.slack_webhook_url) {
-            // Webhook URL is masked by API, show that it exists
-            details.push('Webhook: ✓ configured');
-          }
 
           this.checks.push({
             name: 'Slack',
-            status: data.slack_bot_token ? 'ok' : 'warn',
-            message: `Connected (${data.slack_channel || 'webhook'})`,
-            detail: details.join(' | '),
+            status: 'ok',
+            message: 'Connected',
+            detail: details.join(' | ') || 'OAuth configured',
           });
         } else {
           this.checks.push({
@@ -224,13 +215,6 @@ export class DoctorCommand {
             detail: 'Run "saferun setup" to configure',
           });
         }
-      } else if (response.status === 404) {
-        this.checks.push({
-          name: 'Slack',
-          status: 'warn',
-          message: 'Not configured',
-          detail: 'Run "saferun setup" to configure',
-        });
       } else {
         this.checks.push({
           name: 'Slack',
@@ -270,47 +254,31 @@ export class DoctorCommand {
       return;
     }
 
-    const gitInfo = await getGitInfo();
-    if (!gitInfo?.repoSlug) {
-      this.checks.push({
-        name: 'GitHub App',
-        status: 'warn',
-        message: 'Could not determine repository',
-      });
-      return;
-    }
-
-    // Parse owner/repo from repoSlug
-    const [owner, repo] = gitInfo.repoSlug.split('/');
-    if (!owner || !repo) {
-      this.checks.push({
-        name: 'GitHub App',
-        status: 'warn',
-        message: 'Invalid repository format',
-        detail: `Expected owner/repo, got: ${gitInfo.repoSlug}`,
-      });
-      return;
-    }
-
-    // Check via API if GitHub App is installed on this repo
     try {
-      const response = await fetch(`${SAFERUN_API_URL}/v1/settings/github-app/check/${owner}/${repo}`, {
+      // Use new doctor endpoint to check GitHub installation
+      const response = await fetch(`${SAFERUN_API_URL}/v1/settings/doctor/check`, {
         headers: { 'X-API-Key': apiKey },
       });
       
       if (response.ok) {
         const data = await response.json();
         
-        if (data.installed) {
-          const detail = data.all_repos 
-            ? `All repos (${data.account})` 
-            : `Repo: ${data.repo}`;
+        if (data.github_connected) {
+          const details: string[] = [];
           
+          if (data.github_account) {
+            details.push(`Account: ${data.github_account}`);
+          }
+          
+          if (data.github_installation_id) {
+            details.push(`ID: ${data.github_installation_id}`);
+          }
+
           this.checks.push({
             name: 'GitHub App',
             status: 'ok',
-            message: `Installed on ${gitInfo.repoSlug}`,
-            detail: detail,
+            message: 'Installed',
+            detail: details.join(' | ') || 'OAuth configured',
           });
         } else {
           this.checks.push({
