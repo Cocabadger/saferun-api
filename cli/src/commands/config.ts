@@ -10,7 +10,7 @@ interface SlackConfigOptions {
   webhookUrl?: string;
   botToken?: string;
   disable?: boolean;
-  test?: boolean;
+
   show?: boolean;
 }
 
@@ -24,27 +24,7 @@ export class ConfigCommand {
     console.log(yaml);
   }
 
-  async set(path: string, value: string): Promise<void> {
-    const config = await this.load();
-    if (!config) {
-      return;
-    }
 
-    let parsed: unknown = value;
-    if (value === 'true' || value === 'false') {
-      parsed = value === 'true';
-    } else if (!Number.isNaN(Number(value))) {
-      parsed = Number(value);
-    }
-
-    setConfigValue(config, path, parsed);
-    const gitInfo = await getGitInfo();
-    if (!gitInfo) {
-      return;
-    }
-    await saveConfig(config, gitInfo.repoRoot);
-    console.log(chalk.green(`✓ Updated ${path}`));
-  }
 
   async slack(options: SlackConfigOptions): Promise<void> {
     const isRepo = await isGitRepository();
@@ -79,11 +59,7 @@ export class ConfigCommand {
       return;
     }
 
-    // Test mode - send test notification
-    if (options.test) {
-      await this.testSlack(apiKey, config.api.url);
-      return;
-    }
+
 
     // Disable slack
     if (options.disable) {
@@ -96,82 +72,12 @@ export class ConfigCommand {
       return;
     }
 
-    // Interactive mode if no options provided
-    if (!options.channel && !options.webhookUrl && !options.botToken) {
-      const answers = await inquirer.prompt([
-        {
-          type: 'list',
-          name: 'method',
-          message: 'Choose Slack integration method:',
-          choices: [
-            { name: 'Webhook URL (recommended, easier setup)', value: 'webhook' },
-            { name: 'Bot Token (advanced, more features)', value: 'bot' },
-          ],
-        },
-        {
-          type: 'input',
-          name: 'webhookUrl',
-          message: 'Slack Webhook URL:',
-          when: (answers: any) => answers.method === 'webhook',
-          validate: (value: string) => {
-            if (!value) return 'Webhook URL is required';
-            if (!value.startsWith('https://hooks.slack.com/')) {
-              return 'Invalid webhook URL. Should start with https://hooks.slack.com/';
-            }
-            return true;
-          },
-        },
-        {
-          type: 'input',
-          name: 'botToken',
-          message: 'Slack Bot Token (xoxb-...):',
-          when: (answers: any) => answers.method === 'bot',
-          validate: (value: string) => {
-            if (!value) return 'Bot token is required';
-            if (!value.startsWith('xoxb-')) {
-              return 'Invalid bot token. Should start with xoxb-';
-            }
-            return true;
-          },
-        },
-        {
-          type: 'input',
-          name: 'channel',
-          message: 'Slack Channel:',
-          default: '#saferun-alerts',
-          validate: (value: string) => {
-            if (!value.startsWith('#') && !value.startsWith('@')) {
-              return 'Channel should start with # or @';
-            }
-            return true;
-          },
-        },
-      ]);
+    console.log(chalk.cyan('To configure Slack, please run:'));
+    console.log(chalk.green('  saferun setup'));
+    console.log(chalk.gray('\nSupported commands:'));
+    console.log(chalk.gray('  saferun config slack --show'));
 
-      options.webhookUrl = answers.webhookUrl || undefined;
-      options.botToken = answers.botToken || undefined;
-      options.channel = answers.channel;
-    }
-
-    // Configure slack
-    if (!options.webhookUrl && !options.botToken) {
-      console.error(chalk.red('❌ Either --webhook-url or --bot-token required'));
-      process.exitCode = 1;
-      return;
-    }
-
-    await this.configureSlack(apiKey, config.api.url, {
-      slack_webhook_url: options.webhookUrl,
-      slack_bot_token: options.botToken,
-      slack_channel: options.channel || '#saferun-alerts',
-      slack_enabled: true,
-      notification_channels: ['slack'],
-    });
-
-    console.log(chalk.green('\n✅ Slack notifications configured!'));
-    console.log(chalk.gray(`   Channel: ${options.channel || '#saferun-alerts'}`));
-    console.log(chalk.gray('\n💡 Test with: saferun config slack --test'));
-    console.log(chalk.gray('   Or trigger a SafeRun operation (e.g., git push --force)'));
+    console.log(chalk.gray('  saferun config slack --disable'));
   }
 
   private async configureSlack(
@@ -196,34 +102,7 @@ export class ConfigCommand {
     }
   }
 
-  private async testSlack(apiKey: string, apiUrl: string): Promise<void> {
-    console.log(chalk.gray('Sending test notification...\n'));
 
-    const url = `${apiUrl}/v1/settings/notifications/test/slack`;
-
-    try {
-      const response = await fetch(url, {
-        method: 'POST',
-        headers: {
-          'X-API-Key': apiKey,
-        },
-      });
-
-      if (!response.ok) {
-        const error = await response.text();
-        console.error(chalk.red(`❌ Failed to send test notification: ${error}`));
-        process.exitCode = 1;
-        return;
-      }
-
-      const result = await response.json();
-      console.log(chalk.green('✅ ' + result.message));
-      console.log(chalk.gray('\n💡 Check your Slack channel for the test message'));
-    } catch (error: any) {
-      console.error(chalk.red(`❌ Error: ${error.message}`));
-      process.exitCode = 1;
-    }
-  }
 
   private async showSlackConfig(apiKey: string, apiUrl: string): Promise<void> {
     const url = `${apiUrl}/v1/settings/notifications`;
@@ -244,24 +123,24 @@ export class ConfigCommand {
       }
 
       const settings = await response.json();
-      
+
       console.log(chalk.cyan('📋 Current Slack Configuration:\n'));
       console.log(`  Status: ${settings.slack_enabled ? chalk.green('✓ Enabled') : chalk.gray('✗ Disabled')}`);
       console.log(`  Channel: ${chalk.yellow(settings.slack_channel || '#saferun-alerts')}`);
-      
+
       if (settings.slack_webhook_url) {
         console.log(`  Webhook: ${chalk.gray(settings.slack_webhook_url)}`);  // Already masked by API
       } else {
         console.log(`  Webhook: ${chalk.gray('Not configured')}`);
       }
-      
+
       if (settings.slack_bot_token) {
         console.log(`  Bot Token: ${chalk.gray(settings.slack_bot_token)}`);  // Already masked by API
       } else {
         console.log(`  Bot Token: ${chalk.gray('Not configured')}`);
       }
-      
-      console.log(`\n  ${chalk.gray('💡 Use --test to send a test notification')}`);
+
+
       console.log(`  ${chalk.gray('💡 Use --disable to turn off notifications')}`);
     } catch (error: any) {
       console.error(chalk.red(`❌ Error: ${error.message}`));

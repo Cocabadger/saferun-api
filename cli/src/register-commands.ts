@@ -35,7 +35,7 @@ export function registerCommands(program: Command) {
   // ─────────────────────────────────────────────────────────────────
 
   program
-    .command('init')
+    .command('init', { hidden: true })
     .description('Install SafeRun git protections in the current repository')
     .option('--auto', 'Run without prompts using sensible defaults')
     .action(async (options) => {
@@ -52,20 +52,7 @@ export function registerCommands(program: Command) {
       await new UninstallCommand().run({ global: options.global });
     });
 
-  program
-    .command('status')
-    .description('Show SafeRun protection status for this repo')
-    .option('--agents', 'Show AI agent detection status and signals')
-    .option('--pending', 'Show pending approvals')
-    .option('-n, --tail <count>', 'Show last N operations (default: 10)', '10')
-    .action(async (options) => {
-      const { StatusCommand } = await import('./commands/status');
-      await new StatusCommand().run({ 
-        agents: options.agents, 
-        pending: options.pending,
-        tail: parseInt(options.tail, 10) || 10
-      });
-    });
+
 
   program
     .command('is-protected')
@@ -118,11 +105,9 @@ export function registerCommands(program: Command) {
   config
     .command('slack')
     .description('Configure Slack notifications')
-    .option('--channel <channel>', 'Slack channel (e.g., #my-team)')
-    .option('--webhook-url <url>', 'Slack webhook URL')
-    .option('--bot-token <token>', 'Slack bot token (xoxb-...)')
+
     .option('--disable', 'Disable Slack notifications')
-    .option('--test', 'Send test notification')
+
     .option('--show', 'Show current Slack configuration')
     .action(async (options: any) => {
       const { ConfigCommand } = await import('./commands/config');
@@ -137,13 +122,7 @@ export function registerCommands(program: Command) {
     .command('settings')
     .description('View or modify SafeRun server settings');
 
-  settings
-    .command('show')
-    .description('Show all server-side settings')
-    .action(async () => {
-      const { SettingsCommand } = await import('./commands/settings');
-      await new SettingsCommand().showAll();
-    });
+
 
   settings
     .command('branches')
@@ -167,7 +146,7 @@ export function registerCommands(program: Command) {
 
   // saferun shell-init - setup shell integration
   program
-    .command('shell-init')
+    .command('shell-init', { hidden: true })
     .description('Setup shell integration for AI session detection')
     .option('--auto', 'Automatically add to shell config')
     .option('--shell <type>', 'Shell type (zsh, bash, fish)')
@@ -178,7 +157,7 @@ export function registerCommands(program: Command) {
 
   // saferun agent - agent status (read-only)
   program
-    .command('agent')
+    .command('agent', { hidden: true })
     .description('View AI agent detection status')
     .argument('[subcommand]', 'Subcommand: status')
     .argument('[args...]', 'Additional arguments')
@@ -206,7 +185,7 @@ export function registerCommands(program: Command) {
     });
 
   program
-    .command('hook')
+    .command('hook', { hidden: true })
     .description('Internal command used by SafeRun git aliases')
     .argument('<handler>')
     .argument('[args...]')

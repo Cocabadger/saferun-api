@@ -353,21 +353,28 @@ git push --force origin main
 
 ## 📋 CLI Commands
 
+### 1. Installation & Setup
 ```bash
-# Setup & Installation
-saferun setup              # Complete setup wizard
-saferun init               # Initialize protection in current repo
-saferun doctor             # Health check and troubleshooting
-saferun uninstall          # Remove from current repo
-saferun uninstall --global # Remove SafeRun completely
+npm install -g @saferun/cli
+saferun setup              # Run the interactive setup wizard
+```
 
-# Monitoring
-saferun status             # Show protection status + recent activity
-saferun status -n 20       # Show last 20 operations
-
-# Configuration (read-only)
+### 2. Configuration (Daily Use)
+```bash
+saferun settings branches  # Configure protected branches (Main settings command)
 saferun config show        # View current configuration
-saferun config slack       # Reconfigure Slack settings
+```
+
+### 3. Maintenance & Troubleshooting
+```bash
+saferun sync               # Manually sync settings from server
+saferun doctor             # Check health and connectivity
+saferun uninstall          # Remove SafeRun from current repo
+```
+
+### 4. Audit
+```bash
+saferun history            # View activity logs
 ```
 
 > **Security:** There is no `saferun config set` command. Configuration cannot be changed via CLI to prevent AI agents from disabling their own protection.

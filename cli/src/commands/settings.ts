@@ -54,20 +54,7 @@ export class SettingsCommand {
     return true;
   }
 
-  async showAll(): Promise<void> {
-    if (!await this.init()) return;
 
-    console.log(chalk.cyan('\n🔧 SafeRun Settings\n'));
-
-    // Get protected branches
-    const branches = await this.fetchProtectedBranches();
-    if (branches) {
-      console.log(chalk.white('Protected Branches:'));
-      console.log(chalk.green(`  ${branches.join(', ')}`));
-    }
-
-    console.log('');
-  }
 
   async branches(options: BranchesOptions): Promise<void> {
     if (!await this.init()) return;
@@ -80,7 +67,7 @@ export class SettingsCommand {
         process.exitCode = 1;
         return;
       }
-      
+
       // Banking Grade: Fail Fast validation
       const validation = await this.validateBranchesStrict(branches);
       if (!validation.valid) {
@@ -90,7 +77,7 @@ export class SettingsCommand {
         process.exitCode = 1;
         return;
       }
-      
+
       const result = await this.updateProtectedBranches(branches);
       if (result.success) {
         console.log(chalk.green(`\n✅ Protection active for: [${result.patterns?.join(', ') || branches.join(', ')}]`));
@@ -233,7 +220,7 @@ export class SettingsCommand {
       const branches = stdout.split('\n')
         .map(b => b.trim().replace(/^origin\//, ''))
         .filter(b => b && !b.startsWith('HEAD') && !b.includes('->'));
-      
+
       // Dedupe and sort (local branches first)
       const unique = [...new Set(branches)];
       return unique.sort((a, b) => {
@@ -301,24 +288,24 @@ export class SettingsCommand {
 
       // ✨ Write-Through Cache: Update BOTH PostgreSQL AND config files
       // This ensures immediate consistency without requiring manual "saferun sync"
-      
+
       // 1. Get repository slug for context-aware storage
       const gitInfo = await getGitInfo();
       const repoSlug = gitInfo?.repoSlug || 'unknown/repo';
 
       // 2. Save to global config (~/.saferun/config.yml) with repository isolation
       const globalConfig = await loadGlobalConfig();
-      
+
       // Initialize repositories map if it doesn't exist
       if (!globalConfig.github.repositories) {
         globalConfig.github.repositories = {};
       }
-      
+
       // Store protected branches for THIS specific repository
       globalConfig.github.repositories[repoSlug] = {
         protected_branches: data.patterns || branches,
       };
-      
+
       // Update sync metadata
       if (!globalConfig.sync) {
         globalConfig.sync = {};
@@ -326,7 +313,7 @@ export class SettingsCommand {
       globalConfig.sync.last_sync_at = new Date().toISOString();
       globalConfig.sync.sync_source = 'settings_command';
       globalConfig.sync.synced_repo = repoSlug;
-      
+
       await saveGlobalConfig(globalConfig);
 
       // 3. ALSO update local .saferun/config.yml if it exists
@@ -365,7 +352,7 @@ export class SettingsCommand {
     errors: string[];
   }> {
     const errors: string[] = [];
-    
+
     try {
       const gitBranches = await this.getLocalGitBranches();
       const branchSet = new Set(gitBranches);
@@ -373,7 +360,7 @@ export class SettingsCommand {
       for (const branch of branches) {
         // Allow wildcard patterns without validation
         if (branch.includes('*')) continue;
-        
+
         // Block non-ASCII characters (catches typos like 'mainб')
         if (/[^\x00-\x7F]/.test(branch)) {
           errors.push(`'${branch}' contains non-ASCII characters`);
@@ -416,7 +403,7 @@ export class SettingsCommand {
 
     for (const candidate of candidates) {
       if (candidate.toLowerCase() === inputLower) continue; // Exact match
-      
+
       const score = this.similarityScore(inputLower, candidate.toLowerCase());
       if (score > 0.6 && score > bestScore) {
         bestScore = score;
@@ -429,12 +416,12 @@ export class SettingsCommand {
 
   private similarityScore(s1: string, s2: string): number {
     if (Math.abs(s1.length - s2.length) > 3) return 0;
-    
+
     const set1 = new Set(s1);
     const set2 = new Set(s2);
     const intersection = [...set1].filter(c => set2.has(c)).length;
     const union = new Set([...set1, ...set2]).size;
-    
+
     return intersection / union;
   }
 }
