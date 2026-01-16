@@ -1,18 +1,17 @@
 # 🛡️ SafeRun
 
-> ⚠️ **Disclaimer:** This is an experimental tool built by a non-engineer to solve a non-engineer's fears. It handles sensitive API tokens using AES-256-GCM encryption. Use at your own risk.
+> ⚠️ **Disclaimer:** This is an experimental tool. It handles sensitive API tokens using AES-256-GCM encryption. Use at your own risk.
 
 > **Stop AI agents from breaking production**
 
 [![npm version](https://img.shields.io/npm/v/@saferun/cli.svg)](https://www.npmjs.com/package/@saferun/cli)
-[![Public Beta](https://img.shields.io/badge/Status-Public%20Beta-blue.svg)](https://github.com/Cocabadger/saferun-api)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 **Problem:** AI agents (Cursor, Claude Code, Copilot, n8n, LangChain) execute Git commands autonomously. One `git push --force` or `git reset --hard` at 3 AM = lost work, corrupted history, deleted branches.
 
-**Solution:** SafeRun intercepts dangerous operations, blocks execution, sends Slack notification with context → you approve or reject from your phone.
+**Solution:** SafeRun acts as a middleware between your terminal and GitHub. It intercepts dangerous operations, blocks execution, and sends a Slack notification → you approve or reject from your phone.
 
-> **v0.6.19 Public Beta** — Actively maintained. Core functionality stable. [Report issues →](https://github.com/Cocabadger/saferun-api/issues)
+> **v0.6.60** — Active Protection.
 
 ---
 
@@ -20,31 +19,27 @@
 
 SafeRun protects at **every level** — whether the operation comes from terminal, API, or GitHub directly:
 
-### Layer 1: Shell Wrapper
-Intercepts dangerous Git commands **before** they execute in your terminal:
-- `git push --force` / `git push -f` / `--force-with-lease`
-- `git reset --hard`
-- `git branch -D` / `git branch --delete --force`
-- `git clean -fd` (via CLI wrapper only — see Known Limitations)
-- `git commit --no-verify` (skips hooks)
-- Direct commits to `main` or `master` (protected branches)
+### Layer 1: Shell Wrapper (Local)
+Intercepts dangerous Git commands **before** they execute in your terminal via shell integration:
+- `git clean -fd`
+- `git commit --no-verify`
 
-### Layer 2: Core Git Hook
+### Layer 2: Core Git Hook (Kernel)
 Uses the Git 2.29+ `reference-transaction` hook to catch operations at the core level. This catches agents that try to bypass shell aliases by calling `/usr/bin/git` directly:
-- `git rebase` — rewrites branch history (detected via state-change)
+- `git rebase` — rewrites branch history
 - `git reset --hard` — changes branch ref
 - `git push --force` — changes remote ref
 - Direct commits to protected branches
 
-### Layer 3: GitHub Webhooks
-Real-time Slack alerts & one-click recovery for remote accidents (requires GitHub App):
+### Layer 3: GitHub Webhooks (Recovery)
+Real-time alerts & one-click recovery for remote accidents via Slack (requires GitHub App):
 - Force pushes made directly on GitHub
 - Branch deletions via GitHub UI
-- Merges from other machines/tools
+- Merges from other machines
 
 ---
 
-## � Security Architecture: Attack Surface Reduction
+## 🛡️ Security Architecture: Attack Surface Reduction
 
 SafeRun adheres to the **Principle of Least Privilege (PoLP)**. We intentionally bypass GitHub's `Administration` scope to guarantee that the middleware itself can never become a destructive vector.
 
@@ -70,384 +65,91 @@ When a high-risk event (e.g., `repository_archived`) is detected via webhook, Sa
 
 ---
 
-## ⚡ Quick Start (5 minutes)
+## ⚡ Quick Start
 
 ### Requirements
-
 - **Node.js** 18+
-- **Git** 2.29+ (for `reference-transaction` hook — critical for AI agent protection)
-- **Slack** workspace (for approval notifications)
+- **Git** 2.29+ (critical for hooks)
+- **Slack** workspace
 
-### Step 1: Install CLI
-
+### 1. Install CLI
 ```bash
 npm install -g @saferun/cli
 ```
 
-### Step 2: Run Setup Wizard
+### 2. Run Setup Wizard
+
+Navigate to your git repository:
 
 ```bash
-cd ~/your-project    # Go to repo you want to protect
-saferun setup        # Run wizard from here
+saferun setup
 ```
 
-The wizard guides you through **4 steps**:
+The wizard will guide you through:
 
-#### Step 2.1: API Key
-- Go to [saferun.dev](https://saferun.dev)
-- Sign up with GitHub or email
-- Copy your API key (starts with `sr_...`)
-- Paste it in the wizard
-
-> **Note:** SafeRun uses a hybrid architecture. The **Dashboard** (for API keys) is hosted at `saferun.dev`, while the **Processing Engine** (API) runs on `saferun-api.up.railway.app`.
-
-#### Step 2.2: Slack Notifications (Required!)
-You need **three things** from Slack:
-
-1. **Bot User OAuth Token** (`xoxb-...`):
-   - Go to [api.slack.com/apps](https://api.slack.com/apps) → Create New App → From scratch
-   - Name it "SafeRun", select your workspace
-   - OAuth & Permissions → Add Bot Token Scopes: `chat:write`, `chat:write.public`
-   - Install to Workspace → Copy **Bot User OAuth Token**
-
-2. **Webhook URL** (for interactive buttons):
-   - Go to Incoming Webhooks → Toggle ON
-   - Add New Webhook to Workspace → Select channel
-   - Copy the **Webhook URL** (`https://hooks.slack.com/services/...`)
-
-3. **Channel name** (e.g., `#saferun-alerts`):
-   - Create a channel in Slack or use existing one
-   - Bot will post approval requests there
-
-> ⚠️ **No Slack = No notifications!** You won't see approval requests without Slack configured.
-
-> 💡 **Note:** We are working on a one-click Slack installation. For now, manual setup is required to ensure you own your data and tokens.
-
-#### Step 2.3: GitHub App
-Install the SafeRun GitHub App to enable webhook protection:
-
-👉 **[Install SafeRun GitHub App](https://github.com/apps/saferun-ai)**
-
-- Click Install → Select your account/org → Choose repositories → Install
-- This catches operations that bypass CLI (web UI, other machines)
-
-#### Step 2.4: Shell Wrapper
-The wizard adds a git wrapper to your `.zshrc` or `.bashrc` that intercepts dangerous commands.
-
-### Step 3: Verify Installation
-
-```bash
-saferun doctor    # Check everything is configured
-saferun status    # See protection status
-```
-
-### Step 4: Test It!
-
-```bash
-git reset --hard HEAD~1
-```
-
-Expected: SafeRun blocks the command, sends Slack notification, waits for your approval (timeout: 2 hours).
+1. **API Key** — Linking your account.
+2. **Slack** — Connecting notifications.
+3. **GitHub App** — Installing recovery tools.
+4. **Hooks** — Installing local protection.
 
 ---
 
-## 🔧 How It Works
+## 💻 CLI Cheat Sheet
 
-```
-Agent runs: git push --force
-                    │
-                    ▼
-┌───────────────────────────────────────┐
-│ Layer 1: Shell Wrapper (Alias)        │ <── Intercepts CLI command
-└────────────────────┬──────────────────┘
-                         │
-          ┌──────────────┴──────────────┐
-          ▼                             ▼
-┌───────────────────────────────────────┐ ┌───────────────────────────┐
-│ Layer 2: Core Git Hook                │ │ Layer 3: Webhooks/API     │
-│ (reference-transaction)               │ │ Monitoring Remote Events  │
-└────────────────────────┬──────────────┘ └─────────────┬─────────────┘
-                    │                                   │
-                    ▼                                   ▼
-          ┌─────────────────────────────────────────────┐
-          │ SafeRun API (Railway) -> Risk Analysis      │
-          └─────────────────────┬───────────────────────┘
-                                │
-                                ▼
-          ┌─────────────────────────────────────────────┐
-          │ Slack Notification & Human Approval         │
-          └─────────────────────────────────────────────┘
-```
+SafeRun works silently. Use these commands for configuration and audit:
 
-## 🔥 Comprehensive Capability Matrix
+* **`saferun setup`**
+**Initialize.** Sets up SafeRun in the current repository.
+* **`saferun settings branches`**
+**Configure.** Interactively select branches to protect (e.g., `main`, `production`).
+* **`saferun sync`**
+**Update.** Manually pulls latest settings from the cloud.
+* **`saferun history`**
+**Audit.** Shows the log of recent intercepted operations.
+* **`saferun doctor`**
+**Diagnose.** Checks connection, hooks, and configuration status.
+* **`saferun uninstall`**
+**Remove.** Cleans up hooks and configuration.
 
-### 💻 Layer 1: Shell Wrapper (Local Protection)
-*Intercepts git commands on your machine.*
+---
 
-- `git push --force` / `git push -f` / `--force-with-lease`
-- `git reset --hard`
-- `git branch -D` / `git branch --delete --force`
-- `git clean -fd` (via CLI wrapper only)
-- `git commit` with secrets (`.env`, `sk-`, `ghp_`)
-- Direct commits to `main` / `master`
+## ↩️ One-Click Revert
 
-### 🔩 Layer 2: Core Git Hook
-*Catches agents that bypass shell aliases by calling `/usr/bin/git` directly.*
+If a dangerous operation happens remotely (bypassing local hooks), SafeRun offers instant recovery via Slack:
 
-- `git rebase` — rewrites branch history (detected via state-change)
-- `git reset --hard` — changes branch ref
-- `git push --force` — changes remote ref
-- Direct commits to protected branches
+* ✅ **Force Push** — Restores branch to previous commit SHA
+* ✅ **Delete Branch** — Recreates the deleted branch
+* ✅ **Merge PR** — Creates a revert commit
+* 🚨 **Archive Repo** — Immediate alert & recovery link (Zero-Admin Policy)
 
-### 🤖 REST API (for Autonomous Agents)
-*Endpoints for your bots (n8n, LangChain) to execute safely.*
+> ⚠️ **Note:** Revert works for **GitHub webhook events** (remote operations). Local operations are prevented *before* they happen by the CLI.
 
-**Operational Endpoints (Execute after Approval):**
-*   `POST /v1/github/repos/{owner}/{repo}/archive`
-*   `POST /v1/github/repos/{owner}/{repo}/unarchive`
-*   `DELETE /v1/github/repos/{owner}/{repo}` (Delete Repo)
-*   `DELETE /v1/github/repos/{owner}/{repo}/branches/{branch}`
-*   `POST /v1/github/repos/{owner}/{repo}/git/force-push`
-*   `PUT /v1/github/repos/{owner}/{repo}/pulls/{pr}/merge`
+---
 
-**Analysis-Only Endpoints (Dry-Run Only):**
-*   *Check risk without execution support yet:*
-*   `POST /v1/dry-run/github.repo.transfer`
-*   `POST /v1/dry-run/github.actions.secret.create`
-*   `POST /v1/dry-run/github.workflow.update`
+## 🔒 Protected Operations
 
-### 🚨 Layer 3: GitHub Webhooks (Recovery)
-*Watches GitHub events to revert accidents.*
+SafeRun intercepts the following commands on protected branches:
 
-*   **Revert Force Push:** Detects forced updates and allows restoring previous SHA.
-*   **Restore Deleted Branch:** Detects deletion and offers "Restore" button.
+* `git push --force`
+* `git branch -D`
+* `git reset --hard`
+* `git clean -fd` (via shell integration)
+* `git rebase`
 
-#### One-Click Revert Operations
-
-SafeRun enables instant rollback of dangerous GitHub operations with a single click:
-
-**Force Push** (`force_push_revert`)  
-→ Restores branch to SHA before force push  
-→ Executes reverse force push via GitHub API
-
-**Delete Branch** (`branch_restore`)  
-→ Recreates deleted branch at last known SHA  
-→ Restores ref from captured state before deletion
-
-**Merge PR** (`merge_revert`)  
-→ Creates revert commit via GitHub API  
-→ Automatically opens revert PR
-
-**Archive Repository** (`repository_unarchive`)  
-→ Unarchives repository  
-→ Restores full access to archived repo
-
-**How it works:**
-1. GitHub webhook fires (force push, branch delete, merge, etc.)
-2. SafeRun captures pre-operation state (`before_sha`, `ref`, etc.)
-3. Slack/Dashboard shows "Revert" button with operation details
-4. One click executes GitHub API call to undo the operation
-
-> ⚠️ **Important:** Revert functionality works **only for GitHub webhook events**, not for local CLI operations. Local git commands (CLI force push, rebase, etc.) cannot be reverted through SafeRun.
-
-### Where Data is Stored
-
-```
-~/.saferun/
-├── config.yml              # Mode, rules, API URL
-├── credentials             # API key (chmod 600)
-└── protected-repos.json    # List of protected repos
-
-{repo}/.saferun/
-└── logs/
-    └── operations.log      # Local activity history
-```
-
-> **Privacy:** Only approval requests are sent to the API. Config and logs never leave your machine.
+**Bypass:**
+If you strictly need to bypass SafeRun (e.g., for scripting), you can use standard git bypass flags if your policy allows, or disable protection via `saferun settings branches`.
 
 ---
 
 ## 🤖 Supported AI Agents
 
-SafeRun auto-detects these agents:
-- Cursor
-- Claude Code  
-- Windsurf
-- GitHub Copilot
-- n8n / LangChain / AutoGPT (via API)
+SafeRun has been tested with and protects against:
 
----
-
-## 🔌 API for Automation (n8n, LangChain, AutoGPT)
-
-For autonomous agents, use the REST API directly instead of shell commands.
-
-### Example: Force Push with Approval
-
-**Step 1: Create approval request**
-```bash
-curl -X POST https://saferun-api.up.railway.app/v1/github/repos/owner/repo/git/force-push \
-  -H "X-API-Key: sr_your_api_key" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "token": "ghp_your_github_token",
-    "ref": "refs/heads/main",
-    "sha": "abc123def456789...",
-    "reason": "Fixing commit history after accidental push"
-  }'
-```
-
-Response:
-```json
-{
-  "change_id": "uuid-xxx",
-  "status": "pending",
-  "requires_approval": true,
-  "risk_score": 9.0,
-  "message": "Force push request created. Check Slack for approval."
-}
-```
-
-**Step 2: Poll for approval (or wait for webhook)**
-```bash
-curl https://saferun-api.up.railway.app/v1/changes/{change_id} \
-  -H "X-API-Key: sr_your_api_key"
-```
-
-**Step 3: Execute only if approved**
-```bash
-# status == "approved" → safe to execute
-git push --force origin main
-```
-
-### Available API Endpoints
-
-**Repository Operations:**
-- `POST /v1/github/repos/{owner}/{repo}/archive` — Archive repository
-- `POST /v1/github/repos/{owner}/{repo}/unarchive` — Unarchive repository
-- `DELETE /v1/github/repos/{owner}/{repo}` — Delete repository (requires confirmation)
-
-**Branch Operations:**
-- `DELETE /v1/github/repos/{owner}/{repo}/branches/{branch}` — Delete branch
-- `POST /v1/github/repos/{owner}/{repo}/git/force-push` — Force push
-
-**Pull Request:**
-- `PUT /v1/github/repos/{owner}/{repo}/pulls/{pr}/merge` — Merge PR
-
-**Dry-Run Endpoints (legacy):**
-- `POST /v1/dry-run/github.repo.archive`
-- `POST /v1/dry-run/github.branch.delete`
-- `POST /v1/dry-run/github.bulk.close_prs`
-- `POST /v1/dry-run/github.force-push`
-- `POST /v1/dry-run/github.merge`
-- `POST /v1/dry-run/github.repo.delete`
-- `POST /v1/dry-run/github.repo.transfer`
-- `POST /v1/dry-run/github.actions.secret.create`
-- `POST /v1/dry-run/github.actions.secret.delete`
-- `POST /v1/dry-run/github.workflow.update`
-- `POST /v1/dry-run/github.branch_protection.update`
-- `POST /v1/dry-run/github.branch_protection.delete`
-- `POST /v1/dry-run/github.repo.visibility.change`
-
----
-
-## 📋 CLI Commands
-
-### 1. Installation & Setup
-```bash
-npm install -g @saferun/cli
-saferun setup              # Run the interactive setup wizard
-```
-
-### 2. Configuration (Daily Use)
-```bash
-saferun settings branches  # Configure protected branches (Main settings command)
-saferun config show        # View current configuration
-```
-
-### 3. Maintenance & Troubleshooting
-```bash
-saferun sync               # Manually sync settings from server
-saferun doctor             # Check health and connectivity
-saferun uninstall          # Remove SafeRun from current repo
-```
-
-### 4. Audit
-```bash
-saferun history            # View activity logs
-```
-
-> **Security:** There is no `saferun config set` command. Configuration cannot be changed via CLI to prevent AI agents from disabling their own protection.
-
----
-
-## 🆘 Troubleshooting
-
-**SafeRun not intercepting commands?**
-```bash
-saferun doctor  # Check shell wrapper status
-```
-
-**No Slack notifications?**
-- Verify bot token is correct (`xoxb-...`)
-- Check channel exists and bot has access
-- Re-run `saferun setup` → Slack step
-
-**View activity log:**
-```bash
-saferun status -n 50  # Last 50 operations
-```
-
----
-
-## ⚠️ Known Limitations (Help Wanted!)
-
-SafeRun protects **Git ref-changing operations** using Git's `reference-transaction` hook (Git 2.29+). Some operations are outside our current scope:
-
-### ✅ Protected Operations
-
-- `git reset --hard` — changes branch ref
-- `git branch -D` — deletes branch ref
-- `git push --force` — changes remote ref
-- `git rebase` — rewrites branch history
-- `git checkout <branch>` — updates HEAD ref
-
-### ⚠️ Partial Protection
-
-- ✅ `git clean -fd` — caught by CLI wrapper, but ❌ missed by the core `reference-transaction` hook if the wrapper is bypassed
-
-### ❌ Not Protected
-
-- `rm -rf .git` — filesystem operation → *use Docker/sandbox*
-- Deleting hooks — filesystem operation → *use Docker/sandbox*
-
-**Why is `git clean -fd` only partially protected?**
-
-Git's `reference-transaction` hook only fires when refs (branches, tags, HEAD) change. `git clean` removes untracked files without touching any refs — Git simply doesn't call any hook. Our CLI wrapper catches it, but if an agent calls `/usr/bin/git clean` directly, the hook won't fire.
-
-**Adversarial AI agents:**
-
-During testing, we observed AI agents attempting to bypass protection by:
-- Calling `/usr/bin/git` directly (✅ now blocked via `reference-transaction`)
-- Suggesting to delete hooks (❌ requires OS-level sandboxing)
-
-**Community contributions welcome!** If you know how to intercept these edge cases, please [open an issue](https://github.com/Cocabadger/saferun-api/issues) or PR.
-
----
-
-## 🔒 Security
-
-- **API keys** stored with `chmod 600` (owner-only read)
-- **GitHub tokens** encrypted with AES-256-GCM before storage
-- **Logs** stay local, never uploaded
-- **Config** stored in `~/.saferun/` — immune to `git reset --hard`
-- **No CLI bypass** — agents cannot disable protection via commands
-
----
-
-## 📄 License
-
-MIT © SafeRun Team
+* Cursor
+* Claude Code
+* GitHub Copilot CLI
+* Windsurf
+* n8n / LangChain / AutoGPT (via API integration)
 
 ---
 
@@ -459,4 +161,12 @@ Issues and PRs welcome! [Open an issue →](https://github.com/Cocabadger/saferu
 
 ## 🛡️ Don't let AI agents break your repo.
 
-**[Get Started →](#-quick-start-5-minutes)**
+---
+
+## 📄 License
+
+MIT © SafeRun Team
+
+<p align="center">
+Built for developers who value sleep. 😴
+</p>
