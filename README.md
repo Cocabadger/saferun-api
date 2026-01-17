@@ -11,7 +11,7 @@
 
 **Solution:** SafeRun acts as a middleware between your terminal and GitHub. It intercepts dangerous operations, blocks execution, and sends a Slack notification → you approve or reject from your phone.
 
-> **v0.6.60** — Active Protection.
+> **v0.6.61** — Active Protection.
 
 ---
 
