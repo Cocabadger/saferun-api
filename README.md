@@ -110,6 +110,9 @@ SafeRun works silently. Use these commands for configuration and audit:
 **Diagnose.** Checks connection, hooks, and configuration status.
 * **`saferun uninstall`**
 **Remove.** Cleans up hooks and configuration.
+  * `saferun uninstall` — Cleans up current repository (hooks & aliases).
+  * `saferun uninstall --global` — Cleans up global config and shell integration.
+  * `npm uninstall -g @saferun/cli` — Removes the CLI tool.
 
 ---
 
