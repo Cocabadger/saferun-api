@@ -286,31 +286,21 @@ async def revert_change(change_id: str, user: str) -> tuple[bool, dict]:
     """Revert an executed change (unarchive, restore branch, reopen PRs)
     Returns: (success: bool, info: dict with provider, target_id, operation)
     """
-    print(f"🔄 [REVERT DEBUG] ========== START revert_change ==========")
-    print(f"🔄 [REVERT DEBUG] change_id={change_id}, user={user}")
     
     storage = storage_manager.get_storage()
     change = storage.get_change(change_id)
 
     if not change:
-        print(f"❌ [REVERT DEBUG] FAIL: change not found in storage for {change_id}")
         return False, {}
-    
-    print(f"✅ [REVERT DEBUG] Change found in storage")
-    print(f"📊 [REVERT DEBUG] Change keys: {list(change.keys())}")
 
     # Check if change is in executed status
     status = change.get("status")
-    print(f"📊 [REVERT DEBUG] status={status}")
     if status != "executed":
-        print(f"❌ [REVERT DEBUG] FAIL: status is not 'executed', got '{status}'")
         return False, {}
-    print(f"✅ [REVERT DEBUG] Status check passed")
 
     # Check if revert window has expired
     from datetime import datetime, timezone
     revert_expires = change.get("revert_expires_at")
-    print(f"⏰ [REVERT DEBUG] revert_expires_at={revert_expires}, type={type(revert_expires)}")
     if revert_expires:
         # Handle both datetime objects (from DB) and ISO strings (from API)
         if isinstance(revert_expires, datetime):
@@ -322,14 +312,8 @@ async def revert_change(change_id: str, user: str) -> tuple[bool, dict]:
             expires_dt = datetime.fromisoformat(revert_expires.replace("Z", "+00:00"))
         now = datetime.now(timezone.utc)
         time_diff = (expires_dt - now).total_seconds()
-        print(f"⏰ [REVERT DEBUG] expires_dt={expires_dt}, now={now}")
-        print(f"⏰ [REVERT DEBUG] time_diff={time_diff}s (positive=not expired)")
         if now > expires_dt:
-            print(f"❌ [REVERT DEBUG] FAIL: Revert window expired by {-time_diff}s")
             return False, {}  # Revert window expired
-        print(f"✅ [REVERT DEBUG] Revert window still valid ({time_diff}s remaining)")
-    else:
-        print(f"⚠️ [REVERT DEBUG] No revert_expires_at set - allowing revert")
 
     # Prepare revert info
     revert_info = {
@@ -337,11 +321,9 @@ async def revert_change(change_id: str, user: str) -> tuple[bool, dict]:
         "target_id": change.get("target_id"),
         "operation": change.get("title", "Operation")
     }
-    print(f"📋 [REVERT DEBUG] revert_info={revert_info}")
 
     # Execute revert based on operation type
     provider = change.get("provider")
-    print(f"🔌 [REVERT DEBUG] provider={provider}")
     
     if provider == "github":
         from ..providers import factory as provider_factory
@@ -351,31 +333,24 @@ async def revert_change(change_id: str, user: str) -> tuple[bool, dict]:
             token = change.get("token")
             target_id = change.get("target_id")
             metadata = change.get("metadata", {})
-            print(f"🔑 [REVERT DEBUG] token={'SET' if token else 'NONE'}, target_id={target_id}")
             
             # Metadata might be JSON string from storage
             if isinstance(metadata, str):
                 metadata = json.loads(metadata) if metadata else {}
-            print(f"📦 [REVERT DEBUG] metadata={metadata}")
             
             # Get summary_json which contains revert data (SHA, PR numbers)
             summary_json = change.get("summary_json", {})
             if isinstance(summary_json, str):
                 summary_json = json.loads(summary_json) if summary_json else {}
-            print(f"📦 [REVERT DEBUG] summary_json keys={list(summary_json.keys())}")
-            print(f"📦 [REVERT DEBUG] summary_json.revert_action={summary_json.get('revert_action')}")
             
             # Get object_type - check summary_json.metadata first (set by webhook update)
             summary_metadata = summary_json.get("metadata", {})
             object_type = summary_metadata.get("object_type") or metadata.get("object_type") or metadata.get("object") or metadata.get("type")
-            print(f"🏷️ [REVERT DEBUG] object_type (initial)={object_type}")
-            print(f"🏷️ [REVERT DEBUG] summary_metadata={summary_metadata}")
             
             # FALLBACK 1: Infer object_type from revert_action for old records
             if not object_type:
                 revert_action = summary_json.get("revert_action", {})
                 revert_type = revert_action.get("type", "")
-                print(f"🏷️ [REVERT DEBUG] FALLBACK1: inferring from revert_action.type={revert_type}")
                 if revert_type == "force_push_revert":
                     object_type = "force_push"
                 elif revert_type == "branch_restore":
@@ -384,44 +359,33 @@ async def revert_change(change_id: str, user: str) -> tuple[bool, dict]:
                     object_type = "merge"
                 elif revert_type == "repository_unarchive":
                     object_type = "repository"
-            
-            print(f"🏷️ [REVERT DEBUG] object_type (final)={object_type}")
-            
+
             # FIX: Always get GitHub App token for revert operations
             # The token field may contain SafeRun API key (sr_...) from CLI, not a GitHub token
             # So we ALWAYS need to get a fresh GitHub App installation token
-            print(f"🔑 [REVERT DEBUG] Getting GitHub App token for revert (ignoring stored token which may be SafeRun API key)...")
             github_token = None  # Will be set below
             installation_id = summary_json.get("installation_id")
-            print(f"🔑 [REVERT DEBUG] installation_id from summary_json={installation_id}")
             
             # FALLBACK 2: Find installation_id from github_installations by repo name
             if not installation_id:
                 # FIX: Clean repo name from #branch suffix before DB lookup
                 repo_raw = summary_json.get("repo_name") or target_id
                 repo_name = repo_raw.split("#")[0] if repo_raw else None
-                print(f"🔑 [REVERT DEBUG] FALLBACK2: looking up installation by repo={repo_name} (raw={repo_raw})")
                 if repo_name:
                     install_record = db.fetchone(
                         "SELECT installation_id FROM github_installations WHERE repositories_json::text LIKE %s LIMIT 1",
                         (f"%{repo_name}%",)
                     )
-                    print(f"🔑 [REVERT DEBUG] install_record={install_record}")
                     if install_record:
                         installation_id = install_record.get("installation_id")
-            
-            print(f"🔑 [REVERT DEBUG] Final installation_id={installation_id}")
-            
+
             if installation_id:
                 from ..services.github import get_github_app_installation_token
                 github_token = get_github_app_installation_token(installation_id)
-                print(f"🔑 [REVERT DEBUG] Got GitHub App token={'YES' if github_token else 'NO'}")
                 if not github_token:
                     raise RuntimeError("Failed to get GitHub App token for revert")
             else:
                 raise RuntimeError("No installation_id found for GitHub App token")
-            
-            print(f"🏷️ [REVERT DEBUG] Executing revert for object_type={object_type}")
             
             # Determine revert action based on object type
             if object_type == "repository":
@@ -442,27 +406,22 @@ async def revert_change(change_id: str, user: str) -> tuple[bool, dict]:
                 # Build repo#branch format required by restore_branch
                 repo_only = target_id.split("#")[0] if "#" in target_id else target_id
                 restore_target = f"{repo_only}#{branch_name}"
-                print(f"🔄 [REVERT DEBUG] branch restore: target={restore_target}, sha={sha}")
                 
                 await provider_instance.restore_branch(restore_target, github_token, sha)
             elif object_type == "force_push":
                 # Revert force push by restoring previous SHA
                 from ..services.github import revert_force_push
                 revert_action = summary_json.get("revert_action", {})
-                print(f"🔄 [REVERT DEBUG] force_push: revert_action={revert_action}")
                 
                 # FALLBACK 3: Try multiple sources for before_sha
                 before_sha = revert_action.get("before_sha")
-                print(f"🔄 [REVERT DEBUG] force_push: before_sha from revert_action={before_sha}")
                 if not before_sha:
                     # Try raw webhook payload
                     payload = summary_json.get("payload", {})
                     before_sha = payload.get("before")
-                    print(f"🔄 [REVERT DEBUG] force_push: before_sha from payload={before_sha}")
                 if not before_sha:
                     # Try branch_head_sha from change record (saved during webhook)
                     before_sha = change.get("branch_head_sha")
-                    print(f"🔄 [REVERT DEBUG] force_push: before_sha from branch_head_sha={before_sha}")
                 
                 branch = summary_json.get("branch_name") or revert_action.get("branch")
                 owner = revert_action.get("owner") or target_id.split("/")[0]
@@ -470,16 +429,12 @@ async def revert_change(change_id: str, user: str) -> tuple[bool, dict]:
                 repo_part = target_id.split("/")[1] if "/" in target_id else target_id
                 repo = revert_action.get("repo") or repo_part.split("#")[0]
                 
-                print(f"🔄 [REVERT DEBUG] force_push: owner={owner}, repo={repo}, branch={branch}, before_sha={before_sha}")
-                
                 if not before_sha:
                     raise RuntimeError(f"Missing before_sha for force push revert (change_id={change_id})")
                 if not branch:
                     raise RuntimeError(f"Missing branch name for force push revert (change_id={change_id})")
                 
-                print(f"🔄 [REVERT DEBUG] Calling revert_force_push({owner}, {repo}, {branch}, {before_sha[:8] if before_sha else 'None'}...)")
                 success = await revert_force_push(owner, repo, branch, before_sha, github_token)
-                print(f"🔄 [REVERT DEBUG] revert_force_push returned: {success}")
                 if not success:
                     raise RuntimeError("GitHub API rejected force push revert")
             elif object_type == "merge":
@@ -508,21 +463,17 @@ async def revert_change(change_id: str, user: str) -> tuple[bool, dict]:
                     raise RuntimeError("Missing PR numbers for reopen in summary_json")
                 await provider_instance.bulk_reopen_prs(target_id, [int(n) for n in pr_numbers], github_token)
             else:
-                print(f"❌ [REVERT DEBUG] Unsupported object_type: {object_type}")
                 raise RuntimeError(f"Unsupported revert operation for type: {object_type}")
             
             # Update status
-            print(f"✅ [REVERT DEBUG] Revert successful! Updating status to 'reverted'")
             storage.set_change_status(change_id, "reverted")
             db.insert_audit(change_id, "reverted", {"reverted_by": user, "reverted_via": "slack", "object_type": object_type})
-            print(f"✅ [REVERT DEBUG] ========== END revert_change (SUCCESS) ==========")
             return True, revert_info
         except Exception as e:
-            print(f"❌ [REVERT DEBUG] Exception: {str(e)}")
             import traceback
             traceback.print_exc()
-            print(f"❌ [REVERT DEBUG] ========== END revert_change (FAILED) ==========")
             return False, {}
+
 
 async def open_revert_modal(trigger_id: str, change_id: str, payload: dict) -> JSONResponse:
     """Open Slack modal for GitHub token input"""

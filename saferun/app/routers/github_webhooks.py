@@ -119,12 +119,12 @@ async def github_app_installation(
                     (json.dumps(updated_repos), installation_id)
                 )
         
-        print(f"🔄 Repositories {action}: {repo_names} for installation {installation_id}")
         
         return {
             "status": f"repositories_{action}",
             "repositories": repo_names
         }
+
     
     return {"status": "ok"}
 
