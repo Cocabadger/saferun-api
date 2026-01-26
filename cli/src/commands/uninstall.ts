@@ -211,9 +211,11 @@ export class UninstallCommand {
     }
 
     if (protectedRepos.length > 0) {
-      console.log(chalk.gray(`\n  ${protectedRepos.length} protected repo(s):`));
+      console.log(chalk.gray(`\n  ${protectedRepos.length} protected repo(s) (local configs & hooks):`));
       protectedRepos.forEach(repo => {
-        console.log(chalk.gray(`    • ${repo.name || repo.path}`));
+        const localSaferun = path.join(repo.path, '.saferun');
+        const hasLocal = fs.existsSync(localSaferun);
+        console.log(chalk.gray(`    • ${repo.name || repo.path} ${hasLocal ? '(.saferun/)' : ''}`));
       });
     }
 
@@ -243,6 +245,37 @@ export class UninstallCommand {
     if (!confirm) {
       console.log(chalk.yellow('Global uninstall cancelled.'));
       return;
+    }
+
+    // Remove local .saferun/ folders and hooks from all protected repos
+    for (const repo of protectedRepos) {
+      const localSaferun = path.join(repo.path, '.saferun');
+      const gitHooksDir = path.join(repo.path, '.git', 'hooks');
+      
+      // Remove local .saferun/ folder
+      if (fs.existsSync(localSaferun)) {
+        fs.rmSync(localSaferun, { recursive: true });
+        console.log(chalk.green(`✓ Removed ${repo.name || repo.path}/.saferun/`));
+      }
+      
+      // Remove SafeRun hooks
+      if (fs.existsSync(gitHooksDir)) {
+        const saferunHooks = ['pre-push', 'pre-commit', 'post-checkout', 'reference-transaction'];
+        for (const hook of saferunHooks) {
+          const hookPath = path.join(gitHooksDir, hook);
+          if (fs.existsSync(hookPath)) {
+            try {
+              const content = fs.readFileSync(hookPath, 'utf-8');
+              if (content.includes('saferun')) {
+                fs.unlinkSync(hookPath);
+              }
+            } catch {
+              // Ignore read errors
+            }
+          }
+        }
+        console.log(chalk.green(`✓ Removed hooks from ${repo.name || repo.path}`));
+      }
     }
 
     // Remove global directory
