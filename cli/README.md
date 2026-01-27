@@ -1,6 +1,6 @@
 # SafeRun
 
-**Banking-grade security for your git workflow.**
+**Strict policy enforcement for your git workflow.**
 SafeRun acts as a middleware between your terminal and GitHub, preventing accidental data loss and enforcing development policies.
 
 ## Features

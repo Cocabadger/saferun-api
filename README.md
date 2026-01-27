@@ -65,6 +65,23 @@ When a high-risk event (e.g., `repository_archived`) is detected via webhook, Sa
 
 ---
 
+## 🔒 Data Privacy & Architecture
+
+SafeRun is designed to be **Local-First**. We do not spy on your terminal.
+
+* **Local Operations (Unlimited):** When SafeRun blocks a command locally (e.g., via shell wrapper), **zero data** is sent to our servers. We literally don't know it happened.
+* **Cloud Operations (Metered):** We only receive data when you explicitly trigger a remote action (e.g., requesting approval via Slack, or receiving a GitHub Webhook).
+* **What we store:**
+    * Encrypted mapping of Git User ID ↔ Slack User ID (to route notifications).
+    * Encrypted Repository Configuration.
+* **What we DO NOT store:**
+    * Your source code.
+    * Your git history or commit contents.
+
+> **Transparency Note:** All tokens are encrypted using AES-256-GCM.
+
+---
+
 ## ⚡ Quick Start
 
 ### Requirements
@@ -166,9 +183,11 @@ Issues and PRs welcome! [Open an issue →](https://github.com/Cocabadger/saferu
 
 ---
 
-## 📄 License
+## 📄 License & Pricing Model
 
-MIT © SafeRun Team
+* **CLI & SDK:** Open Source under **MIT License**. You can fork, audit, and modify the client-side code.
+* **SafeRun Cloud:** The backend orchestration (Slack notifications, Webhook processing) is a hosted service.
+    * **Public Beta:** Currently free for early adopters (capped at 1,500 cloud operations/month to prevent abuse).
 
 <p align="center">
 Built for developers who value sleep. 😴
