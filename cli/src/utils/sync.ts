@@ -187,29 +187,26 @@ export async function backgroundSync(silent: boolean = true): Promise<boolean> {
 
 /**
  * Print sync status message (positive UX)
- * Shows green checkmark if recently synced, warning if stale
+ * Shows green checkmark if recently synced, warning only if very stale (>30 days)
+ * 
+ * Banking Grade: Silent by default. Background sync handles everything.
+ * Warning only if user hasn't connected for 30+ days (vacation, etc.)
  */
 export function printSyncStatus(config: SafeRunConfig): void {
   if (!config.sync?.last_sync_at) {
-    // Never synced - show warning
-    console.log(chalk.yellow(`⚠️  SafeRun: Never synced. Run `) + chalk.white(`'saferun sync'`) + chalk.yellow(` to update.`));
+    // Never synced - but background sync will handle it automatically
+    // No need to show warning - detached sync is triggered right after this
     return;
   }
 
   const lastSync = new Date(config.sync.last_sync_at).getTime();
   const ageMs = Date.now() - lastSync;
-  
-  const FRESH_THRESHOLD = 5 * 60 * 1000; // 5 minutes
-  const STALE_THRESHOLD = 24 * 60 * 60 * 1000; // 1 day
 
-  if (ageMs < FRESH_THRESHOLD) {
-    // Recently synced - show positive message in dark gray
-    const age = getConfigAge(config);
-    console.log(chalk.gray(`   ✔ Config synced ${age}`));
-  } else if (ageMs > STALE_THRESHOLD) {
-    // Very stale - show warning
+  // Banking Grade: Only warn if config is VERY stale (>30 days)
+  // Everything else is handled silently by background sync
+  if (ageMs > STALE_WARNING_MS) {
     const age = getConfigAge(config);
     console.log(chalk.yellow(`⚠️  SafeRun: Config outdated (synced ${age}). Run `) + chalk.white(`'saferun sync'`) + chalk.yellow(` to update.`));
   }
-  // Between 5 min and 1 day - stay silent
+  // Otherwise - stay silent. Background sync handles freshness.
 }
