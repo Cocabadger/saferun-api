@@ -6,6 +6,7 @@
 
 [![npm version](https://img.shields.io/npm/v/@saferun/cli.svg)](https://www.npmjs.com/package/@saferun/cli)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![tests](https://github.com/Cocabadger/saferun-api/actions/workflows/tests.yml/badge.svg)](https://github.com/Cocabadger/saferun-api/actions/workflows/tests.yml)
 
 **Problem:** AI agents (Cursor, Claude Code, Copilot, n8n, LangChain) execute Git commands autonomously. One `git push --force` or `git reset --hard` at 3 AM = lost work, corrupted history, deleted branches.
 
