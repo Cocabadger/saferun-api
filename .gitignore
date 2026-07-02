@@ -55,3 +55,7 @@ docs/archive/
 
 # SafeRun - ignore entire local config folder
 .saferun/
+
+# local dev files
+*.code-workspace
+check_db.py
